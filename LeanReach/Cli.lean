@@ -191,7 +191,6 @@ private def runCommand (config : Config) : CoreM UInt32 := do
 unsafe def execute (config : Config) : IO UInt32 := do
   let started ← IO.monoMsNow
   initSearchPath (← findSysroot)
-  enableInitializersExecution
   let initialized ← IO.monoMsNow
   let level := if config.mode == .kernel then OLeanLevel.private else OLeanLevel.server
   let env ← importModules ((importsOrDefault config).map ({ module := · })) {}

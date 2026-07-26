@@ -58,6 +58,28 @@ private def sourceTests : CoreM Unit := do
     (search.items.any fun declaration => declaration.name == "Nat.gcd_comm")
     "name search omitted Nat.gcd_comm"
 
+  let generated := "StateCpsT.instMonadStateOf.match_1"
+  match ← runQuery {
+    query := generated
+    mode := .source
+    direction := .both
+    depth := 0
+    limit := 20
+  } with
+  | .ok _ => throwError "exact generated name bypassed the internal declaration filter"
+  | .error _ => pure ()
+  let generatedResult ← expectQuery (← runQuery {
+    query := generated
+    mode := .source
+    direction := .both
+    depth := 0
+    limit := 20
+    includeInternal := true
+  })
+  check
+    (generatedResult.target.name == generated)
+    "includeInternal did not restore exact generated-name resolution"
+
 private def kernelTests : CoreM Unit := do
   let result ← expectQuery (← runQuery {
     query := "Nat.gcd_comm"
@@ -87,7 +109,6 @@ private unsafe def runWithEnvironment (level : OLeanLevel) (action : CoreM Unit)
 unsafe def run : IO UInt32 := do
   try
     initSearchPath (← findSysroot)
-    enableInitializersExecution
     runWithEnvironment .server sourceTests
     runWithEnvironment .private kernelTests
     IO.println "LeanReach semantic smoke tests passed"

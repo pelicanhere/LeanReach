@@ -167,7 +167,7 @@ private def scoredNames (env : Environment) (query : String) (includeInternal : 
 private def resolveName (env : Environment) (query : String) (includeInternal : Bool) :
     Except ResolveFailure Name := do
   let exact := query.toName
-  if env.contains exact then
+  if env.contains exact && visibleName includeInternal exact then
     return exact
   let hits := scoredNames env query includeInternal
   let suggestions := (hits.take 10).map (·.2)
@@ -386,12 +386,17 @@ private partial def scanIleanModules (modules : Array Name) (targets : Array Sou
   for moduleName in modules.extract offset stop do
     tasks := tasks.push (← IO.asTask (scanIleanModule moduleName targets))
   let mut results := results
+  let mut firstError? : Option IO.Error := none
   for task in tasks do
     match ← IO.wait task with
     | .ok (some result) => results := results.push result
     | .ok none => pure ()
-    | .error error => throw error
-  scanIleanModules modules targets stop results
+    | .error error =>
+      if firstError?.isNone then
+        firstError? := some error
+  match firstError? with
+  | some error => throw error
+  | none => scanIleanModules modules targets stop results
 
 /--
 Find declarations with source references to the frontier. Files are first checked for the exact
