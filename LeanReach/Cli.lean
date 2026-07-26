@@ -224,6 +224,10 @@ unsafe def main (args : List String) : IO UInt32 := do
     if config.version then
       IO.println "leanreach 0.1.0"
       return 0
+    if !config.interactive && config.command.isNone then
+      IO.eprintln "leanreach: no declaration or search pattern provided"
+      IO.eprintln "Try 'leanreach --help'."
+      return 2
     if config.interactive && config.command.isSome then
       IO.eprintln "leanreach: --interactive does not accept a positional query or search command"
       IO.eprintln "Send requests on stdin instead."
