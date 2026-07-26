@@ -346,6 +346,22 @@ private def sourceTargets (env : Environment) (frontier : NameSet) : Array Sourc
     targets := targets.push { name, ident, keyText }
   return targets
 
+private def sourceCandidateModules (env : Environment) (target : Name) : Array Name := Id.run do
+  let modules := env.allImportedModuleNames
+  let some targetIdx := env.getModuleIdxFor? target | return modules
+  let targetIdx := targetIdx.toNat
+  let some targetModule := modules[targetIdx]? | return modules
+  let mut reachable : NameSet := ({} : NameSet).insert targetModule
+  let mut candidates := #[targetModule]
+  -- Imported modules are topologically ordered, so a single pass computes module-level dependents.
+  for index in [targetIdx + 1:modules.size] do
+    let some moduleName := modules[index]? | continue
+    let some moduleData := env.header.moduleData[index]? | continue
+    if moduleData.imports.any fun imported => reachable.contains imported.module then
+      reachable := reachable.insert moduleName
+      candidates := candidates.push moduleName
+  return candidates
+
 private def loadIleanContaining? (path : System.FilePath) (targets : Array SourceTarget) :
     IO (Option Server.Ilean) := do
   let content ← IO.FS.readFile path
@@ -365,7 +381,7 @@ private partial def scanIleanModules (modules : Array Name) (targets : Array Sou
     IO (Array (Name × Server.Ilean)) := do
   if offset >= modules.size then
     return results
-  let stop := min (offset + 32) modules.size
+  let stop := min (offset + 128) modules.size
   let mut tasks : Array (Task (Except IO.Error (Option (Name × Server.Ilean)))) := #[]
   for moduleName in modules.extract offset stop do
     tasks := tasks.push (← IO.asTask (scanIleanModule moduleName targets))
@@ -383,12 +399,7 @@ serialized reference key, and only matching `.ilean` files are parsed.
 -/
 private def collectSourceDownstream (env : Environment) (target : Name) (depth : Nat)
     (includeInternal : Bool) : CoreM (Array RawRelation) := do
-  let modules := env.allImportedModuleNames
-  let firstModule :=
-    match env.getModuleIdxFor? target with
-    | some moduleIdx => moduleIdx.toNat
-    | none => 0
-  let candidateModules := modules.extract firstModule modules.size
+  let candidateModules := sourceCandidateModules env target
   let mut visited : NameSet := ({} : NameSet).insert target
   let mut frontier : NameSet := ({} : NameSet).insert target
   let mut results := #[]
