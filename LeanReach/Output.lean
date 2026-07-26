@@ -52,4 +52,10 @@ def printSearchHuman (result : SearchResult) : IO Unit := do
 def printJson {α : Type} [ToJson α] (value : α) : IO Unit :=
   IO.println (toJson value).pretty
 
+/-- Emit exactly one compact JSON value and flush it for long-lived pipe clients. -/
+def printJsonLine (value : Json) : IO Unit := do
+  let stdout ← IO.getStdout
+  stdout.putStr (value.compress ++ "\n")
+  stdout.flush
+
 end LeanReach

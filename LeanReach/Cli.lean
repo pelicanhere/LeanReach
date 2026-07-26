@@ -1,5 +1,4 @@
-import LeanReach.Options
-import LeanReach.Output
+import LeanReach.Interactive
 
 namespace LeanReach.Cli
 
@@ -18,6 +17,7 @@ structure Config where
   depth : Nat := 1
   limit : Nat := 20
   includeInternal : Bool := false
+  interactive : Bool := false
   json : Bool := false
   profile : Bool := false
   help : Bool := false
@@ -30,6 +30,7 @@ LeanReach — semantic declaration neighborhoods for Lean
 USAGE:
   leanreach [query] DECL [OPTIONS]
   leanreach search PATTERN [OPTIONS]
+  leanreach --interactive [OPTIONS]
 
 OPTIONS:
   -m, --module MODULE       import MODULE; repeatable (default: Mathlib)
@@ -40,6 +41,7 @@ OPTIONS:
   -d, --depth N             dependency depth, 0..8 (default: 1)
   -n, --limit N             results per direction, 1..1000 (default: 20)
   -j, --json                emit structured JSON
+      --interactive         serve newline-delimited JSON on stdin/stdout
       --include-internal    include generated/internal declarations
       --profile             print load/query timings to stderr
   -h, --help                show this help
@@ -51,6 +53,7 @@ EXAMPLES:
   lake exe leanreach map --direction upstream --depth 2
   lake exe leanreach search prime_def --json
   lake exe leanreach Nat.gcd --module Mathlib.Data.Nat.GCD.Basic
+  lake exe leanreach --interactive --module Mathlib.Data.Nat.GCD.Basic
 "
 
 private def setCommand (config : Config) (command : Command) : Except String Config :=
@@ -74,6 +77,8 @@ private partial def parseArgs (args : List String) (config : Config := {}) :
     parseArgs rest { config with json := true }
   | "--profile" :: rest =>
     parseArgs rest { config with profile := true }
+  | "--interactive" :: rest =>
+    parseArgs rest { config with interactive := true }
   | "--include-internal" :: rest =>
     parseArgs rest { config with includeInternal := true }
   | "--upstream" :: rest =>
@@ -139,7 +144,16 @@ private def importsOrDefault (config : Config) : Array Name :=
   if config.imports.isEmpty then #["Mathlib".toName] else config.imports
 
 private def runCommand (config : Config) : CoreM UInt32 := do
-  match config.command with
+  if config.interactive then
+    LeanReach.runInteractive {
+      mode := config.mode
+      direction := config.direction
+      depth := config.depth
+      limit := config.limit
+      includeInternal := config.includeInternal
+      profile := config.profile
+    }
+  else match config.command with
   | some (.query declaration) =>
     let result ← LeanReach.runQuery {
       query := declaration
@@ -189,8 +203,10 @@ unsafe def execute (config : Config) : IO UInt32 := do
       { env }
     let finished ← IO.monoMsNow
     if config.profile then
+      let activity := if config.interactive then "session" else "query"
       IO.eprintln s!"leanreach profile: init={initialized - started}ms \
-        import={loaded - initialized}ms query={finished - loaded}ms total={finished - started}ms"
+        import={loaded - initialized}ms {activity}={finished - loaded}ms \
+        total={finished - started}ms"
     return exitCode
   finally
     env.freeRegions
@@ -208,6 +224,10 @@ unsafe def main (args : List String) : IO UInt32 := do
     if config.version then
       IO.println "leanreach 0.1.0"
       return 0
+    if config.interactive && config.command.isSome then
+      IO.eprintln "leanreach: --interactive does not accept a positional query or search command"
+      IO.eprintln "Send requests on stdin instead."
+      return 2
     try
       execute config
     catch error =>
