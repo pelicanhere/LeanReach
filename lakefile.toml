@@ -1,7 +1,7 @@
 name = "LeanReach"
 version = "0.1.0"
 keywords = ["math"]
-defaultTargets = ["LeanReach"]
+defaultTargets = ["LeanReach", "leanreach"]
 
 [leanOptions]
 pp.unicode.fun = true # pretty-prints `fun a ↦ b`
@@ -14,3 +14,7 @@ rev = "v4.32.0"
 
 [[lean_lib]]
 name = "LeanReach"
+
+[[lean_exe]]
+name = "leanreach"
+root = "Main"
