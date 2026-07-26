@@ -18,3 +18,7 @@ name = "LeanReach"
 [[lean_exe]]
 name = "leanreach"
 root = "Main"
+
+[[lean_exe]]
+name = "leanreach_tests"
+root = "Tests.Smoke"

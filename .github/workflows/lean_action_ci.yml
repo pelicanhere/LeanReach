@@ -12,3 +12,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: leanprover/lean-action@v1
+      - name: Run semantic smoke tests
+        run: lake exe leanreach_tests
