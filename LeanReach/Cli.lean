@@ -1,3 +1,4 @@
+import LeanReach.Options
 import LeanReach.Output
 
 namespace LeanReach.Cli
@@ -52,11 +53,6 @@ EXAMPLES:
   lake exe leanreach Nat.gcd --module Mathlib.Data.Nat.GCD.Basic
 "
 
-private def parseNat (option value : String) : Except String Nat :=
-  match value.toNat? with
-  | some number => .ok number
-  | none => .error s!"{option} expects a natural number, got '{value}'"
-
 private def setCommand (config : Config) (command : Command) : Except String Config :=
   match config.command with
   | none => .ok { config with command := some command }
@@ -85,47 +81,30 @@ private partial def parseArgs (args : List String) (config : Config := {}) :
   | "--downstream" :: rest =>
     parseArgs rest { config with direction := .downstream }
   | "--mode" :: mode :: rest =>
-    let mode ← match mode with
-      | "source" => pure DependencyMode.source
-      | "kernel" => pure DependencyMode.kernel
-      | value => throw s!"--mode expects source or kernel; got '{value}'"
+    let mode ← LeanReach.parseDependencyMode "--mode" mode
     parseArgs rest { config with mode }
   | "--mode" :: [] =>
     throw "missing value after --mode"
   | "--direction" :: direction :: rest =>
-    let direction ← match direction with
-      | "both" => pure Direction.both
-      | "upstream" => pure Direction.upstream
-      | "up" => pure Direction.upstream
-      | "downstream" => pure Direction.downstream
-      | "down" => pure Direction.downstream
-      | value => throw s!"--direction expects both, upstream, or downstream; got '{value}'"
+    let direction ← LeanReach.parseDirection "--direction" direction
     parseArgs rest { config with direction }
   | "--direction" :: [] =>
     throw "missing value after --direction"
   | "-d" :: value :: rest =>
-    let depth ← parseNat "--depth" value
-    if depth > 8 then
-      throw "--depth must be at most 8; downstream work is linear per layer"
+    let depth ← LeanReach.parseDepth "--depth" value
     parseArgs rest { config with depth }
   | "--depth" :: value :: rest =>
-    let depth ← parseNat "--depth" value
-    if depth > 8 then
-      throw "--depth must be at most 8; downstream work is linear per layer"
+    let depth ← LeanReach.parseDepth "--depth" value
     parseArgs rest { config with depth }
   | "-d" :: [] =>
     throw "missing value after --depth"
   | "--depth" :: [] =>
     throw "missing value after --depth"
   | "-n" :: value :: rest =>
-    let limit ← parseNat "--limit" value
-    if limit == 0 || limit > 1000 then
-      throw "--limit must be between 1 and 1000"
+    let limit ← LeanReach.parseLimit "--limit" value
     parseArgs rest { config with limit }
   | "--limit" :: value :: rest =>
-    let limit ← parseNat "--limit" value
-    if limit == 0 || limit > 1000 then
-      throw "--limit must be between 1 and 1000"
+    let limit ← LeanReach.parseLimit "--limit" value
     parseArgs rest { config with limit }
   | "-n" :: [] =>
     throw "missing value after --limit"
