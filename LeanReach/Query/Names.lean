@@ -6,6 +6,29 @@ open Lean
 
 abbrev ScoredName := Nat × Name
 
+/--
+A lossy 64-bit filter over consecutive lowercase character triples. Substring search uses it only
+to reject impossible candidates; hash collisions are resolved by `nameScore`.
+-/
+def trigramFilter? (text : String) : Option UInt64 := Id.run do
+  let mut first? := none
+  let mut second? := none
+  let mut filter := 0
+  let mut found := false
+  for char in text do
+    match first?, second? with
+    | none, _ =>
+      first? := some char
+    | some _, none =>
+      second? := some char
+    | some first, some second =>
+      let hash := mixHash (hash first) (mixHash (hash second) (hash char))
+      filter := filter ||| ((1 : UInt64) <<< (hash % 64))
+      found := true
+      first? := some second
+      second? := some char
+  return if found then some filter else none
+
 def nameScore (query : String) : Name → String → Option Nat :=
   let queryName := query.toName
   let queryLower := query.toLower

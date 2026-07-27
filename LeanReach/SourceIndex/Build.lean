@@ -1,6 +1,7 @@
 import Lean.CompactedRegion
 import Lean.Data.Json
 import LeanReach.Query.Ilean
+import LeanReach.Query.Names
 import LeanReach.SourceIndex.Types
 
 namespace LeanReach.SourceIndex
@@ -10,7 +11,7 @@ open Lean
 private abbrev CacheFingerprint := Array (Name × String)
 private abbrev CachePayload := Nat × CacheFingerprint × Index
 
-private def cacheVersion : Nat := 3
+private def cacheVersion : Nat := 4
 private def buildBatchSize : Nat := 32
 private def buildWorkerCount : Nat := 8
 
@@ -83,10 +84,12 @@ private def Builder.finalize (builder : Builder) : Index := Id.run do
   let mut declarations := #[]
   let mut nameToId := {}
   for (name, moduleName, range) in builder.declarations do
+    let lowerName := (Query.nameString name).toLower
     nameToId := nameToId.insert name declarations.size
     declarations := declarations.push {
       name
-      lowerName := (Query.nameString name).toLower
+      lowerName
+      trigramFilter := (Query.trigramFilter? lowerName).getD 0
       module := moduleName
       range
     }

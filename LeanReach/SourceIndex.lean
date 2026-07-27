@@ -24,10 +24,15 @@ def Session.create (index : Index) (sourcePath : SearchPath) : IO Session := do
 private def scoredNames (index : Index) (query : String) (includeInternal : Bool) :
     Nat → Nat × Array Query.ScoredName := fun capacity => Id.run do
   let scoreName := Query.nameScore query
+  let queryFilter? := Query.trigramFilter? query.toLower
   let mut total := 0
   let mut buckets : Array (Array Query.ScoredName) := Array.replicate 5 #[]
   for declaration in index.declarations do
-    if Query.visibleName includeInternal declaration.name then
+    let mayContain := match queryFilter? with
+      | some queryFilter =>
+        declaration.trigramFilter &&& queryFilter == queryFilter
+      | none => true
+    if mayContain && Query.visibleName includeInternal declaration.name then
       if let some score := scoreName declaration.name declaration.lowerName then
         total := total + 1
         if (buckets[score]!).size < capacity then

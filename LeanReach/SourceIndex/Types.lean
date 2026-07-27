@@ -12,6 +12,8 @@ abbrev DeclId := Nat
 structure Declaration where
   name : Name
   lowerName : String
+  /-- Cached substring prefilter for `lowerName`. -/
+  trigramFilter : UInt64
   module : Name
   range : Lsp.Range
   deriving Inhabited

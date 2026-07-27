@@ -43,6 +43,9 @@ private unsafe def sourceIndexTests : IO Unit := do
   check
     (search.items.any fun declaration => declaration.name == "Nat.gcd_comm")
     "source index name search omitted Nat.gcd_comm"
+  let broadSearch ← SourceIndex.runSearch session "a" { limit := 1 }
+  check (broadSearch.total > broadSearch.items.size)
+    "source index did not bound a broad search page"
 
   let _ ← unsafe SourceIndex.withIndex roots fun cached =>
     pure cached.declarationCount
