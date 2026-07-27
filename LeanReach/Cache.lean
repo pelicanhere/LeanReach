@@ -39,8 +39,8 @@ private def sourceNames (olean : System.FilePath) : IO (Std.HashSet String) := d
       if let .const _ name := ident then names := names.insert name
   return names
 
-private unsafe def buildFragment (moduleName : Name) (olean : System.FilePath) :
-    IO ModuleFragment := do
+private unsafe def readFragment (moduleName : Name) (olean : System.FilePath) :
+    IO (ModuleFragment × Array CompactedRegion) := do
   let mut paths := #[olean]
   for level in #[OLeanLevel.server, OLeanLevel.private] do
     let path := level.adjustFileName olean
@@ -49,14 +49,22 @@ private unsafe def buildFragment (moduleName : Name) (olean : System.FilePath) :
   let some (data, _) := parts.back? |
     throw <| IO.userError s!"empty module data for '{moduleName}'"
   let source ← sourceNames olean
-  return {
+  return ({
     imports := data.imports.map (·.module)
     declarations := data.constants.filterMap fun info =>
       let name := info.name
       if source.contains name.toString && !isBlackListed name then
         some (name, info.getUsedConstantsAsSet)
       else none
-  }
+  }, parts.map (·.2))
+
+private unsafe def writeFragment (moduleName : Name) (olean path : System.FilePath)
+    (hash : String) : IO Unit := do
+  let regions ← show IO (Array CompactedRegion) from do
+    let (fragment, regions) ← readFragment moduleName olean
+    pickle path moduleName (hash, fragment)
+    return regions
+  regions.forM CompactedRegion.free
 
 private unsafe def loadFragment (moduleName : Name) : IO ModuleFragment := do
   let olean ← findOLean moduleName
@@ -68,11 +76,13 @@ private unsafe def loadFragment (moduleName : Name) : IO ModuleFragment := do
         let ((storedHash, fragment), _) ← unsafe unpickle (String × ModuleFragment) path
         if storedHash == hash then return fragment
       catch _ => pure ()
-  let fragment ← buildFragment moduleName olean
   if let some hash := hash? then
-    try pickle path moduleName (hash, fragment)
+    try
+      writeFragment moduleName olean path hash
+      let ((_, fragment), _) ← unsafe unpickle (String × ModuleFragment) path
+      return fragment
     catch _ => pure ()
-  return fragment
+  return (← readFragment moduleName olean).1
 
 private unsafe def buildIndex (root : Name) : IO Index := do
   let mut pending := #[root]
