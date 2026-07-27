@@ -66,11 +66,11 @@ def Index.resolve (index : Index) (query : String) : Except String Name := do
   throw s!"ambiguous declaration '{query}':\n{String.intercalate "\n" <|
     candidates.toList.map fun name => s!"  {name}"}"
 
-def Index.upstream (index : Index) (name : Name) : NameSet :=
-  index.forward.getD name {}
+def Index.upstream (index : Index) (name : Name) : Array Name :=
+  (index.forward.getD name {}).toArray
 
-def Index.downstream (index : Index) (name : Name) : NameSet :=
-  index.reverse.getD name {}
+def Index.downstream (index : Index) (name : Name) : Array Name :=
+  (index.reverse.getD name {}).toArray
 
 def Index.moduleOf? (index : Index) (name : Name) : Option Name :=
   index.modules.find? name

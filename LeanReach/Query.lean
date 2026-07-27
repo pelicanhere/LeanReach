@@ -115,7 +115,7 @@ private def describe (session : Session) (name : Name) : CoreM Declaration := do
   return declaration
 
 private def traverse (start : Name) (depth limit : Nat)
-    (neighbors : Name → NameSet) : Array (Nat × Name) := Id.run do
+    (neighbors : Name → Array Name) : Array (Nat × Name) := Id.run do
   if depth == 0 || limit == 0 then return #[]
   let mut visited : NameHashSet := ({} : NameHashSet).insert start
   let mut frontier := #[start]

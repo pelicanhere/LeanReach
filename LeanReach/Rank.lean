@@ -20,7 +20,7 @@ def Index.idf (index : Index) (name : Name) : Float :=
   let df := (index.documentFrequency name).toFloat
   Float.log (1.0 + (n - df + 0.5) / (df + 0.5))
 
-private def Index.rank (index : Index) (distance : Nat) (names : NameSet) :
+private def Index.rank (index : Index) (distance : Nat) (names : Array Name) :
     Array RankedName := Id.run do
   let weight := Float.pow 0.5 (distance - 1).toFloat
   let mut ranked := #[]
@@ -32,18 +32,18 @@ private def frontier (ranked : Array RankedName) : Array Name :=
   (ranked.take expansionWidth).map fun (_, _, name) => name
 
 private def Index.expand (index : Index) (current : Array Name)
-    (seen : NameHashSet) (budget : Nat) : NameSet × NameHashSet × Nat := Id.run do
+    (seen : NameHashSet) (budget : Nat) : Array Name × NameHashSet × Nat := Id.run do
   let mut next : NameSet := {}
   let mut seen := seen
   let mut remaining := budget
   for name in current do
     for dependency in index.upstream name do
-      if remaining == 0 then return (next, seen, remaining)
+      if remaining == 0 then return (next.toArray, seen, remaining)
       remaining := remaining - 1
       unless seen.contains dependency do
         seen := seen.insert dependency
         next := next.insert dependency
-  return (next, seen, remaining)
+  return (next.toArray, seen, remaining)
 
 /-- Rank a bounded, demand-driven upstream neighborhood by symbol rarity. -/
 def Index.context (index : Index) (target : Name) (depth limit : Nat) :
