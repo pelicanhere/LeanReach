@@ -152,45 +152,49 @@ private def processRequest (defaults : QueryOptions) (request : Request) :
       false
     )
 
+private partial def serve (defaults : QueryOptions) (profile : Bool)
+    (process : Request → Query.SessionM (Json × Bool)) : Query.SessionM UInt32 := do
+  let stdin ← IO.getStdin
+  let line ← stdin.getLine
+  if line.isEmpty then
+    return 0
+  let line := line.trimAscii.copy
+  if line.isEmpty then
+    serve defaults profile process
+  else
+    let started ← IO.monoMsNow
+    match decodeRequest defaults line with
+    | .error (id?, message) =>
+      printJsonLine <| errorResponse id? s!"invalid request: {message}"
+      if profile then
+        let finished ← IO.monoMsNow
+        IO.eprintln s!"leanreach request: command=invalid elapsed={finished - started}ms"
+      serve defaults profile process
+    | .ok request =>
+      try
+        let (response, keepRunning) ← process request
+        printJsonLine response
+        if profile then
+          let finished ← IO.monoMsNow
+          IO.eprintln
+            s!"leanreach request: command={request.command} elapsed={finished - started}ms"
+        if keepRunning then
+          serve defaults profile process
+        else
+          return 0
+      catch error =>
+        let message ← error.toMessageData.toString
+        printJsonLine <| errorResponse request.id? s!"request failed: {message}"
+        if profile then
+          let finished ← IO.monoMsNow
+          IO.eprintln s!"leanreach request: command=error elapsed={finished - started}ms"
+        serve defaults profile process
+
 /--
 Run a newline-delimited JSON session. The imported environment is owned by the caller and reused
 until EOF or a `quit` request.
 -/
-partial def runInteractive (defaults : QueryOptions) (profile : Bool := false) : CoreM UInt32 := do
-  withSession do
-    let stdin ← IO.getStdin
-    let rec loop : Query.SessionM UInt32 := do
-      let line ← stdin.getLine
-      if line.isEmpty then
-        return 0
-      let line := line.trimAscii.copy
-      if line.isEmpty then
-        loop
-      else
-        let started ← IO.monoMsNow
-        match decodeRequest defaults line with
-        | .error (id?, message) =>
-          printJsonLine <| errorResponse id? s!"invalid request: {message}"
-          if profile then
-            let finished ← IO.monoMsNow
-            IO.eprintln s!"leanreach request: command=invalid elapsed={finished - started}ms"
-          loop
-        | .ok request =>
-          try
-            let (response, keepRunning) ← processRequest defaults request
-            printJsonLine response
-            if profile then
-              let finished ← IO.monoMsNow
-              IO.eprintln
-                s!"leanreach request: command={request.command} elapsed={finished - started}ms"
-            if keepRunning then loop else return 0
-          catch error =>
-            let message ← error.toMessageData.toString
-            printJsonLine <| errorResponse request.id? s!"request failed: {message}"
-            if profile then
-              let finished ← IO.monoMsNow
-              IO.eprintln s!"leanreach request: command=error elapsed={finished - started}ms"
-            loop
-    loop
+def runInteractive (defaults : QueryOptions) (profile : Bool := false) : CoreM UInt32 :=
+  withSession <| serve defaults profile (processRequest defaults)
 
 end LeanReach
