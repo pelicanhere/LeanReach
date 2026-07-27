@@ -1,6 +1,4 @@
-import Lean.Meta
-import Lean.Util.FoldConsts
-import LeanReach.BlackListed
+import Lean
 
 namespace LeanReach
 
@@ -9,33 +7,33 @@ open Lean
 /-- Searchable names and cached direct dependency postings in both directions. -/
 structure Index where
   private names : Array (Name × String)
+  private modules : NameMap Name
   private forward : NameMap NameSet
   private reverse : NameMap NameSet
   deriving Inhabited
 
-private def usedConstants (included : NameHashSet) (name : Name) (info : ConstantInfo) : NameSet :=
-  info.getUsedConstantsAsSet.filter fun dependency =>
-    dependency != name && included.contains dependency
+abbrev IndexedDeclaration := Name × Name × NameSet
 
-def Index.build : CoreM Index := do
-  let env ← getEnv
+def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
   let mut names := #[]
+  let mut modules : NameMap Name := {}
   let mut included : NameHashSet := {}
-  for (name, _) in env.constants do
-    unless ← isBlackListed name do
-      names := names.push (name, name.toString.toLower)
-      included := included.insert name
+  for (name, moduleName, _) in declarations do
+    names := names.push (name, name.toString.toLower)
+    modules := modules.insert name moduleName
+    included := included.insert name
   let mut forward : NameMap NameSet := {}
   let mut reverse : NameMap NameSet := {}
-  for (name, info) in env.constants do
-    if included.contains name then
-      let dependencies := usedConstants included name info
-      unless dependencies.isEmpty do
-        forward := NameMap.insert forward name dependencies
-      for dependency in dependencies do
-        reverse := NameMap.insert reverse dependency ((reverse.getD dependency {}).insert name)
+  for (name, _, used) in declarations do
+    let dependencies := used.filter fun dependency =>
+      dependency != name && included.contains dependency
+    unless dependencies.isEmpty do
+      forward := forward.insert name dependencies
+    for dependency in dependencies do
+      reverse := reverse.insert dependency ((reverse.getD dependency {}).insert name)
   return {
     names := names.qsort fun a b => Name.lt a.1 b.1
+    modules
     forward
     reverse
   }
@@ -73,6 +71,9 @@ def Index.upstream (index : Index) (name : Name) : NameSet :=
 
 def Index.downstream (index : Index) (name : Name) : NameSet :=
   index.reverse.getD name {}
+
+def Index.moduleOf? (index : Index) (name : Name) : Option Name :=
+  index.modules.find? name
 
 def Index.declarationCount (index : Index) : Nat :=
   index.names.size

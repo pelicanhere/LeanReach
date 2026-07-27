@@ -8,19 +8,10 @@ import Lean
 
 namespace LeanReach
 
-open Lean Meta
+open Lean
 
-/-- Hide generated implementation details while retaining structure projections. -/
-def isBlackListed {m} [Monad m] [MonadEnv m] [MonadLiftT BaseIO m]
-    (name : Name) : m Bool := do
-  let env ← getEnv
-  if env.isProjectionFn name then return false
-  if (← findDeclarationRanges? name).isNone then return true
-  pure name.isInternal
-    <||> pure (isAuxRecursor env name)
-    <||> pure (isNoConfusion env name)
-    <||> pure name.isInternalDetail
-    <||> isRec name
-    <||> isMatcher name
+/-- Hide generated implementation details that can still have source ranges. -/
+def isBlackListed (name : Name) : Bool :=
+  name.isInternal || name.isInternalDetail
 
 end LeanReach

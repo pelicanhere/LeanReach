@@ -5,19 +5,21 @@ fragment to find canonical declarations, then inspect the direct upstream and do
 dependencies of a declaration together with its pretty-printed signature/body and exact source
 position.
 
-The implementation follows Loogle's deliberately simple process model:
+The implementation follows Loogle's deliberately simple process model, with module-granular
+artifacts for local libraries:
 
-- import one root module with `loadExts := true`;
-- keep that complete `Environment` alive for the whole process;
+- read each built module's `.olean`, `.olean.server`, `.olean.private`, and `.ilean` directly;
+- cache a small dependency fragment per module and materialize a root query index;
+- import the root with `loadExts := true` only for pretty-printing;
+- keep that `Environment` alive for the whole process;
 - use Lean's own delaborator and pretty-printer;
 - hide compiler-generated declarations using Loogle/doc-gen-style filtering;
 - index direct constants mentioned by declaration types and values;
-- cache names and direct-reference postings in both directions next to the root `.olean`;
 - perform bounded breadth-first traversal instead of materializing a transitive DAG.
 
-The cache is checked against Lake's transitive `depHash`, so a local library rebuild invalidates it
-automatically. Both directions use `ConstantInfo.getUsedConstantsAsSet`, which includes the type and
-the proof or implementation body.
+Module fragments and the materialized index are checked against Lake's transitive `depHash`, so a
+local library rebuild invalidates only the affected fragments and root view. Both directions use
+`ConstantInfo.getUsedConstantsAsSet`, which includes the type and the proof or implementation body.
 
 ## Build and test
 
@@ -88,9 +90,9 @@ The process emits one compact JSON value per line and flushes stdout after every
 development Windows machine, a small cached local environment took about 10 seconds to start; the
 first name search and pretty-print took 89 ms, and the following dependency query took 7 ms.
 
-The default `Mathlib` root is intentionally a much heavier workload. A cache avoids rebuilding the
-reverse relation, but—as in Loogle—it cannot avoid importing the complete environment. Prefer the
-narrowest useful root and keep full-Mathlib sessions alive.
+The default `Mathlib` root is intentionally a much heavier pretty-printing workload. The dependency
+index itself is loaded without importing Mathlib, but this version still imports the root before
+rendering results. Prefer the narrowest useful root and keep full-Mathlib sessions alive.
 
 ## Searching another local Lake library
 

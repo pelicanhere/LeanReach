@@ -19,9 +19,10 @@ private def initializePaths : IO SearchPath := do
 unsafe def withSession {α : Type} (root : Name) (action : Session → CoreM α) : IO α := do
   let sourcePath ← initializePaths
   Lean.enableInitializersExecution
+  let index ← unsafe Cache.loadIndex root
   let env ← importModules (loadExts := true) #[{ module := root }] {}
   Core.CoreM.toIO'
-    (do action (← Session.create (← unsafe Cache.loadIndex root) sourcePath))
+    (do action (← Session.create index sourcePath))
     { fileName := "<leanreach>", fileMap := default }
     { env }
 
