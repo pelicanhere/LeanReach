@@ -6,22 +6,26 @@ open Lean
 
 abbrev ScoredName := Nat × Name
 
-def nameScore (query : String) (name : Name) : Option Nat :=
-  let candidate := nameString name
+def nameScore (query : String) : Name → Option Nat :=
   let queryLower := query.toLower
-  let candidateLower := candidate.toLower
-  if candidate == query then
-    some 0
-  else if candidate.endsWith ("." ++ query) then
-    some 1
-  else if candidateLower == queryLower then
-    some 2
-  else if candidateLower.endsWith ("." ++ queryLower) then
-    some 3
-  else if candidateLower.contains queryLower then
-    some 4
-  else
-    none
+  let suffix := "." ++ query
+  let suffixLower := "." ++ queryLower
+  fun name =>
+    let candidate := nameString name
+    if candidate == query then
+      some 0
+    else if candidate.endsWith suffix then
+      some 1
+    else
+      let candidateLower := candidate.toLower
+      if candidateLower == queryLower then
+        some 2
+      else if candidateLower.endsWith suffixLower then
+        some 3
+      else if candidateLower.contains queryLower then
+        some 4
+      else
+        none
 
 def sortScoredNames (hits : Array ScoredName) : Array ScoredName :=
   hits.qsort fun left right =>

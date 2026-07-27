@@ -8,10 +8,11 @@ open Lean
 
 private def scoredNames (index : Index) (query : String) (includeInternal : Bool) :
     Array Query.ScoredName := Id.run do
+  let scoreName := Query.nameScore query
   let mut hits := #[]
   for (name, _) in index.declarations do
     if Query.visibleName includeInternal name then
-      if let some score := Query.nameScore query name then
+      if let some score := scoreName name then
         hits := hits.push (score, name)
   return Query.sortScoredNames hits
 
