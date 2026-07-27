@@ -11,13 +11,13 @@ private def check (condition : Bool) (message : String) : CoreM Unit :=
 private unsafe def runTests : IO Unit :=
   withSession `Tests.Fixture fun session => do
     let result ← session.query "LeanReachFixture.double" { limit := 100 }
-    check result.target.source.file.isSome
+    check result.target.file.isSome
       "local declaration has no source file"
-    check (result.target.source.line == 5)
+    check (result.target.line == 5)
       "local declaration has the wrong source line"
     check
-      (result.downstream.any fun item =>
-        item.declaration.name == "LeanReachFixture.double_eq_add")
+      (result.downstream.any fun (_, declaration) =>
+        declaration.name == "LeanReachFixture.double_eq_add")
       "downstream relation is missing"
 
     let theoremResult ← session.query "LeanReachFixture.double_eq_add" {
@@ -27,13 +27,13 @@ private unsafe def runTests : IO Unit :=
     check (theoremResult.target.signature.contains "n + n")
       "theorem signature was not pretty-printed with notation"
     check
-      (theoremResult.upstream.any fun item =>
-        item.declaration.name == "LeanReachFixture.double")
+      (theoremResult.upstream.any fun (_, declaration) =>
+        declaration.name == "LeanReachFixture.double")
       "upstream relation is missing"
 
     let searchResult ← session.search "double_eq" 10
     check
-      (searchResult.items.any fun item =>
+      (searchResult.any fun item =>
         item.name == "LeanReachFixture.double_eq_add")
       "local name search is missing"
 

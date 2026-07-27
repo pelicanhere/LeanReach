@@ -19,24 +19,13 @@ private def Relation.find (relation : Relation) (name : Name) : NameSet :=
 private def Relation.insert (relation : Relation) (source target : Name) : Relation :=
   NameMap.insert relation source ((relation.find source).insert target)
 
-private structure NameEntry where
-  name : Name
-  lower : String
-  deriving Inhabited
-
 /-- A compact name table and the reverse of Lean's direct signature dependencies. -/
 structure Index where
-  private names : Array NameEntry
+  private names : Array (Name × String)
   private downstream : Relation
   deriving Inhabited
 
-private structure Cache where
-  version : Nat
-  depHash : String
-  index : Index
-  deriving Inhabited
-
-private def cacheVersion := 1
+private def cacheVersion := 2
 
 private def Index.build : CoreM Index := do
   let env ← getEnv
@@ -44,12 +33,12 @@ private def Index.build : CoreM Index := do
   let mut downstream : Relation := {}
   for (name, info) in env.constants do
     if visible name then
-      names := names.push { name, lower := name.toString.toLower }
+      names := names.push (name, name.toString.toLower)
       for dependency in info.type.getUsedConstantsAsSet do
         if dependency != name && visible dependency && env.contains dependency then
           downstream := downstream.insert dependency name
   return {
-    names := names.qsort fun a b => Name.lt a.name b.name
+    names := names.qsort fun a b => Name.lt a.1 b.1
     downstream
   }
 
@@ -64,47 +53,58 @@ private unsafe def Index.load (root : Name) : CoreM Index := do
   if ← path.pathExists then
     try
       let (data, _) ← readModuleData path
-      let cache : Cache := unsafe unsafeCast data
-      if cache.version == cacheVersion && cache.depHash == depHash then
-        return cache.index
+      let cache : String × Index := unsafe unsafeCast data
+      if cache.1 == depHash then return cache.2
     catch _ =>
       pure ()
   let index ← Index.build
   try
-    let cache : Cache := { version := cacheVersion, depHash, index }
-    saveModuleData path `LeanReach.cache (unsafe unsafeCast cache)
+    saveModuleData path `LeanReach.cache (unsafe unsafeCast (depHash, index))
   catch _ =>
     IO.eprintln s!"leanreach: could not write cache {path}"
   return index
 
-structure SourceLocation where
+structure Declaration where
+  name : String
+  signature : String
   moduleName : String
   file : Option String
   line : Nat
   column : Nat
-  deriving ToJson
 
-structure Declaration where
-  name : String
-  signature : String
-  source : SourceLocation
-  deriving ToJson
+instance : ToJson Declaration where
+  toJson declaration := Json.mkObj [
+    ("name", toJson declaration.name),
+    ("signature", toJson declaration.signature),
+    ("source", Json.mkObj [
+      ("moduleName", toJson declaration.moduleName),
+      ("file", toJson declaration.file),
+      ("line", toJson declaration.line),
+      ("column", toJson declaration.column)
+    ])
+  ]
 
-structure Related where
-  distance : Nat
-  declaration : Declaration
-  deriving ToJson
+abbrev Related := Nat × Declaration
 
 structure QueryResult where
   target : Declaration
   upstream : Array Related
   downstream : Array Related
-  deriving ToJson
 
-structure SearchResult where
-  query : String
-  items : Array Declaration
-  deriving ToJson
+private def relatedJson (distance : Nat) (declaration : Declaration) : Json :=
+  Json.mkObj [
+    ("distance", toJson distance),
+    ("declaration", toJson declaration)
+  ]
+
+instance : ToJson QueryResult where
+  toJson result := Json.mkObj [
+    ("target", toJson result.target),
+    ("upstream", Json.arr <| result.upstream.map fun (distance, declaration) =>
+      relatedJson distance declaration),
+    ("downstream", Json.arr <| result.downstream.map fun (distance, declaration) =>
+      relatedJson distance declaration)
+  ]
 
 structure QueryOptions where
   depth : Nat := 1
@@ -121,15 +121,15 @@ private def Index.matchBuckets (index : Index) (query : String) (limit : Nat) :
   let query := query.toLower
   let suffix := "." ++ query
   let mut buckets : Array (Array Name) := #[#[], #[], #[]]
-  for entry in index.names do
+  for (name, lower) in index.names do
     let score? :=
-      if entry.lower == query then some 0
-      else if entry.lower.endsWith suffix then some 1
-      else if entry.lower.contains query then some 2
+      if lower == query then some 0
+      else if lower.endsWith suffix then some 1
+      else if lower.contains query then some 2
       else none
     if let some score := score? then
       if buckets[score]!.size < limit then
-        buckets := buckets.modify score (·.push entry.name)
+        buckets := buckets.modify score (·.push name)
   return buckets
 
 def Index.search (index : Index) (query : String) (limit : Nat := 20) : Array Name :=
@@ -164,12 +164,10 @@ private def describe (session : Session) (name : Name) : CoreM Declaration := do
   return {
     name := name.toString
     signature := ← MetaM.run' (renderSignature name)
-    source := {
-      moduleName := moduleName?.map (·.toString) |>.getD ""
-      file := file?
-      line := range?.map (·.pos.line) |>.getD 0
-      column := range?.map (·.pos.column + 1) |>.getD 0
-    }
+    moduleName := moduleName?.map (·.toString) |>.getD ""
+    file := file?
+    line := range?.map (·.pos.line) |>.getD 0
+    column := range?.map (·.pos.column + 1) |>.getD 0
   }
 
 private def directUpstream (name : Name) : CoreM NameSet := do
@@ -199,10 +197,7 @@ private def traverse (start : Name) (depth limit : Nat)
 
 private def describeRelated (session : Session) (items : Array (Nat × Name)) :
     CoreM (Array Related) :=
-  items.mapM fun (distance, name) => return {
-    distance
-    declaration := ← describe session name
-  }
+  items.mapM fun (distance, name) => return (distance, ← describe session name)
 
 def Session.query (session : Session) (query : String) (options : QueryOptions := {}) :
     CoreM QueryResult := do
@@ -223,9 +218,9 @@ def Session.query (session : Session) (query : String) (options : QueryOptions :
   }
 
 def Session.search (session : Session) (query : String) (limit : Nat := 20) :
-    CoreM SearchResult := do
+    CoreM (Array Declaration) := do
   let names := session.index.search query limit
-  return { query, items := ← names.mapM (describe session) }
+  names.mapM (describe session)
 
 private def initializePaths : IO SearchPath := do
   match ← IO.getEnv "LEAN_PATH" with

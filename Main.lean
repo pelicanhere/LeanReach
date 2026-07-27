@@ -94,19 +94,19 @@ Run through `lake env` with `--module Your.Root` to search a local library.
 In interactive mode, enter a declaration name or `search PATTERN` on each line.
 "
 
-private def location (source : SourceLocation) : String :=
-  s!"{source.file.getD source.moduleName}:{source.line}:{source.column}"
+private def location (declaration : Declaration) : String :=
+  s!"{declaration.file.getD declaration.moduleName}:{declaration.line}:{declaration.column}"
 
 private def printDeclaration (indent : String) (declaration : Declaration) : IO Unit := do
   IO.println s!"{indent}{declaration.signature}"
-  IO.println s!"{indent}  {location declaration.source}"
+  IO.println s!"{indent}  {location declaration}"
 
 private def printRelated (label : String) (items : Array Related) : IO Unit := do
   IO.println s!"{label} ({items.size})"
   if items.isEmpty then IO.println "  <none>"
-  for item in items do
-    IO.println s!"  [{item.distance}] {item.declaration.signature}"
-    IO.println s!"      {location item.declaration.source}"
+  for (distance, declaration) in items do
+    IO.println s!"  [{distance}] {declaration.signature}"
+    IO.println s!"      {location declaration}"
 
 private def printQuery (json : Bool) (result : QueryResult) : IO Unit := do
   if json then
@@ -116,12 +116,12 @@ private def printQuery (json : Bool) (result : QueryResult) : IO Unit := do
     printRelated "upstream" result.upstream
     printRelated "downstream" result.downstream
 
-private def printSearch (json : Bool) (result : SearchResult) : IO Unit := do
+private def printSearch (json : Bool) (query : String) (items : Array Declaration) : IO Unit := do
   if json then
-    IO.println (toJson result).compress
+    IO.println (Json.mkObj [("query", toJson query), ("items", toJson items)]).compress
   else
-    IO.println s!"matches ({result.items.size})"
-    for declaration in result.items do
+    IO.println s!"matches ({items.size})"
+    for declaration in items do
       printDeclaration "  " declaration
 
 private def flush : IO Unit := do
@@ -137,7 +137,7 @@ private def runOne (session : Session) (config : Config) (command : Command) : C
       downstream := config.downstream
     })
   | .search pattern =>
-    printSearch config.json (← session.search pattern config.limit)
+    printSearch config.json pattern (← session.search pattern config.limit)
 
 private def runTimed (session : Session) (config : Config) (command : Command) : CoreM Unit := do
   let started ← IO.monoMsNow
