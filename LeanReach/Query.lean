@@ -115,7 +115,7 @@ private def describe (session : Session) (name : Name) : CoreM Declaration := do
   return declaration
 
 private def traverse (start : Name) (depth limit : Nat)
-    (neighbors : Name → CoreM NameSet) : CoreM (Array (Nat × Name)) := do
+    (neighbors : Name → NameSet) : Array (Nat × Name) := Id.run do
   if depth == 0 || limit == 0 then return #[]
   let mut visited : NameHashSet := ({} : NameHashSet).insert start
   let mut frontier := #[start]
@@ -123,7 +123,7 @@ private def traverse (start : Name) (depth limit : Nat)
   for distance in [1:depth + 1] do
     let mut next := #[]
     for name in frontier do
-      for neighbor in ← neighbors name do
+      for neighbor in neighbors name do
         unless visited.contains neighbor do
           visited := visited.insert neighbor
           next := next.push neighbor
@@ -133,19 +133,31 @@ private def traverse (start : Name) (depth limit : Nat)
     if frontier.isEmpty then break
   return found
 
+abbrev QueryNames := Name × Array (Nat × Name) × Array (Nat × Name)
+
+def Index.queryNames (index : Index) (query : String) (options : QueryOptions := {}) :
+    Except String QueryNames := do
+  let target ← index.resolve query
+  return (
+    target,
+    if options.upstream then
+      traverse target options.depth options.limit index.upstream
+    else #[],
+    if options.downstream then
+      traverse target options.depth options.limit index.downstream
+    else #[]
+  )
+
 private def describeRelated (session : Session) (items : Array (Nat × Name)) :
     CoreM (Array Related) :=
   items.mapM fun (distance, name) => return (distance, ← describe session name)
 
 def Session.query (session : Session) (query : String) (options : QueryOptions := {}) :
     CoreM QueryResult := do
-  let target ← session.index.resolve query
-  let upstream ← if options.upstream then
-    traverse target options.depth options.limit (pure ∘ session.index.upstream)
-    else pure #[]
-  let downstream ← if options.downstream then
-    traverse target options.depth options.limit (pure ∘ session.index.downstream)
-    else pure #[]
+  let (target, upstream, downstream) ←
+    match session.index.queryNames query options with
+    | .ok result => pure result
+    | .error message => throwError message
   return {
     target := ← describe session target
     upstream := ← describeRelated session upstream
@@ -158,7 +170,10 @@ def Session.search (session : Session) (query : String) (limit : Nat := 20) :
 
 def Session.context (session : Session) (query : String) (depth : Nat := 1)
     (limit : Nat := 20) : CoreM (Declaration × Array RankedDeclaration) := do
-  let target ← session.index.resolve query
+  let target ←
+    match session.index.resolve query with
+    | .ok target => pure target
+    | .error message => throwError message
   let items ← (session.index.context target depth limit).mapM fun (score, distance, name) =>
     return {
       score

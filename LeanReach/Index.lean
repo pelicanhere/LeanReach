@@ -59,14 +59,13 @@ private def Index.matchBuckets (index : Index) (query : String) (limit : Nat) :
 def Index.search (index : Index) (query : String) (limit : Nat := 20) : Array Name :=
   (index.matchBuckets query limit).flatten.take limit
 
-def Index.resolve (index : Index) (query : String) : CoreM Name := do
-  let env ← getEnv
+def Index.resolve (index : Index) (query : String) : Except String Name := do
   let exact := query.toName
-  if env.contains exact && !(← isBlackListed exact) then return exact
+  if index.names.binSearchContains (exact, "") fun a b => Name.lt a.1 b.1 then return exact
   let candidates := (index.matchBuckets query 10).find? (not ∘ Array.isEmpty) |>.getD #[]
   if candidates.size == 1 then return candidates[0]!
-  if candidates.isEmpty then throwError "no declaration name contains '{query}'"
-  throwError "ambiguous declaration '{query}':\n{String.intercalate "\n" <|
+  if candidates.isEmpty then throw s!"no declaration name contains '{query}'"
+  throw s!"ambiguous declaration '{query}':\n{String.intercalate "\n" <|
     candidates.toList.map fun name => s!"  {name}"}"
 
 def Index.upstream (index : Index) (name : Name) : NameSet :=
