@@ -7,12 +7,12 @@ open Lean Lean.Core
 inductive Command where
   | query (declaration : String)
   | search (pattern : String)
+  | interactive
   deriving Repr
 
 structure Config extends QueryOptions where
   command : Option Command := none
   imports : Array Name := #[]
-  interactive : Bool := false
   json : Bool := false
   profile : Bool := false
   help : Bool := false
@@ -51,100 +51,15 @@ EXAMPLES:
   lake exe leanreach --interactive --module Mathlib.Data.Nat.GCD.Basic
 "
 
-private def setCommand (config : Config) (command : Command) : Except String Config :=
-  match config.command with
-  | none => .ok { config with command := some command }
-  | some _ => .error "only one query or search pattern may be provided"
-
-private partial def parseArgs (args : List String) (config : Config := {}) :
-    Except String Config := do
-  match args with
-  | [] => return config
-  | "-h" :: rest =>
-    parseArgs rest { config with help := true }
-  | "--help" :: rest =>
-    parseArgs rest { config with help := true }
-  | "--version" :: rest =>
-    parseArgs rest { config with version := true }
-  | "-j" :: rest =>
-    parseArgs rest { config with json := true }
-  | "--json" :: rest =>
-    parseArgs rest { config with json := true }
-  | "--profile" :: rest =>
-    parseArgs rest { config with profile := true }
-  | "--interactive" :: rest =>
-    parseArgs rest { config with interactive := true }
-  | "--include-internal" :: rest =>
-    parseArgs rest { config with includeInternal := true }
-  | "--upstream" :: rest =>
-    parseArgs rest { config with direction := .upstream }
-  | "--downstream" :: rest =>
-    parseArgs rest { config with direction := .downstream }
-  | "--mode" :: mode :: rest =>
-    let mode ← LeanReach.parseDependencyMode "--mode" mode
-    parseArgs rest { config with mode }
-  | "--mode" :: [] =>
-    throw "missing value after --mode"
-  | "--direction" :: direction :: rest =>
-    let direction ← LeanReach.parseDirection "--direction" direction
-    parseArgs rest { config with direction }
-  | "--direction" :: [] =>
-    throw "missing value after --direction"
-  | "-d" :: value :: rest =>
-    let depth ← LeanReach.parseDepth "--depth" value
-    parseArgs rest { config with depth }
-  | "--depth" :: value :: rest =>
-    let depth ← LeanReach.parseDepth "--depth" value
-    parseArgs rest { config with depth }
-  | "-d" :: [] =>
-    throw "missing value after --depth"
-  | "--depth" :: [] =>
-    throw "missing value after --depth"
-  | "-n" :: value :: rest =>
-    let limit ← LeanReach.parseLimit "--limit" value
-    parseArgs rest { config with limit }
-  | "--limit" :: value :: rest =>
-    let limit ← LeanReach.parseLimit "--limit" value
-    parseArgs rest { config with limit }
-  | "-n" :: [] =>
-    throw "missing value after --limit"
-  | "--limit" :: [] =>
-    throw "missing value after --limit"
-  | "-m" :: value :: rest =>
-    parseArgs rest { config with imports := config.imports.push value.toName }
-  | "--module" :: value :: rest =>
-    parseArgs rest { config with imports := config.imports.push value.toName }
-  | "--import" :: value :: rest =>
-    parseArgs rest { config with imports := config.imports.push value.toName }
-  | "-m" :: [] =>
-    throw "missing module name"
-  | "--module" :: [] =>
-    throw "missing module name"
-  | "--import" :: [] =>
-    throw "missing module name"
-  | "query" :: declaration :: rest =>
-    parseArgs rest (← setCommand config (.query declaration))
-  | "query" :: [] =>
-    throw "missing declaration after query"
-  | "search" :: pattern :: rest =>
-    parseArgs rest (← setCommand config (.search pattern))
-  | "search" :: [] =>
-    throw "missing pattern after search"
-  | argument :: rest =>
-    if argument.startsWith "-" then
-      throw s!"unknown option '{argument}'"
-    parseArgs rest (← setCommand config (.query argument))
-
 private def importsOrDefault (config : Config) : Array Name :=
   if config.imports.isEmpty then #["Mathlib".toName] else config.imports
 
 private def runCommand (config : Config) : CoreM UInt32 := do
-  if config.interactive then
+  match config.command with
+  | some .interactive =>
     LeanReach.runInteractive config.toQueryOptions config.profile
-  else match config.command with
   | some (.query declaration) =>
-    let result ← LeanReach.runQuery declaration config.toQueryOptions
-    match result with
+    match ← LeanReach.runQuery declaration config.toQueryOptions with
     | .ok result =>
       if config.json then
         LeanReach.printJson result
@@ -183,7 +98,9 @@ unsafe def execute (config : Config) : IO UInt32 := do
       { env }
     let finished ← IO.monoMsNow
     if config.profile then
-      let activity := if config.interactive then "session" else "query"
+      let activity := match config.command with
+        | some .interactive => "session"
+        | _ => "query"
       IO.eprintln s!"leanreach profile: init={initialized - started}ms \
         import={loaded - initialized}ms {activity}={finished - loaded}ms \
         total={finished - started}ms"
@@ -191,34 +108,21 @@ unsafe def execute (config : Config) : IO UInt32 := do
   finally
     env.freeRegions
 
-unsafe def main (args : List String) : IO UInt32 := do
-  match parseArgs args with
-  | .error message =>
-    IO.eprintln s!"leanreach: {message}"
+unsafe def run (config : Config) : IO UInt32 := do
+  if config.help then
+    IO.println usage
+    return 0
+  if config.version then
+    IO.println "leanreach 0.1.0"
+    return 0
+  if config.command.isNone then
+    IO.eprintln "leanreach: no declaration or search pattern provided"
     IO.eprintln "Try 'leanreach --help'."
     return 2
-  | .ok config =>
-    if config.help then
-      IO.println usage
-      return 0
-    if config.version then
-      IO.println "leanreach 0.1.0"
-      return 0
-    if !config.interactive && config.command.isNone then
-      IO.eprintln "leanreach: no declaration or search pattern provided"
-      IO.eprintln "Try 'leanreach --help'."
-      return 2
-    if config.interactive && config.command.isSome then
-      IO.eprintln "leanreach: --interactive does not accept a positional query or search command"
-      IO.eprintln "Send requests on stdin instead."
-      return 2
-    try
-      execute config
-    catch error =>
-      IO.eprintln s!"leanreach: {error}"
-      return 1
+  try
+    execute config
+  catch error =>
+    IO.eprintln s!"leanreach: {error}"
+    return 1
 
 end LeanReach.Cli
-
-unsafe def main (args : List String) : IO UInt32 :=
-  LeanReach.Cli.main args
