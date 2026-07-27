@@ -75,7 +75,8 @@ private unsafe def preloadSignatures (session : Session) (names : Array Name) : 
         pending := pending.alter declaration.module fun names? =>
           some ((names?.getD {}).insert name)
   for (moduleName, moduleNames) in pending do
-    let loaded ← unsafe Signatures.load moduleName moduleNames
+    let loaded ← unsafe Signatures.load moduleName moduleNames fun name =>
+      (session.index.find? name).map (·.module)
     for name in moduleNames do
       signatures := signatures.insert name
         ((loaded.find? name).getD (Signatures.unavailable name))
