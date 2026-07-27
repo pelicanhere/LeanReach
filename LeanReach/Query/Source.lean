@@ -2,6 +2,7 @@ import Lean.Data.Json
 import Lean.Server.References
 import Lean.Util.Path
 import LeanReach.Query.Context
+import LeanReach.Query.Ilean
 
 namespace LeanReach.Query
 
@@ -10,26 +11,6 @@ open Lean Lean.Core
 private def moduleOf? (env : Environment) (name : Name) : Option Name := do
   let moduleIdx ← env.getModuleIdxFor? name
   env.allImportedModuleNames[moduleIdx]?
-
-private def ileanPath? (moduleName : Name) : IO (Option System.FilePath) := do
-  try
-    let path := (← findOLean moduleName).withExtension "ilean"
-    return if ← path.pathExists then some path else none
-  catch _ =>
-    return none
-
-private def loadIlean? (moduleName : Name) : IO (Option Server.Ilean) := do
-  let some path ← ileanPath? moduleName | return none
-  return some (← Server.Ilean.load path)
-
-private def sourceDependencies (ilean : Server.Ilean) (parent : Name) : NameSet := Id.run do
-  let parentName := nameString parent
-  let mut dependencies : NameSet := {}
-  for (ident, info) in ilean.references do
-    let .const _ dependencyName := ident | continue
-    if info.usages.any fun usage => usage.parentDecl? == some parentName then
-      dependencies := dependencies.insert dependencyName.toName
-  return dependencies
 
 /-- Follow resolved source references inside the `.ilean` that owns each declaration. -/
 def collectSourceUpstream (target : Name) : RequestM (Array RawRelation) := do
