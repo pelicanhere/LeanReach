@@ -71,7 +71,7 @@ private def searchLimit (defaults : QueryOptions) (request : InteractiveRequest)
   | none => pure defaults.limit
 
 private def processRequest (defaults : QueryOptions) (request : InteractiveRequest) :
-    CoreM (Json × Bool × String) := do
+    SessionM (Json × Bool × String) := do
   let command := request.command?.getD "query"
   match command with
   | "query" =>
@@ -79,7 +79,7 @@ private def processRequest (defaults : QueryOptions) (request : InteractiveReque
     | .error message, _ | _, .error message =>
       return (errorResponse request.id? message, true, command)
     | .ok query, .ok options =>
-      match ← runQuery query options with
+      match ← runQueryM query options with
       | .ok result =>
         return (successResponse request.id? (toJson result), true, command)
       | .error failure =>
@@ -93,7 +93,7 @@ private def processRequest (defaults : QueryOptions) (request : InteractiveReque
     | .error message, _ | _, .error message =>
       return (errorResponse request.id? message, true, command)
     | .ok query, .ok limit =>
-      let result ← runSearch query {
+      let result ← runSearchM query {
         defaults with
         limit
         includeInternal := request.includeInternal?.getD defaults.includeInternal
@@ -131,38 +131,39 @@ Run a newline-delimited JSON session. The imported environment is owned by the c
 until EOF or a `quit` request.
 -/
 partial def runInteractive (defaults : QueryOptions) (profile : Bool := false) : CoreM UInt32 := do
-  let stdin ← IO.getStdin
-  let rec loop : CoreM UInt32 := do
-    let line ← stdin.getLine
-    if line.isEmpty then
-      return 0
-    let line := line.trimAscii.copy
-    if line.isEmpty then
-      loop
-    else
-      let started ← IO.monoMsNow
-      match decodeRequest line with
-      | .error message =>
-        printJsonLine <| errorResponse none s!"invalid request: {message}"
-        if profile then
-          let finished ← IO.monoMsNow
-          IO.eprintln s!"leanreach request: command=invalid elapsed={finished - started}ms"
+  withSession do
+    let stdin ← IO.getStdin
+    let rec loop : SessionM UInt32 := do
+      let line ← stdin.getLine
+      if line.isEmpty then
+        return 0
+      let line := line.trimAscii.copy
+      if line.isEmpty then
         loop
-      | .ok request =>
-        try
-          let (response, keepRunning, command) ← processRequest defaults request
-          printJsonLine response
+      else
+        let started ← IO.monoMsNow
+        match decodeRequest line with
+        | .error message =>
+          printJsonLine <| errorResponse none s!"invalid request: {message}"
           if profile then
             let finished ← IO.monoMsNow
-            IO.eprintln s!"leanreach request: command={command} elapsed={finished - started}ms"
-          if keepRunning then loop else return 0
-        catch error =>
-          let message ← error.toMessageData.toString
-          printJsonLine <| errorResponse request.id? s!"request failed: {message}"
-          if profile then
-            let finished ← IO.monoMsNow
-            IO.eprintln s!"leanreach request: command=error elapsed={finished - started}ms"
+            IO.eprintln s!"leanreach request: command=invalid elapsed={finished - started}ms"
           loop
-  loop
+        | .ok request =>
+          try
+            let (response, keepRunning, command) ← processRequest defaults request
+            printJsonLine response
+            if profile then
+              let finished ← IO.monoMsNow
+              IO.eprintln s!"leanreach request: command={command} elapsed={finished - started}ms"
+            if keepRunning then loop else return 0
+          catch error =>
+            let message ← error.toMessageData.toString
+            printJsonLine <| errorResponse request.id? s!"request failed: {message}"
+            if profile then
+              let finished ← IO.monoMsNow
+              IO.eprintln s!"leanreach request: command=error elapsed={finished - started}ms"
+            loop
+    loop
 
 end LeanReach
