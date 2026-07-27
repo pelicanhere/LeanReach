@@ -5,15 +5,20 @@ namespace LeanReach
 
 open Lean Lean.Core
 
-private structure InteractiveRequest where
-  id? : Option Json := none
-  command? : Option String := none
-  query? : Option String := none
-  direction? : Option String := none
-  depth? : Option Nat := none
-  limit? : Option Nat := none
-  includeInternal? : Option Bool := none
-  deriving FromJson
+private inductive Request where
+  | query (id? : Option Json) (query : String) (options : QueryOptions)
+  | search (id? : Option Json) (query : String) (options : QueryOptions)
+  | ping (id? : Option Json)
+  | quit (id? : Option Json)
+
+private def Request.id? : Request → Option Json
+  | .query id? .. | .search id? .. | .ping id? | .quit id? => id?
+
+private def Request.command : Request → String
+  | .query .. => "query"
+  | .search .. => "search"
+  | .ping .. => "ping"
+  | .quit .. => "quit"
 
 private def responseId (id? : Option Json) : Json :=
   id?.getD Json.null
@@ -37,94 +42,115 @@ private def errorResponse (id? : Option Json) (message : String)
     | some candidates => [("candidates", toJson candidates)]
     | none => []
 
-private def requiredQuery (request : InteractiveRequest) : Except String String := do
-  let query ← match request.query? with
-    | some query => pure query.trimAscii.copy
-    | none => throw "missing required field 'query'"
+private def optionalField {α : Type} [FromJson α] (json : Json) (name : String) :
+    Except String (Option α) :=
+  match json.getObjValAs? (Option α) name with
+  | .ok value => .ok value
+  | .error message => .error s!"field '{name}': {message}"
+
+private def requiredQuery (json : Json) : Except String String := do
+  let query? : Option String ← optionalField json "query"
+  let some query := query? | throw "missing required field 'query'"
+  let query := query.trimAscii.copy
   if query.isEmpty then
     throw "field 'query' must be non-empty"
   return query
 
-private def queryOptions (defaults : QueryOptions) (request : InteractiveRequest) :
+private def requestOptions (defaults : QueryOptions) (json : Json) :
     Except String QueryOptions := do
-  let direction ← match request.direction? with
+  let direction? : Option String ← optionalField json "direction"
+  let depth? : Option Nat ← optionalField json "depth"
+  let limit? : Option Nat ← optionalField json "limit"
+  let includeInternal? : Option Bool ← optionalField json "includeInternal"
+  let direction ← match direction? with
     | some direction => parseDirection "field 'direction'" direction
     | none => pure defaults.direction
-  let depth ← match request.depth? with
+  let depth ← match depth? with
     | some depth => validateDepth "field 'depth'" depth
     | none => pure defaults.depth
-  let limit ← match request.limit? with
+  let limit ← match limit? with
     | some limit => validateLimit "field 'limit'" limit
     | none => pure defaults.limit
   return {
-    mode := defaults.mode
+    defaults with
     direction
     depth
     limit
-    includeInternal := request.includeInternal?.getD defaults.includeInternal
+    includeInternal := includeInternal?.getD defaults.includeInternal
   }
 
-private def searchLimit (defaults : QueryOptions) (request : InteractiveRequest) :
-    Except String Nat :=
-  match request.limit? with
-  | some limit => validateLimit "field 'limit'" limit
-  | none => pure defaults.limit
+private def searchOptions (defaults : QueryOptions) (json : Json) :
+    Except String QueryOptions := do
+  let limit? : Option Nat ← optionalField json "limit"
+  let includeInternal? : Option Bool ← optionalField json "includeInternal"
+  let limit ← match limit? with
+    | some limit => validateLimit "field 'limit'" limit
+    | none => pure defaults.limit
+  return {
+    defaults with
+    limit
+    includeInternal := includeInternal?.getD defaults.includeInternal
+  }
 
-private def processRequest (defaults : QueryOptions) (request : InteractiveRequest) :
-    Query.SessionM (Json × Bool × String) := do
-  let command := request.command?.getD "query"
-  match command with
+private def attachId {α : Type} (id? : Option Json) :
+    Except String α → Except (Option Json × String) α
+  | .ok value => .ok value
+  | .error message => .error (id?, message)
+
+private def requestId : Json → Option Json
+  | .obj fields =>
+    match fields.get? "id" with
+    | some .null | none => none
+    | some id => some id
+  | _ => none
+
+private def decodeRequest (defaults : QueryOptions) (line : String) :
+    Except (Option Json × String) Request := do
+  let json ← match Json.parse line with
+    | .ok json => pure json
+    | .error message => throw (none, message)
+  let .obj _ := json | throw (none, "object expected")
+  let id? := requestId json
+  let command? : Option String ← attachId id? (optionalField json "command")
+  match command?.getD "query" with
   | "query" =>
-    match requiredQuery request, queryOptions defaults request with
-    | .error message, _ | _, .error message =>
-      return (errorResponse request.id? message, true, command)
-    | .ok query, .ok options =>
-      match ← runQueryM query options with
-      | .ok result =>
-        return (successResponse request.id? (toJson result), true, command)
-      | .error failure =>
-        return (
-          errorResponse request.id? failure.error (some failure.candidates),
-          true,
-          command
-        )
+    return .query id?
+      (← attachId id? (requiredQuery json))
+      (← attachId id? (requestOptions defaults json))
   | "search" =>
-    match requiredQuery request, searchLimit defaults request with
-    | .error message, _ | _, .error message =>
-      return (errorResponse request.id? message, true, command)
-    | .ok query, .ok limit =>
-      let result ← runSearchM query {
-        defaults with
-        limit
-        includeInternal := request.includeInternal?.getD defaults.includeInternal
-      }
-      return (successResponse request.id? (toJson result), true, command)
-  | "ping" =>
+    return .search id?
+      (← attachId id? (requiredQuery json))
+      (← attachId id? (searchOptions defaults json))
+  | "ping" => return .ping id?
+  | "quit" => return .quit id?
+  | command =>
+    throw (id?, s!"unknown command '{command}'; expected query, search, ping, or quit")
+
+private def processRequest (defaults : QueryOptions) (request : Request) :
+    Query.SessionM (Json × Bool) := do
+  match request with
+  | .query id? query options =>
+    match ← runQueryM query options with
+    | .ok result =>
+      return (successResponse id? (toJson result), true)
+    | .error failure =>
+      return (errorResponse id? failure.error (some failure.candidates), true)
+  | .search id? query options =>
+    let result ← runSearchM query options
+    return (successResponse id? (toJson result), true)
+  | .ping id? =>
     return (
-      successResponse request.id? <| Json.mkObj [
+      successResponse id? <| Json.mkObj [
         ("status", toJson "ready"),
         ("mode", toJson defaults.mode.label)
       ],
-      true,
-      command
+      true
     )
-  | "quit" =>
+  | .quit id? =>
     return (
-      successResponse request.id? <| Json.mkObj [("status", toJson "bye")],
-      false,
-      command
+      successResponse id? <| Json.mkObj [("status", toJson "bye")],
+      false
     )
-  | _ =>
-    return (
-      errorResponse request.id?
-        s!"unknown command '{command}'; expected query, search, ping, or quit",
-      true,
-      command
-    )
-
-private def decodeRequest (line : String) : Except String InteractiveRequest := do
-  let json ← Json.parse line
-  fromJson? json
 
 /--
 Run a newline-delimited JSON session. The imported environment is owned by the caller and reused
@@ -142,20 +168,21 @@ partial def runInteractive (defaults : QueryOptions) (profile : Bool := false) :
         loop
       else
         let started ← IO.monoMsNow
-        match decodeRequest line with
-        | .error message =>
-          printJsonLine <| errorResponse none s!"invalid request: {message}"
+        match decodeRequest defaults line with
+        | .error (id?, message) =>
+          printJsonLine <| errorResponse id? s!"invalid request: {message}"
           if profile then
             let finished ← IO.monoMsNow
             IO.eprintln s!"leanreach request: command=invalid elapsed={finished - started}ms"
           loop
         | .ok request =>
           try
-            let (response, keepRunning, command) ← processRequest defaults request
+            let (response, keepRunning) ← processRequest defaults request
             printJsonLine response
             if profile then
               let finished ← IO.monoMsNow
-              IO.eprintln s!"leanreach request: command={command} elapsed={finished - started}ms"
+              IO.eprintln
+                s!"leanreach request: command={request.command} elapsed={finished - started}ms"
             if keepRunning then loop else return 0
           catch error =>
             let message ← error.toMessageData.toString
