@@ -103,9 +103,8 @@ private def collectDownstream (index : Index) (target : Name) (options : QueryOp
 
 private def describeRelations (index : Index) (sourcePath : SearchPath)
     (options : QueryOptions) (relations : Array Query.RawRelation) : IO RelationList := do
-  let mut items := #[]
-  for relation in relations.take options.limit do
-    items := items.push {
+  let items ← (relations.take options.limit).mapM fun relation => do
+    return {
       distance := relation.distance
       via := relation.via.map Query.nameString
       declaration := ← describeDeclaration index sourcePath relation.declaration
@@ -144,9 +143,8 @@ def runQuery (index : Index) (sourcePath : SearchPath) (query : String)
 def runSearch (index : Index) (sourcePath : SearchPath) (query : String)
     (options : QueryOptions := {}) : IO SearchResult := do
   let hits := scoredNames index query options.includeInternal
-  let mut items := #[]
-  for (_, name) in hits.take options.limit do
-    items := items.push (← describeDeclaration index sourcePath name)
+  let items ← (hits.take options.limit).mapM fun (_, name) =>
+    describeDeclaration index sourcePath name
   return {
     query
     total := hits.size

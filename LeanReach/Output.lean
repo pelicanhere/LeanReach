@@ -51,7 +51,7 @@ def printJson {α : Type} [ToJson α] (value : α) : IO Unit :=
 /-- Emit exactly one compact JSON value and flush it for long-lived pipe clients. -/
 def printJsonLine (value : Json) : IO Unit := do
   let stdout ← IO.getStdout
-  stdout.putStr (value.compress ++ "\n")
+  stdout.putStrLn value.compress
   stdout.flush
 
 end LeanReach

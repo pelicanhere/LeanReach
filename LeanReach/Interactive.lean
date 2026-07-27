@@ -66,20 +66,19 @@ def run (index : SourceIndex.Index) (sourcePath : SearchPath)
   while true do
     let line ← stdin.getLine
     if line.isEmpty then break
-    let line := line.trimAscii.copy
-    unless line.isEmpty do
-      let started ← IO.monoMsNow
-      match decode defaults line with
+    unless line.trimAscii.isEmpty do
+      let started ← if profile then IO.monoMsNow else pure 0
+      let (response, command) ← match decode defaults line with
       | .error message =>
-        printJsonLine <| failure s!"invalid request: {message}"
-        reportProfile profile "invalid" started
+        pure (failure s!"invalid request: {message}", "invalid")
       | .ok (request, options) =>
         try
-          printJsonLine (← process index sourcePath request options)
-          reportProfile profile request.command.label started
+          let response ← process index sourcePath request options
+          pure (response, request.command.label)
         catch error =>
-          printJsonLine <| failure s!"request failed: {error}"
-          reportProfile profile "error" started
+          pure (failure s!"request failed: {error}", "error")
+      printJsonLine response
+      reportProfile profile command started
   return 0
 
 end Interactive

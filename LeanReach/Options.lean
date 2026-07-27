@@ -2,9 +2,9 @@ import LeanReach.Protocol
 
 namespace LeanReach
 
-def maxDepth : Nat := 8
+private def maxDepth : Nat := 8
 
-def maxLimit : Nat := 1000
+private def maxLimit : Nat := 1000
 
 def parseDirection (label value : String) : Except String Direction :=
   match value with
@@ -25,16 +25,15 @@ def validateLimit (label : String) (limit : Nat) : Except String Nat :=
   else
     .ok limit
 
-def parseDepth (label value : String) : Except String Nat := do
-  let depth ← match value.toNat? with
-    | some depth => pure depth
-    | none => throw s!"{label} expects a natural number, got '{value}'"
-  validateDepth label depth
+private def parseNat (label value : String) : Except String Nat :=
+  match value.toNat? with
+  | some value => .ok value
+  | none => .error s!"{label} expects a natural number, got '{value}'"
 
-def parseLimit (label value : String) : Except String Nat := do
-  let limit ← match value.toNat? with
-    | some limit => pure limit
-    | none => throw s!"{label} expects a natural number, got '{value}'"
-  validateLimit label limit
+def parseDepth (label value : String) : Except String Nat :=
+  parseNat label value >>= validateDepth label
+
+def parseLimit (label value : String) : Except String Nat :=
+  parseNat label value >>= validateLimit label
 
 end LeanReach

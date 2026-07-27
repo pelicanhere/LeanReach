@@ -117,8 +117,8 @@ private def testSourceIndex (executable : System.FilePath) : IO Unit := do
 
 private def testInteractive (executable : System.FilePath) : IO Unit := do
   let input := "\n".intercalate [
-    "",
-    "{\"command\":\"search\",\"query\":\"gcd\"}",
+    "   ",
+    "  {\"command\":\"search\",\"query\":\"gcd\"}  ",
     "{\"command\":\"query\",\"query\":\"Nat.gcd\",\"depth\":99}",
     "{\"command\":\"query\",\"query\":\"Nat.gcd\"}",
     "{\"command\":\"query\",\"query\":\"Nat.gcd\",\"direction\":\"upstream\",\"limit\":2}",

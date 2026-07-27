@@ -18,17 +18,10 @@ structure Index where
   declarations : NameMap Declaration := {}
   downstream : NameMap NameSet := {}
 
-def Index.declarationCount (index : Index) : Nat := Id.run do
-  let mut count := 0
-  for _ in index.declarations do
-    count := count + 1
-  return count
+def Index.declarationCount (index : Index) : Nat :=
+  index.declarations.size
 
-def Index.relationCount (index : Index) : Nat := Id.run do
-  let mut count := 0
-  for (_, parents) in index.downstream do
-    for _ in parents do
-      count := count + 1
-  return count
+def Index.relationCount (index : Index) : Nat :=
+  index.downstream.foldl (init := 0) fun count _ parents => count + parents.size
 
 end LeanReach.SourceIndex

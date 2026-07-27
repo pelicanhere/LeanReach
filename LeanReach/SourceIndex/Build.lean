@@ -14,32 +14,8 @@ private def cacheVersion : Nat := 2
 private def buildBatchSize : Nat := 32
 private def buildWorkerCount : Nat := 8
 
-def normalizeRoots (roots : Array Name) : Array Name := Id.run do
-  let mut seen : NameSet := {}
-  let mut result := #[]
-  for root in roots.qsort Name.quickLt do
-    unless seen.contains root do
-      seen := seen.insert root
-      result := result.push root
-  return result
-
-private def declarationOfLocation (moduleName : Name)
-    (location : Lsp.RefInfo.Location) : Declaration where
-  module := moduleName
-  range := ⟨
-    ⟨location.startPosLine, location.startPosCharacter⟩,
-    ⟨location.endPosLine, location.endPosCharacter⟩
-  ⟩
-
-private def selectionRange (info : Lsp.DeclInfo) : Lsp.Range :=
-  ⟨
-    ⟨info.selectionRangeStartPosLine, info.selectionRangeStartPosCharacter⟩,
-    ⟨info.selectionRangeEndPosLine, info.selectionRangeEndPosCharacter⟩
-  ⟩
-
-private def insertParent (downstream : NameMap NameSet) (dependency parent : Name) :
-    NameMap NameSet :=
-  downstream.insert dependency ((downstream.find? dependency).getD {} |>.insert parent)
+private def normalizeRoots (roots : Array Name) : Array Name :=
+  (NameSet.ofArray roots).toArray
 
 private def addIlean (index : Index) (ilean : Server.Ilean) : Index := Id.run do
   let mut declarations := index.declarations
@@ -49,7 +25,7 @@ private def addIlean (index : Index) (ilean : Server.Ilean) : Index := Id.run do
   for (declarationName, range) in ilean.decls do
     declarations := declarations.insert declarationName.toName {
       module := ilean.module
-      range := selectionRange range
+      range := range.selectionRange
     }
 
   for (ident, info) in ilean.references do
@@ -57,20 +33,21 @@ private def addIlean (index : Index) (ilean : Server.Ilean) : Index := Id.run do
     let declaration := declarationName.toName
     if definitionModule == moduleString && !declarations.contains declaration then
       if let some location := info.definition? then
-        declarations := declarations.insert declaration
-          (declarationOfLocation ilean.module location)
+        declarations := declarations.insert declaration {
+          module := ilean.module
+          range := location.range
+        }
     for usage in info.usages do
       let some parentName := usage.parentDecl? | continue
-      downstream := insertParent downstream declaration parentName.toName
+      downstream := downstream.alter declaration fun parents? =>
+        some ((parents?.getD {}).insert parentName.toName)
 
   return { declarations, downstream }
 
 private def loadChunk (modules : Array Name) :
-    IO (Array (Name × Option Server.Ilean)) := do
-  let mut results := #[]
-  for moduleName in modules do
-    results := results.push (moduleName, ← Query.loadIlean? moduleName)
-  return results
+    IO (Array (Name × Option Server.Ilean)) :=
+  modules.mapM fun moduleName => do
+    return (moduleName, ← Query.loadIlean? moduleName)
 
 private def loadBatch (modules : Array Name) :
     IO (Array (Name × Option Server.Ilean)) := do
@@ -78,25 +55,20 @@ private def loadBatch (modules : Array Name) :
     return #[]
   let workerCount := min buildWorkerCount modules.size
   let chunkSize := (modules.size + workerCount - 1) / workerCount
-  let mut tasks : Array (Task
-    (Except IO.Error (Array (Name × Option Server.Ilean)))) := #[]
-  for worker in [0:workerCount] do
+  let tasks ← (Array.range workerCount).mapM fun worker => do
     let start := worker * chunkSize
     let stop := min (start + chunkSize) modules.size
-    tasks := tasks.push (← IO.asTask (loadChunk (modules.extract start stop)))
-  let mut results := #[]
-  let mut firstError? : Option IO.Error := none
-  for task in tasks do
-    match ← IO.wait task with
-    | .ok chunk => results := results ++ chunk
-    | .error error =>
-      if firstError?.isNone then
-        firstError? := some error
-  match firstError? with
-  | some error => throw error
-  | none => return results
+    IO.asTask (loadChunk (modules.extract start stop))
+  let chunks ← tasks.mapM fun task => do
+    return ← IO.wait task
+  let chunks ← chunks.mapM fun
+    | Except.ok chunk => pure chunk
+    | Except.error error =>
+      throw error
+  return chunks.flatten
 
-private def buildIndex (requestedRoots : Array Name) : IO Index := do
+/-- Build a source-visible declaration and direct-reference index without importing an Environment. -/
+def build (requestedRoots : Array Name) : IO Index := do
   let requestedRoots := normalizeRoots requestedRoots
   if requestedRoots.isEmpty then
     throw <| IO.userError "source index needs at least one root module"
@@ -125,10 +97,6 @@ private def buildIndex (requestedRoots : Array Name) : IO Index := do
           queue := queue.push importedName
     offset := stop
   return index
-
-/-- Build a source-visible declaration and direct-reference index without importing an Environment. -/
-def build (roots : Array Name) : IO Index :=
-  buildIndex roots
 
 private def readModuleDepHash? (moduleName : Name) : IO (Option String) := do
   try

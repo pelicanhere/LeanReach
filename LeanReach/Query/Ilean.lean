@@ -6,7 +6,7 @@ namespace LeanReach.Query
 
 open Lean
 
-def ileanPath? (moduleName : Name) : IO (Option System.FilePath) := do
+private def ileanPath? (moduleName : Name) : IO (Option System.FilePath) := do
   try
     let path := (← findOLean moduleName).withExtension "ilean"
     return if ← path.pathExists then some path else none
