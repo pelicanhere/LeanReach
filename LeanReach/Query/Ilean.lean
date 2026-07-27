@@ -26,4 +26,23 @@ def sourceDependencies (ilean : Server.Ilean) (parent : Name) : NameSet := Id.ru
       dependencies := dependencies.insert dependencyName.toName
   return dependencies
 
+private def parentN (path : System.FilePath) : Nat → Option System.FilePath
+  | 0 => some path
+  | count + 1 => path.parent.bind fun parent => parentN parent count
+
+/--
+Build a source search path from both `LEAN_SRC_PATH` and Lake's `.olean` roots. Lake reliably sets
+`LEAN_PATH` for executables, but does not set `LEAN_SRC_PATH` on every platform.
+-/
+def sourceSearchPath : IO SearchPath := do
+  let mut sources ← getSrcSearchPath
+  for oleanRoot in (← searchPathRef.get) do
+    -- Lake package/project layout: ROOT/.lake/build/lib/lean
+    if let some packageRoot := parentN oleanRoot 4 then
+      sources := sources ++ [packageRoot]
+    -- Lean toolchain layout: SYSROOT/lib/lean -> SYSROOT/src/lean
+    if let some sysroot := parentN oleanRoot 2 then
+      sources := sources ++ [sysroot / "src" / "lean"]
+  return sources
+
 end LeanReach.Query
