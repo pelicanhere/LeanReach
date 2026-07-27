@@ -1,11 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420">
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="420">
 <rect width="100%" height="100%" fill="white"/>
 <text x="60" y="28" font-size="18" font-family="sans-serif">Median end-to-end time (lower is better)</text>
-<line x1="60" y1="360" x2="580" y2="360" stroke="#444"/>
-<rect x="93.0" y="60.0" width="36" height="300.0" fill="#2563eb"><title>leanreach: 180000.00 ms</title></rect><rect x="141.0" y="359.6" width="36" height="0.4" fill="#f97316"><title>rg: 269.66 ms</title></rect><rect x="243.0" y="346.9" width="36" height="13.1" fill="#2563eb"><title>leanreach: 7851.64 ms</title></rect><rect x="291.0" y="359.5" width="36" height="0.5" fill="#f97316"><title>rg: 279.60 ms</title></rect><rect x="393.0" y="346.9" width="36" height="13.1" fill="#2563eb"><title>leanreach: 7851.11 ms</title></rect><rect x="441.0" y="359.5" width="36" height="0.5" fill="#f97316"><title>rg: 286.10 ms</title></rect>
-<text x="111.0" y="54.0" text-anchor="middle" font-size="11">180000.0</text><text x="159.0" y="353.6" text-anchor="middle" font-size="11">269.7</text><text x="135" y="382" text-anchor="middle" font-size="12">81544ba</text><text x="261.0" y="340.9" text-anchor="middle" font-size="11">7851.6</text><text x="309.0" y="353.5" text-anchor="middle" font-size="11">279.6</text><text x="285" y="382" text-anchor="middle" font-size="12">08e7952</text><text x="411.0" y="340.9" text-anchor="middle" font-size="11">7851.1</text><text x="459.0" y="353.5" text-anchor="middle" font-size="11">286.1</text><text x="435" y="382" text-anchor="middle" font-size="12">ae421b5</text>
-<rect x="470" y="18" width="12" height="12" fill="#2563eb"/>
-<text x="488" y="29" font-size="12">LeanReach</text>
-<rect x="558" y="18" width="12" height="12" fill="#f97316"/>
-<text x="576" y="29" font-size="12">rg</text>
+<line x1="60" y1="360" x2="660" y2="360" stroke="#444"/>
+<rect x="93.0" y="60.0" width="36" height="300.0" fill="#2563eb"><title>leanreach: 180000.00 ms</title></rect><rect x="141.0" y="359.6" width="36" height="0.4" fill="#f97316"><title>rg: 269.66 ms</title></rect><rect x="243.0" y="346.9" width="36" height="13.1" fill="#2563eb"><title>leanreach: 7851.64 ms</title></rect><rect x="291.0" y="359.5" width="36" height="0.5" fill="#f97316"><title>rg: 279.60 ms</title></rect><rect x="393.0" y="346.9" width="36" height="13.1" fill="#2563eb"><title>leanreach: 7851.11 ms</title></rect><rect x="441.0" y="359.5" width="36" height="0.5" fill="#f97316"><title>rg: 286.10 ms</title></rect><rect x="543.0" y="358.7" width="36" height="1.3" fill="#2563eb"><title>leanreach: 797.53 ms</title></rect><rect x="591.0" y="359.5" width="36" height="0.5" fill="#f97316"><title>rg: 283.95 ms</title></rect>
+<text x="111.0" y="54.0" text-anchor="middle" font-size="11">180000.0</text><text x="159.0" y="353.6" text-anchor="middle" font-size="11">269.7</text><text x="135" y="382" text-anchor="middle" font-size="12">81544ba</text><text x="261.0" y="340.9" text-anchor="middle" font-size="11">7851.6</text><text x="309.0" y="353.5" text-anchor="middle" font-size="11">279.6</text><text x="285" y="382" text-anchor="middle" font-size="12">08e7952</text><text x="411.0" y="340.9" text-anchor="middle" font-size="11">7851.1</text><text x="459.0" y="353.5" text-anchor="middle" font-size="11">286.1</text><text x="435" y="382" text-anchor="middle" font-size="12">ae421b5</text><text x="561.0" y="352.7" text-anchor="middle" font-size="11">797.5</text><text x="609.0" y="353.5" text-anchor="middle" font-size="11">283.9</text><text x="585" y="382" text-anchor="middle" font-size="12">8637443</text>
+<rect x="550" y="18" width="12" height="12" fill="#2563eb"/>
+<text x="568" y="29" font-size="12">LeanReach</text>
+<rect x="638" y="18" width="12" height="12" fill="#f97316"/>
+<text x="656" y="29" font-size="12">rg</text>
 </svg>
