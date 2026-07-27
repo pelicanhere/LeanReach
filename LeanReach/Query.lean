@@ -2,28 +2,12 @@ import Lean.DeclarationRange
 import Lean.PrettyPrinter.Delaborator.Builtins
 import Lean.Structure
 import Lean.Util.Path
+import LeanReach.Declaration
 import LeanReach.Rank
 
 namespace LeanReach
 
 open Lean Meta
-
-structure Declaration where
-  name : String
-  signature : String
-  moduleName : String
-  file : Option String
-  line : Nat
-  column : Nat
-
-instance : ToJson Declaration where
-  toJson d := Json.mkObj [
-    ("name", toJson d.name), ("signature", toJson d.signature),
-    ("source", Json.mkObj [
-      ("moduleName", toJson d.moduleName), ("file", toJson d.file),
-      ("line", toJson d.line), ("column", toJson d.column)
-    ])
-  ]
 
 abbrev Related := Nat × Declaration
 
