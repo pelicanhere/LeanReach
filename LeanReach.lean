@@ -6,21 +6,41 @@ namespace LeanReach
 
 open Lean
 
-private def initializeSearchPath : IO Unit := do
+private def workspaceRoots : IO (List System.FilePath) := do
+  let cwd ← IO.currentDir
+  let packages := cwd / ".lake" / "packages"
+  let mut roots := [cwd]
+  if ← packages.isDir then
+    for entry in ← packages.readDir do
+      if ← entry.path.isDir then roots := roots.concat entry.path
+  return roots
+
+private def initializeSearchPath (roots : List System.FilePath) : IO Unit := do
   match ← IO.getEnv "LEAN_PATH" with
   | some path => searchPathRef.set (System.SearchPath.parse path)
-  | none => initSearchPath (← findSysroot)
+  | none =>
+    let mut paths := []
+    for root in roots do
+      let path := root / ".lake" / "build" / "lib" / "lean"
+      if ← path.isDir then paths := paths.concat path
+    initSearchPath (← findSysroot) paths
 
-private def sourceSearchPath : IO SearchPath := do
-  let fallback := [← IO.currentDir, (← findSysroot) / "src" / "lean"]
+private def sourceSearchPath (roots : List System.FilePath) : IO SearchPath := do
+  let mut fallback := []
+  for root in roots do
+    fallback := fallback.concat root
+    let source := root / "src"
+    if ← source.isDir then fallback := fallback.concat source
+  fallback := fallback.concat ((← findSysroot) / "src" / "lean")
   match ← IO.getEnv "LEAN_SRC_PATH" with
   | some path => return System.SearchPath.parse path ++ fallback
   | none => return fallback
 
 private unsafe def withIndexSession {α : Type} (root : Name)
     (select : Index → Except String (Array Name)) (action : Session → CoreM α) : IO α := do
-  initializeSearchPath
-  let sourcePath ← sourceSearchPath
+  let roots ← workspaceRoots
+  initializeSearchPath roots
+  let sourcePath ← sourceSearchPath roots
   Lean.enableInitializersExecution
   let index ← unsafe Cache.loadIndex root
   let modules ←

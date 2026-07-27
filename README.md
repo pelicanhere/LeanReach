@@ -31,6 +31,14 @@ lake exe leanreach_tests
 LeanReach is pinned to Lean and Mathlib `v4.32.0`. The executable enables interpreter support
 because loading environment extensions at runtime requires it.
 
+On Windows, create a directly runnable distribution containing the native executable and the Lean
+runtime DLLs:
+
+```console
+pwsh scripts/package.ps1
+.lake/build/leanreach-dist/leanreach.exe --help
+```
+
 ## Usage
 
 ```console
@@ -98,16 +106,16 @@ queries over the same root.
 ## Searching another local Lake library
 
 Build LeanReach with the same Lean toolchain as the target project. From the target project's
-directory, run the binary under that project's Lake environment and name an aggregate/root module:
+directory, invoke the packaged binary and name an aggregate/root module:
 
 ```console
-lake env /path/to/LeanReach/.lake/build/bin/leanreach \
+/path/to/LeanReach/.lake/build/leanreach-dist/leanreach \
   --module MyProject search my_theorem
 ```
 
-`lake env` supplies both `LEAN_PATH` and `LEAN_SRC_PATH`. The former lets LeanReach import the local
-`.olean`s; the latter maps declaration modules back to local `.lean` files, including projects that
-use a custom source directory.
+Without `LEAN_PATH`, LeanReach discovers the current project's default `.lake/build/lib/lean`,
+dependency build directories under `.lake/packages`, package roots, and common `src` directories.
+`lake env` remains supported for projects with custom Lake build or source directories.
 
 ## Dependency semantics
 
