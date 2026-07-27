@@ -1,21 +1,16 @@
 # LeanReach
 
-LeanReach is a Lean-native command-line tool for navigating declaration neighborhoods. It resolves
-declaration names, reports their source positions, and follows upstream or downstream dependencies
-without building a full declaration DAG.
+LeanReach is a Lean-native CLI for finding declarations, opening their exact source locations, and
+inspecting a bounded neighborhood of upstream and downstream dependencies.
 
-It is intended for coding agents that need a stronger first navigation step than raw text search:
+The default `source` mode reads Lean's resolved `.ilean` data. It does not import a Mathlib
+`Environment`, and it stores only declaration locations plus direct-reference postings—not a
+transitive declaration DAG. An explicit `kernel` mode remains available when elaborated constants,
+implicit instances, or generated declarations matter.
 
-- declaration-aware exact, suffix, case-insensitive, and substring lookup;
-- canonical declaration kinds and `SourceInfo` file/line/column ranges;
-- resolved source-reference edges from `.ilean` files;
-- elaborated constant edges from `.olean` environments;
-- bounded output and dependency depth;
-- a long-lived NDJSON mode that amortizes Mathlib import time.
-
-The interaction model is influenced by
-[Lean REPL](https://github.com/leanprover-community/repl), while the Lean-native search direction is
-influenced by [Loogle](https://github.com/nomeata/loogle).
+The command and NDJSON protocol follow the small tagged-dispatch style used by
+[Lean REPL](https://github.com/leanprover-community/repl). Persistent cache validation and the
+Lean-native CLI design are influenced by [Loogle](https://github.com/nomeata/loogle).
 
 ## Build and test
 
@@ -24,169 +19,170 @@ The project is pinned to Lean and Mathlib `v4.32.0`.
 ```console
 lake build
 lake exe leanreach_tests
+lake exe leanreach_integration_tests
 lake exe leanreach --help
 ```
 
-## One-shot queries
+Mathlib is already a Lake dependency. LeanReach does not download or maintain another copy.
 
-The default module is `Mathlib`, dependency mode is `source`, direction is `both`, and depth is one.
+## Source queries
+
+The default root module is `Mathlib`, direction is `both`, and depth is one.
 
 ```console
-# Resolve a declaration and inspect both sides of its neighborhood.
-lake exe leanreach Submodule.span
+# Build or validate the persistent source index.
+lake exe leanreach index --profile
 
-# Restrict startup to a smaller import closure.
+# Find ranked canonical declarations and their source positions.
+lake exe leanreach search span_le --limit 10 --json
+
+# Inspect direct source-visible dependencies and dependents.
+lake exe leanreach Submodule.span_le --limit 30
+
+# Use a smaller import closure.
 lake exe leanreach Nat.gcd --module Mathlib.Data.Nat.GCD.Basic
 
-# Follow elaborated constants rather than source references.
-lake exe leanreach Nat.gcd_comm --mode kernel --upstream
-
-# Traverse two source-reference hops and return JSON.
+# Traverse two source-reference hops.
 lake exe leanreach Submodule.span --upstream --depth 2 --limit 50 --json
-
-# Find ranked declaration-name candidates without choosing an ambiguous suffix.
-lake exe leanreach search gcd_comm --limit 20 --json
 ```
+
+The first source command builds an index when no valid cache exists. Later processes map the cache
+directly. `index` is an optional prewarm command; query and search perform the same validation
+automatically.
 
 Important options:
 
 ```text
--m, --module MODULE       import MODULE; repeatable (default: Mathlib)
+-m, --module MODULE       root MODULE; repeatable (default: Mathlib)
     --mode MODE           source or kernel (default: source)
     --direction DIR       both, upstream, or downstream
     --upstream            shorthand for upstream only
     --downstream          shorthand for downstream only
 -d, --depth N             dependency depth, 0..8 (default: 1)
 -n, --limit N             returned items per direction, 1..1000
--j, --json                pretty JSON output
-    --include-internal    include generated/internal declarations
-    --profile             timings on stderr
+-j, --json                structured JSON output
+    --interactive         newline-delimited JSON session
+    --include-internal    include generated/internal names
+    --profile             cache and query timings on stderr
 ```
 
-`limit` bounds serialized output, while each relation list retains the total number found. Name
-resolution never silently chooses between equally ranked suffixes: an ambiguous query returns
-ranked candidates with source positions.
+Name lookup ranks exact, suffix, case-insensitive, and substring matches. A query never silently
+chooses between equally ranked suffixes; it returns candidates with locations instead.
 
-## Dependency semantics
+## Persistent source index
 
-LeanReach deliberately exposes two graphs because “dependency” has two useful meanings.
+For each root set, LeanReach:
 
-| Mode | Edge meaning | Best use | Cost profile |
+1. reads Lake's `.trace` `depHash` as the transitive build fingerprint;
+2. traverses `.ilean` imports, including Lean's implicit `Init` closure;
+3. parses files with eight workers and a bounded 32-file window;
+4. extracts `.decls ∪ references.const.definition` locations;
+5. stores only direct `target → parent declaration` postings;
+6. saves the payload with `Lean.CompactedRegion`.
+
+The payload has an explicit format version and a cache name derived from the complete sorted root
+fingerprint. A missing required `.ilean` is an error; missing imported artifacts prevent persistence,
+so an incomplete index cannot become a valid-looking cache. A mapped compacted region is bracketed
+around one command or interactive session and released afterwards.
+
+This is lighter than an imported Mathlib environment and deliberately omits declaration types,
+values, transitive closure, and edge paths. Source-upstream reads only the `.ilean` that owns the
+current frontier; source-downstream follows the persistent direct postings.
+
+## Source and kernel semantics
+
+| Mode | Edge meaning | Startup | Intended use |
 |---|---|---|---|
-| `source` | A resolved identifier occurrence in `.ilean`, attributed to its parent declaration | agent navigation and nearby source | upstream reads the owning file; downstream scans only modules that can import the target |
-| `kernel` | A constant occurs in the elaborated declaration type or value | implicit arguments, instances, notation expansion, generated declarations | upstream is in-memory; downstream scans all loaded constants per layer |
+| `source` | resolved source identifier attributed to its `parentDecl` | restore or build the `.ilean` index; no Environment import | agent navigation and editable source |
+| `kernel` | constant occurs in an elaborated declaration type or value | import the requested `.olean` Environment | implicit arguments, instances, notation expansion |
 
-Source mode is the default because it stays close to code an agent can open and edit. Kernel mode
-can reveal dependencies that are not written as tokens, but a full-Mathlib downstream scan is
-intentionally explicit and can be expensive.
+Use kernel mode explicitly:
 
-Generated projections illustrate the difference: a field such as
-`CategoryTheory.Limits.IsLimit.lift` may have no independently attributed source-upstream references,
-while kernel mode still sees the constants in its elaborated declaration.
+```console
+lake exe leanreach Nat.gcd_comm --mode kernel --upstream
+```
+
+The two graphs are intentionally different. `.ilean` contains source-visible references and exact
+selection ranges, but no constant kind, type, or value. Consequently source results use the neutral
+kind `"declaration"`; kernel results can report theorem, definition, constructor, and similar kinds.
 
 ## Agent session protocol
 
-Start one process and reuse its imported environment:
+Start one process and reuse its mapped source index (or imported kernel environment):
 
 ```console
-lake exe leanreach --interactive --module Mathlib --profile
+lake exe leanreach --interactive --profile
 ```
 
-Write one JSON object per line to stdin. LeanReach writes exactly one compact JSON response per
-nonblank request and flushes stdout immediately. Arbitrary JSON `id` values are echoed.
+Write one JSON object per line. LeanReach emits one compact response per nonblank request and flushes
+stdout immediately. Arbitrary JSON `id` values are echoed.
 
 ```json
 {"id":1,"command":"ping"}
-{"id":2,"command":"query","query":"Submodule.span","direction":"upstream","depth":2,"limit":30}
-{"id":3,"command":"search","query":"span_le","limit":10}
+{"id":2,"command":"search","query":"span_le","limit":10}
+{"id":3,"command":"query","query":"Submodule.span_le","direction":"downstream","limit":20}
 {"id":4,"command":"quit"}
 ```
 
-Successful response:
-
-```json
-{"id":1,"ok":true,"result":{"mode":"source","status":"ready"}}
-```
-
-Protocol or resolution failure:
-
-```json
-{"id":2,"ok":false,"error":"missing required field 'query'"}
-```
-
-Supported commands are:
-
-- `query` (the default when `command` is omitted);
-- `search`;
-- `ping`;
-- `quit`.
-
-A request may override `direction`, `depth`, `limit`, and `includeInternal`. Imported modules and
-`source`/`kernel` mode are fixed when the process starts because they determine the environment's
-`.olean` loading level. Malformed requests return an error and the session continues. EOF also
-closes the session.
-
-## Lightweight downstream strategy
-
-LeanReach does not materialize a global declaration DAG. A source-downstream query instead:
-
-1. finds the module that owns the target declaration;
-2. makes one topological pass over the import graph to retain only possible dependent modules;
-3. checks `.ilean` text for the exact serialized resolved-reference key;
-4. parses only matching `.ilean` files;
-5. reads `parentDecl` owners and expands only the requested number of layers.
-
-Candidate files are read in bounded parallel batches. This keeps persistent state at zero and
-memory proportional to matching files, while remaining semantically more useful than a token grep.
-Long-lived sessions amortize the dominant cold import.
+Supported commands are `query`, `search`, `ping`, and `quit`. A request may override `direction`,
+`depth`, `limit`, and `includeInternal`. Root modules and dependency mode are fixed for the session.
+Malformed requests return an error without terminating the process.
 
 ## Output contract
 
-JSON payloads currently use `schemaVersion: 1`. Source lines and columns are one-based. Each
-declaration contains:
+JSON payloads use `schemaVersion: 1`. Lines and columns are one-based.
 
 ```json
 {
-  "name": "Submodule.span",
-  "kind": "definition",
+  "name": "Submodule.span_le",
+  "kind": "declaration",
   "source": {
     "moduleName": "Mathlib.LinearAlgebra.Span.Defs",
     "file": ".../Mathlib/LinearAlgebra/Span/Defs.lean",
-    "line": 48,
-    "column": 5,
-    "endLine": 48,
-    "endColumn": 9
+    "line": 82,
+    "column": 9,
+    "endLine": 82,
+    "endColumn": 16
   }
 }
 ```
 
-Relations add `distance` and, after the first hop, one lightweight `via` witness.
+Relations add `distance` and, beyond the first hop, one lightweight `via` witness. `limit` bounds
+serialized items while `total` reports the full number found.
 
-## Performance and rg comparison
+## Measured performance
 
-See [docs/benchmark.md](docs/benchmark.md) for the measured six-declaration baseline, current
-LeanReach session timings, and the proposed hidden-set agent A/B protocol.
+On the development Windows machine with a warm filesystem cache:
 
-The current tradeoff is explicit:
+- first full-Mathlib index build and save: `58.133 s`;
+- index contents: 387,200 source-visible declarations and 2,406,834 direct relations;
+- cache size: 147,386,416 bytes;
+- fresh native process, cached exact `Submodule.span_le` neighborhood:
+  `148 ms` initialization + `1 ms` restore + `26 ms` query = `175 ms`;
+- fresh native process, cached `search span_le`:
+  `149 ms` initialization + `16 ms` restore + `708 ms` search = `873 ms`.
 
-- hot declaration resolution and source-upstream queries take tens of milliseconds in a reused
-  process;
-- full-Mathlib source-downstream queries currently range from hundreds of milliseconds to a few
-  seconds depending on the target module;
-- importing all of Mathlib is still the dominant cold cost, so agents should use `--interactive`
-  or import a smaller module closure;
-- `rg` remains excellent for literal text, while LeanReach addresses canonical resolution,
-  implicit semantic edges, and declaration-owned source locations.
+Cold setup is paid once per Mathlib build fingerprint. `lake exe` adds Lake startup time; an
+installed/native invocation should run with the project's `LEAN_PATH`, while an interactive session
+amortizes process startup entirely.
+
+In a five-task end-to-end theorem-finding pilot, fresh matched subagents both achieved 5/5:
+LeanReach-only used 6 search commands and 230.982 seconds; rg-only used 15 commands and 299.017
+seconds. LeanReach was 22.8% faster overall, but rg was slightly faster on three simple names; the
+largest LeanReach win was the namespace-heavy `IsLimit.hom_ext` task. See
+[the benchmark report](docs/benchmark.md) for the full protocol and per-task timings.
 
 ## Repository layout
 
 ```text
-Main.lean                 executable entrypoint
-LeanReach/Cli.lean        argument parsing and environment lifetime
-LeanReach/Interactive.lean
-                           NDJSON request loop
-LeanReach/Query.lean      resolution, locations, and both dependency modes
-LeanReach/Output.lean     human and JSON rendering
-LeanReach/Options.lean    shared validated limits/options
-Tests/Smoke.lean          source/kernel semantic smoke coverage
+Main.lean                         Lake.ArgsT CLI parser
+LeanReach/Cli.lean                source/kernel lifecycle and shared dispatch
+LeanReach/Interactive.lean        tagged NDJSON codec and transport loop
+LeanReach/SourceIndex.lean        indexed source search and bounded BFS
+LeanReach/SourceIndex/Build.lean  .ilean traversal and persistent cache
+LeanReach/Query.lean              explicit kernel query API
+LeanReach/Query/Ilean.lean        shared .ilean and source-path utilities
+LeanReach/Protocol.lean           compact public request/result models
+Tests/Smoke.lean                  semantic and cache lifecycle tests
+Tests/Integration.lean            CLI and NDJSON process tests
 ```
