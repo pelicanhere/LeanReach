@@ -75,6 +75,14 @@ private unsafe def runTests : IO Unit :=
         item.name == "LeanReachFixture.Box.value")
       "structure projection was blacklisted"
 
+    let (_, context) ← session.context "LeanReachFixture.double_zero_again" 1 20
+    let some first := context[0]? | throwError "ranked context is empty"
+    check (first.declaration.name == "LeanReachFixture.double_zero")
+      "proof dependency was not ranked first"
+    let (_, expanded) ← session.context "LeanReachFixture.double_zero_again" 2 20
+    check (expanded.any fun item => item.distance == 2)
+      "ranked context was not expanded"
+
 unsafe def main : IO UInt32 := do
   try
     unsafe runTests

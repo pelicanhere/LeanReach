@@ -9,6 +9,7 @@ open Lean
 inductive Command where
   | query (name : String)
   | search (pattern : String)
+  | context (name : String)
 
 structure Config where
   root : Name := `Mathlib
@@ -71,11 +72,12 @@ LeanReach — Lean declaration search and dependency navigation
 USAGE:
   leanreach [OPTIONS] DECLARATION
   leanreach [OPTIONS] search PATTERN
+  leanreach [OPTIONS] context DECLARATION
   leanreach [OPTIONS] --interactive
 
 OPTIONS:
   -m, --module MODULE   import root module (default: Mathlib)
-  -d, --depth N         dependency depth (default: 1)
+  -d, --depth N         traversal depth (default: 1)
   -n, --limit N         maximum results per list (default: 20)
       --upstream        only declarations used by the target
       --downstream      only declarations that use the target
@@ -120,6 +122,18 @@ private def printSearch (json : Bool) (query : String) (items : Array Declaratio
     for declaration in items do
       printDeclaration "  " declaration
 
+private def printContext (json : Bool) (target : Declaration)
+    (items : Array RankedDeclaration) : IO Unit := do
+  if json then
+    IO.println (Json.mkObj [("target", toJson target), ("context", toJson items)]).compress
+  else
+    printDeclaration "target  " target
+    IO.println s!"context ({items.size})"
+    if items.isEmpty then IO.println "  <none>"
+    for item in items do
+      IO.println s!"  [score {item.score}, depth {item.distance}, df {item.documentFrequency}]"
+      printDeclaration "    " item.declaration
+
 private def runOne (session : Session) (config : Config) (command : Command) : CoreM Unit := do
   match command with
   | .query name =>
@@ -131,6 +145,9 @@ private def runOne (session : Session) (config : Config) (command : Command) : C
     })
   | .search pattern =>
     printSearch config.json pattern (← session.search pattern config.limit)
+  | .context name =>
+    let (target, items) ← session.context name config.depth config.limit
+    printContext config.json target items
 
 private def runTimed (session : Session) (config : Config) (command : Command) : CoreM Unit := do
   let started ← IO.monoMsNow
@@ -141,6 +158,8 @@ private def runTimed (session : Session) (config : Config) (command : Command) :
 private def parseLine (line : String) : Command :=
   if let some pattern := line.dropPrefix? "search " then
     .search pattern.trimAscii.copy
+  else if let some name := line.dropPrefix? "context " then
+    .context name.trimAscii.copy
   else
     .query line
 
@@ -189,6 +208,7 @@ private unsafe def cli : CliM UInt32 := do
     else
       match arguments with
       | ["search", pattern] => pure (some (.search pattern))
+      | ["context", name] => pure (some (.context name))
       | [name] => pure (some (.query name))
       | arguments => throw <| Lake.CliError.unexpectedArguments arguments
   unsafe execute config command

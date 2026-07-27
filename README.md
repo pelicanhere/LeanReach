@@ -12,12 +12,12 @@ The implementation follows Loogle's deliberately simple process model:
 - use Lean's own delaborator and pretty-printer;
 - hide compiler-generated declarations using Loogle/doc-gen-style filtering;
 - index direct constants mentioned by declaration types and values;
-- cache names and the reverse relation next to the root `.olean`;
+- cache names and direct-reference postings in both directions next to the root `.olean`;
 - perform bounded breadth-first traversal instead of materializing a transitive DAG.
 
 The cache is checked against Lake's transitive `depHash`, so a local library rebuild invalidates it
 automatically. Both directions use `ConstantInfo.getUsedConstantsAsSet`, which includes the type and
-the proof or implementation body. Only the reverse edges needed for downstream lookup are stored.
+the proof or implementation body.
 
 ## Build and test
 
@@ -41,6 +41,9 @@ lake exe leanreach Submodule.span_le --limit 20
 # Traverse two hops in one direction.
 lake exe leanreach Submodule.span_le --upstream --depth 2
 
+# Rank the most informative declarations in a bounded upstream neighborhood.
+lake exe leanreach context Submodule.span_le --depth 2 --limit 20
+
 # Machine-readable output.
 lake exe leanreach Submodule.span_le --json
 
@@ -52,7 +55,7 @@ Important options:
 
 ```text
 -m, --module MODULE   imported root module (default: Mathlib)
--d, --depth N         dependency depth, 0 through 8 (default: 1)
+-d, --depth N         traversal depth, 0 through 8 (default: 1)
 -n, --limit N         results per list, 1 through 1000 (default: 20)
     --upstream        only declarations used by the target
     --downstream      only declarations that use the target
@@ -73,11 +76,12 @@ Importing a complete Lean environment is the expensive part. Agents should reuse
 lake exe leanreach --interactive --json --profile
 ```
 
-Each input line is either a declaration name or `search PATTERN`:
+Each input line is a declaration name, `search PATTERN`, or `context DECLARATION`:
 
 ```text
 search span_le
 Submodule.span_le
+context Submodule.span_le
 ```
 
 The process emits one compact JSON value per line and flushes stdout after every response. On the
@@ -113,12 +117,31 @@ An edge `A → B` means `ConstantInfo.getUsedConstantsAsSet` for `A` contains `B
 The bounded traversal remains a lightweight navigation aid rather than a materialized transitive
 DAG or a runtime call graph.
 
+## Ranked context
+
+`context` selects informative upstream declarations without an embedding model or a complete DAG.
+For a declaration used by `df` of the `N` indexed declarations, its score starts with Lucene's
+smoothed IDF:
+
+```text
+log(1 + (N - df + 0.5) / (df + 0.5))
+```
+
+The score is multiplied by `0.5^(distance - 1)`. Direct dependencies are all considered; deeper
+layers expand only the 16 highest-scoring declarations from the previous layer and stop after
+examining 256 edges. The output includes score, distance, and `df` so an agent can explain why a
+declaration was selected. This combines the rarity principle from Lean's
+[MePo implementation](https://github.com/leanprover/lean4/blob/master/src/Lean/LibrarySuggestions/MePo.lean)
+and the original [Meng–Paulson relevance filter](https://www.cl.cam.ac.uk/~lp15/papers/Automation/filtering-jal.pdf)
+with [Lucene's smoothed IDF](https://lucene.apache.org/core/9_4_2/core/org/apache/lucene/search/similarities/BM25Similarity.html).
+
 ## Layout
 
 ```text
-LeanReach/Index.lean  names, dependency index, cache, and resolution
+LeanReach/Index.lean  names, direct-reference postings, and resolution
 LeanReach/Cache.lean  persistent index serialization and freshness checks
 LeanReach/BlackListed.lean  generated-declaration filtering
+LeanReach/Rank.lean  bounded expansion and symbol-rarity ranking
 LeanReach/Query.lean  rendering, source locations, traversal, and sessions
 LeanReach.lean        environment-loading facade
 Main.lean             Lake ArgsT CLI and interactive transport

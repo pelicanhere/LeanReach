@@ -2,7 +2,7 @@ import Lean.DeclarationRange
 import Lean.PrettyPrinter.Delaborator.Builtins
 import Lean.Structure
 import Lean.Util.Path
-import LeanReach.Index
+import LeanReach.Rank
 
 namespace LeanReach
 
@@ -43,6 +43,13 @@ instance : ToJson QueryResult where
     ("upstream", Json.arr <| result.upstream.map relatedJson),
     ("downstream", Json.arr <| result.downstream.map relatedJson)
   ]
+
+structure RankedDeclaration where
+  score : Float
+  distance : Nat
+  documentFrequency : Nat
+  declaration : Declaration
+  deriving ToJson
 
 structure QueryOptions where
   depth : Nat := 1
@@ -148,5 +155,17 @@ def Session.query (session : Session) (query : String) (options : QueryOptions :
 def Session.search (session : Session) (query : String) (limit : Nat := 20) :
     CoreM (Array Declaration) :=
   (session.index.search query limit).mapM (describe session)
+
+def Session.context (session : Session) (query : String) (depth : Nat := 1)
+    (limit : Nat := 20) : CoreM (Declaration × Array RankedDeclaration) := do
+  let target ← session.index.resolve query
+  let items ← (session.index.context target depth limit).mapM fun (score, distance, name) =>
+    return {
+      score
+      distance
+      documentFrequency := session.index.documentFrequency name
+      declaration := ← describe session name
+    }
+  return (← describe session target, items)
 
 end LeanReach
