@@ -139,6 +139,12 @@ private def runOne (session : Session) (config : Config) (command : Command) : C
   | .search pattern =>
     printSearch config.json (← session.search pattern config.limit)
 
+private def runTimed (session : Session) (config : Config) (command : Command) : CoreM Unit := do
+  let started ← IO.monoMsNow
+  runOne session config command
+  if config.profile then
+    IO.eprintln s!"leanreach: query={(← IO.monoMsNow) - started}ms"
+
 private def parseLine (line : String) : Command :=
   if let some pattern := line.dropPrefix? "search " then
     .search pattern.trimAscii.copy
@@ -149,7 +155,7 @@ private partial def runInteractive (session : Session) (config : Config) : CoreM
   let line := (← (← IO.getStdin).getLine).trimAscii.copy
   if line.isEmpty then return
   try
-    runOne session config (parseLine line)
+    runTimed session config (parseLine line)
   catch error =>
     let message ← error.toMessageData.toString
     if config.json then
@@ -169,7 +175,7 @@ private unsafe def execute (config : Config) (command? : Option Command) : IO UI
   let started ← IO.monoMsNow
   withSession config.root fun session =>
     match command? with
-    | some command => runOne session config command
+    | some command => runTimed session config command
     | none => runInteractive session config
   if config.profile then
     IO.eprintln s!"leanreach: elapsed={(← IO.monoMsNow) - started}ms"
