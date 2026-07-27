@@ -17,7 +17,8 @@ private unsafe def sourceIndexTests : IO Unit := do
   let roots := #["Mathlib.Data.Nat.GCD.Basic".toName]
   let index ← SourceIndex.build roots
   let sourcePath ← Query.sourceSearchPath
-  let result ← expectQuery (← SourceIndex.runQuery index sourcePath "Nat.gcd" {
+  let session ← SourceIndex.Session.create index sourcePath
+  let result ← expectQuery (← SourceIndex.runQuery session "Nat.gcd" {
       direction := .both
       depth := 1
       limit := 1000
@@ -26,6 +27,8 @@ private unsafe def sourceIndexTests : IO Unit := do
   check result.target.source.file.isSome "source index did not resolve the target file"
   check (!result.target.source.moduleName.isEmpty) "source index did not resolve the target module"
   check (result.target.source.line > 0) "source index returned a zero source line"
+  check (result.target.signature.startsWith "Nat.gcd")
+    "source index omitted the target signature"
   check
     (result.upstream.items.any fun relation =>
       relation.declaration.name == "Nat.mod_lt")
@@ -35,7 +38,7 @@ private unsafe def sourceIndexTests : IO Unit := do
       relation.declaration.name == "Nat.gcd_comm")
     "source index omitted the direct Nat.gcd_comm dependent"
 
-  let search ← SourceIndex.runSearch index sourcePath "gcd_comm" { limit := 20 }
+  let search ← SourceIndex.runSearch session "gcd_comm" { limit := 20 }
   check (search.total >= 2) "source index name search returned too few matches"
   check
     (search.items.any fun declaration => declaration.name == "Nat.gcd_comm")

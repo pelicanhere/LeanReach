@@ -78,6 +78,8 @@ private def testQuery (executable : System.FilePath) : IO Unit := do
   let response ← parseJson output.stdout
   let target ← field Json response "target"
   check ((← field String target "name") == "Nat.gcd_comm") "query resolved the wrong target"
+  check ((← field String target "signature").contains "Nat.gcd_comm")
+    "query omitted the target signature"
   let upstream ← field Json response "upstream"
   let items ← field (Array Json) upstream "items"
   check (items.size ≤ 5) "query ignored -n=5"
@@ -94,6 +96,8 @@ private def testSourceIndex (executable : System.FilePath) : IO Unit := do
   let response ← parseJson first.stdout
   let target ← field Json response "target"
   check ((← field String target "name") == "Nat.gcd") "source query resolved the wrong target"
+  check ((← field String target "signature").contains "Nat.gcd")
+    "source query omitted the target signature"
   let source ← field Json target "source"
   let _ ← field String source "file"
   let _ ← field Nat source "line"

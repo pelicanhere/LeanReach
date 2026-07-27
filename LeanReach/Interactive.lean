@@ -44,15 +44,15 @@ private def decode (defaults : QueryOptions) (line : String) :
 private def failure (message : String) : Json :=
   toJson ({ error := message } : QueryFailure)
 
-private def process (index : SourceIndex.Index) (sourcePath : SearchPath)
+private unsafe def process (session : SourceIndex.Session)
     (request : Request) (options : QueryOptions) : IO Json := do
   match request.command with
   | .query =>
-    return match ← SourceIndex.runQuery index sourcePath request.query options with
+    return match ← SourceIndex.runQuery session request.query options with
       | .ok result => toJson result
       | .error error => toJson error
   | .search =>
-    return toJson (← SourceIndex.runSearch index sourcePath request.query options)
+    return toJson (← SourceIndex.runSearch session request.query options)
 
 private def reportProfile (enabled : Bool) (command : String) (started : Nat) : IO Unit := do
   if enabled then
@@ -60,7 +60,7 @@ private def reportProfile (enabled : Bool) (command : String) (started : Nat) : 
       s!"leanreach request: command={command} elapsed={(← IO.monoMsNow) - started}ms"
 
 /-- Run the NDJSON protocol against one mapped source index until stdin reaches EOF. -/
-def run (index : SourceIndex.Index) (sourcePath : SearchPath)
+unsafe def run (session : SourceIndex.Session)
     (defaults : QueryOptions) (profile : Bool := false) : IO UInt32 := do
   let stdin ← IO.getStdin
   while true do
@@ -73,7 +73,7 @@ def run (index : SourceIndex.Index) (sourcePath : SearchPath)
         pure (failure s!"invalid request: {message}", "invalid")
       | .ok (request, options) =>
         try
-          let response ← process index sourcePath request options
+          let response ← unsafe process session request options
           pure (response, request.command.label)
         catch error =>
           pure (failure s!"request failed: {error}", "error")

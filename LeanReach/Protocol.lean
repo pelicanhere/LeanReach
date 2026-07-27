@@ -43,6 +43,7 @@ structure SourceLocation where
 /-- The agent-facing description of a declaration. -/
 structure DeclarationView where
   name : String
+  signature : String
   source : SourceLocation
   deriving ToJson
 

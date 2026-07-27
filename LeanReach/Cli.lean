@@ -85,19 +85,19 @@ private def printIndex (config : Config) (index : SourceIndex.Index) : IO Unit :
     IO.println s!"source index: {index.declarationCount} declarations, \
       {index.relationCount} direct relations"
 
-private def runCommand (command : Command) (config : Config) (index : SourceIndex.Index)
-    (sourcePath : SearchPath) : IO UInt32 := do
+private unsafe def runCommand (command : Command) (config : Config)
+    (session : SourceIndex.Session) : IO UInt32 := do
   match command with
   | .interactive =>
-    LeanReach.Interactive.run index sourcePath config.toQueryOptions config.profile
+    LeanReach.Interactive.run session config.toQueryOptions config.profile
   | .query declaration =>
     printQuery config
-      (← SourceIndex.runQuery index sourcePath declaration config.toQueryOptions)
+      (← SourceIndex.runQuery session declaration config.toQueryOptions)
   | .search pattern =>
     printSearch config
-      (← SourceIndex.runSearch index sourcePath pattern config.toQueryOptions)
+      (← SourceIndex.runSearch session pattern config.toQueryOptions)
   | .index =>
-    printIndex config index
+    printIndex config session.index
     return 0
 
 private unsafe def execute (config : Config) (command : Command) : IO UInt32 := do
@@ -112,7 +112,8 @@ private unsafe def execute (config : Config) (command : Command) : IO UInt32 := 
       fun _ => pure ()
   unsafe SourceIndex.withIndex roots (log := log) fun index => do
     let loaded ← IO.monoMsNow
-    let exitCode ← runCommand command config index sourcePath
+    let session ← SourceIndex.Session.create index sourcePath
+    let exitCode ← unsafe runCommand command config session
     let finished ← IO.monoMsNow
     if config.profile then
       let activity := match command with

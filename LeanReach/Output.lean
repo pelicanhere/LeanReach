@@ -9,8 +9,12 @@ private def formatLocation (source : SourceLocation) : String :=
   | some file => s!"{file}:{source.line}:{source.column}"
   | none => s!"{source.moduleName}:{source.line}:{source.column}"
 
+private def printSignature (indent signature : String) : IO Unit :=
+  for line in signature.splitOn "\n" do
+    IO.println s!"{indent}{line}"
+
 private def printDeclaration (indent : String) (declaration : DeclarationView) : IO Unit := do
-  IO.println s!"{indent}{declaration.name}"
+  printSignature indent declaration.signature
   IO.println s!"{indent}  {formatLocation declaration.source}"
 
 private def printRelations (label : String) (relations : RelationList) : IO Unit := do
@@ -19,7 +23,8 @@ private def printRelations (label : String) (relations : RelationList) : IO Unit
     IO.println "  <none>"
   for relation in relations.items do
     let via := (relation.via.map fun name => s!" via {name}").getD ""
-    IO.println s!"  d={relation.distance} {relation.declaration.name}{via}"
+    IO.println s!"  d={relation.distance}{via}"
+    printSignature "      " relation.declaration.signature
     IO.println s!"      {formatLocation relation.declaration.source}"
   if relations.items.size < relations.total then
     IO.println s!"  ... {relations.total - relations.items.size} more (increase --limit)"

@@ -1,10 +1,25 @@
 import LeanReach.Query.Names
+import LeanReach.Signatures
 import LeanReach.SourceIndex.Build
 import Std.Data.HashSet
 
 namespace LeanReach.SourceIndex
 
 open Lean
+
+structure Session where
+  index : Index
+  sourcePath : SearchPath
+  private signatures : IO.Ref (NameMap String)
+  private sourceFiles : IO.Ref (NameMap (Option String))
+
+def Session.create (index : Index) (sourcePath : SearchPath) : IO Session := do
+  return {
+    index
+    sourcePath
+    signatures := ← IO.mkRef {}
+    sourceFiles := ← IO.mkRef {}
+  }
 
 private def scoredNames (index : Index) (query : String) (includeInternal : Bool) :
     Nat → Nat × Array Query.ScoredName := fun capacity => Id.run do
@@ -26,26 +41,50 @@ private def resolveName (index : Index) (query : String) (includeInternal : Bool
     return exact
   Query.resolveScoredName query (scoredNames index query includeInternal 10).2
 
-private def sourceLocation (sourcePath : SearchPath) (declaration : Declaration) :
+private def sourceLocation (session : Session) (declaration : Declaration) :
     IO SourceLocation := do
-  let file? ← sourcePath.findModuleWithExt "lean" declaration.module
+  let files ← session.sourceFiles.get
+  let file? ← match files.find? declaration.module with
+    | some file? => pure file?
+    | none => do
+      let file? :=
+        (← session.sourcePath.findModuleWithExt "lean" declaration.module).map (·.toString)
+      session.sourceFiles.set (files.insert declaration.module file?)
+      pure file?
   let range := declaration.range
   return {
     moduleName := Query.nameString declaration.module
-    file := file?.map (·.toString)
+    file := file?
     line := range.start.line + 1
     column := range.start.character + 1
     endLine := range.end.line + 1
     endColumn := range.end.character + 1
   }
 
-private def describeDeclaration (index : Index) (sourcePath : SearchPath) (name : Name) :
+private unsafe def preloadSignatures (session : Session) (names : Array Name) : IO Unit := do
+  let mut signatures ← session.signatures.get
+  let mut pending : NameMap NameSet := {}
+  for name in names do
+    unless signatures.contains name do
+      if let some declaration := session.index.find? name then
+        pending := pending.alter declaration.module fun names? =>
+          some ((names?.getD {}).insert name)
+  for (moduleName, moduleNames) in pending do
+    let loaded ← unsafe Signatures.load moduleName moduleNames
+    for name in moduleNames do
+      signatures := signatures.insert name
+        ((loaded.find? name).getD (Signatures.unavailable name))
+  session.signatures.set signatures
+
+private def describeDeclaration (session : Session) (name : Name) :
     IO DeclarationView := do
-  let some declaration := index.find? name |
+  let some declaration := session.index.find? name |
     throw <| IO.userError s!"declaration disappeared from the source index: {Query.nameString name}"
+  let signatures ← session.signatures.get
   return {
     name := Query.nameString name
-    source := ← sourceLocation sourcePath declaration
+    signature := (signatures.find? name).getD (Signatures.unavailable name)
+    source := ← sourceLocation session declaration
   }
 
 private def collectRelations (index : Index) (adjacency : Adjacency)
@@ -74,22 +113,24 @@ private def collectRelations (index : Index) (adjacency : Adjacency)
       break
   return results.qsort Query.rawRelationLt
 
-private def describeRelations (index : Index) (sourcePath : SearchPath)
+private def describeRelations (session : Session)
     (options : QueryOptions) (relations : Array Query.RawRelation) : IO RelationList := do
   let items ← (relations.take options.limit).mapM fun relation => do
     return {
       distance := relation.distance
       via := relation.via.map Query.nameString
-      declaration := ← describeDeclaration index sourcePath relation.declaration
+      declaration := ← describeDeclaration session relation.declaration
     }
   return { total := relations.size, items }
 
 /-- Resolve and query a source-visible dependency neighborhood without importing an Environment. -/
-def runQuery (index : Index) (sourcePath : SearchPath) (query : String)
+unsafe def runQuery (session : Session) (query : String)
     (options : QueryOptions := {}) : IO (Except QueryFailure QueryResult) := do
+  let index := session.index
   match resolveName index query options.includeInternal with
   | .error failure =>
-    let candidates ← failure.candidates.mapM (describeDeclaration index sourcePath)
+    unsafe preloadSignatures session failure.candidates
+    let candidates ← failure.candidates.mapM (describeDeclaration session)
     return .error {
       error := failure.error
       candidates
@@ -105,19 +146,25 @@ def runQuery (index : Index) (sourcePath : SearchPath) (query : String)
         collectRelations index index.downstream target options
       else
         #[]
+    let resultNames := #[target] ++
+      (upstream.take options.limit).map (·.declaration) ++
+      (downstream.take options.limit).map (·.declaration)
+    unsafe preloadSignatures session resultNames
     return .ok {
       query
-      target := ← describeDeclaration index sourcePath target
-      upstream := ← describeRelations index sourcePath options upstream
-      downstream := ← describeRelations index sourcePath options downstream
+      target := ← describeDeclaration session target
+      upstream := ← describeRelations session options upstream
+      downstream := ← describeRelations session options downstream
     }
 
 /-- Search source-visible declaration names without importing an Environment. -/
-def runSearch (index : Index) (sourcePath : SearchPath) (query : String)
+unsafe def runSearch (session : Session) (query : String)
     (options : QueryOptions := {}) : IO SearchResult := do
-  let (total, hits) := scoredNames index query options.includeInternal options.limit
+  let (total, hits) :=
+    scoredNames session.index query options.includeInternal options.limit
+  unsafe preloadSignatures session (hits.map (·.2))
   let items ← (hits.take options.limit).mapM fun (_, name) =>
-    describeDeclaration index sourcePath name
+    describeDeclaration session name
   return {
     query
     total
