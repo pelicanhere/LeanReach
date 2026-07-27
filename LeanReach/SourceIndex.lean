@@ -29,10 +29,10 @@ private def sourceLocation (sourcePath : SearchPath) (declaration : Declaration)
   return {
     moduleName := some (Query.nameString declaration.module)
     file := file?.map (·.toString)
-    line := some (range.selectionRangeStartPosLine + 1)
-    column := some (range.selectionRangeStartPosCharacter + 1)
-    endLine := some (range.selectionRangeEndPosLine + 1)
-    endColumn := some (range.selectionRangeEndPosCharacter + 1)
+    line := some (range.start.line + 1)
+    column := some (range.start.character + 1)
+    endLine := some (range.end.line + 1)
+    endColumn := some (range.end.character + 1)
   }
 
 private def describeDeclaration (index : Index) (sourcePath : SearchPath) (name : Name) :

@@ -77,8 +77,9 @@ private def sourceTests : CoreM Unit := do
     (generatedResult.target.name == generated)
     "includeInternal did not restore exact generated-name resolution"
 
-private def sourceIndexTests : CoreM Unit := do
-  let index ← SourceIndex.build #["Mathlib.Data.Nat.GCD.Basic".toName]
+private unsafe def sourceIndexTests : CoreM Unit := do
+  let roots := #["Mathlib.Data.Nat.GCD.Basic".toName]
+  let index ← SourceIndex.build roots
   let sourcePath ← Query.sourceSearchPath
   let result ← match ← SourceIndex.runQuery index sourcePath "Nat.gcd" {
       direction := .both
@@ -104,6 +105,19 @@ private def sourceIndexTests : CoreM Unit := do
   check
     (search.items.any fun declaration => declaration.name == "Nat.gcd_comm")
     "source index name search omitted Nat.gcd_comm"
+
+  let _ ← unsafe SourceIndex.withIndex roots fun cached =>
+    pure cached.declarationCount
+  let restored? ← IO.mkRef false
+  let cachedCount ← unsafe SourceIndex.withIndex roots
+    (fun cached => pure cached.declarationCount)
+    (fun message =>
+      if message.startsWith "source index restored:" then
+        restored?.set true
+      else
+        pure ())
+  check (cachedCount > 0) "restored source index was empty"
+  check (← restored?.get) "source index cache was not restored on the second load"
 
 private def kernelTests : CoreM Unit := do
   let result ← expectQuery (← runQuery "Nat.gcd_comm" {

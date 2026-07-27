@@ -1,3 +1,4 @@
+import Lean.CompactedRegion
 import Lean.Data.Json
 import LeanReach.Query.Ilean
 import LeanReach.SourceIndex.Types
@@ -9,9 +10,8 @@ open Lean
 private abbrev CacheFingerprint := Array (Name × String)
 private abbrev CachePayload := Nat × CacheFingerprint × Index
 
-private def cacheVersion : Nat := 1
-private def cacheKey : Name := `LeanReach.sourceIndexV1
-private def buildBatchSize : Nat := 64
+private def cacheVersion : Nat := 2
+private def buildBatchSize : Nat := 32
 private def buildWorkerCount : Nat := 8
 
 def normalizeRoots (roots : Array Name) : Array Name := Id.run do
@@ -26,16 +26,16 @@ def normalizeRoots (roots : Array Name) : Array Name := Id.run do
 private def declarationOfLocation (moduleName : Name)
     (location : Lsp.RefInfo.Location) : Declaration where
   module := moduleName
-  range := {
-    rangeStartPosLine := location.startPosLine
-    rangeStartPosCharacter := location.startPosCharacter
-    rangeEndPosLine := location.endPosLine
-    rangeEndPosCharacter := location.endPosCharacter
-    selectionRangeStartPosLine := location.startPosLine
-    selectionRangeStartPosCharacter := location.startPosCharacter
-    selectionRangeEndPosLine := location.endPosLine
-    selectionRangeEndPosCharacter := location.endPosCharacter
-  }
+  range := ⟨
+    ⟨location.startPosLine, location.startPosCharacter⟩,
+    ⟨location.endPosLine, location.endPosCharacter⟩
+  ⟩
+
+private def selectionRange (info : Lsp.DeclInfo) : Lsp.Range :=
+  ⟨
+    ⟨info.selectionRangeStartPosLine, info.selectionRangeStartPosCharacter⟩,
+    ⟨info.selectionRangeEndPosLine, info.selectionRangeEndPosCharacter⟩
+  ⟩
 
 private def insertParent (downstream : NameMap NameSet) (dependency parent : Name) :
     NameMap NameSet :=
@@ -49,7 +49,7 @@ private def addIlean (index : Index) (ilean : Server.Ilean) : Index := Id.run do
   for (declarationName, range) in ilean.decls do
     declarations := declarations.insert declarationName.toName {
       module := ilean.module
-      range
+      range := selectionRange range
     }
 
   for (ident, info) in ilean.references do
@@ -96,20 +96,29 @@ private def loadBatch (modules : Array Name) :
   | some error => throw error
   | none => return results
 
-/-- Build a source-visible declaration and direct-reference index without importing an Environment. -/
-def build (roots : Array Name) : IO Index := do
-  let roots := normalizeRoots roots
-  if roots.isEmpty then
+private def buildIndex (requestedRoots : Array Name) : IO (Index × Array Name) := do
+  let requestedRoots := normalizeRoots requestedRoots
+  if requestedRoots.isEmpty then
     throw <| IO.userError "source index needs at least one root module"
+  -- Lean implicitly imports `Init` unless a module uses `prelude`; `.ilean` records only explicit
+  -- imports, so include the standard prelude closure explicitly.
+  let roots := normalizeRoots (requestedRoots.push `Init)
+  let required := NameSet.ofArray roots
   let mut queue := roots
   let mut visited := NameSet.ofArray roots
   let mut offset := 0
   let mut index : Index := {}
+  let mut missing := #[]
   while offset < queue.size do
     let stop := min (offset + buildBatchSize) queue.size
     let batch := queue.extract offset stop
     for (moduleName, ilean?) in (← loadBatch batch) do
-      let some ilean := ilean? | continue
+      let some ilean := ilean? |
+        if required.contains moduleName then
+          throw <| IO.userError
+            s!"missing .ilean for required module {Query.nameString moduleName}"
+        missing := missing.push moduleName
+        continue
       if ilean.version != 5 then
         throw <| IO.userError
           s!"unsupported .ilean version {ilean.version} for {Query.nameString moduleName}"
@@ -120,7 +129,11 @@ def build (roots : Array Name) : IO Index := do
           visited := visited.insert importedName
           queue := queue.push importedName
     offset := stop
-  return index
+  return (index, missing)
+
+/-- Build a source-visible declaration and direct-reference index without importing an Environment. -/
+def build (roots : Array Name) : IO Index :=
+  return (← buildIndex roots).1
 
 private def readModuleDepHash? (moduleName : Name) : IO (Option String) := do
   try
@@ -140,13 +153,20 @@ private def cacheFingerprint? (roots : Array Name) : IO (Option CacheFingerprint
     fingerprint := fingerprint.push (root, depHash)
   return some fingerprint
 
+private def fingerprintHash (fingerprint : CacheFingerprint) : UInt64 :=
+  fingerprint.foldl (init := 7) fun state (moduleName, depHash) =>
+    mixHash state (mixHash (hash moduleName) (hash depHash))
+
 private def cachePath (roots : Array Name) (fingerprint : CacheFingerprint) :
     IO System.FilePath := do
   let cwd ← IO.Process.getCurrentDir
   let rootLabel := Query.nameString roots[0]!
-  let hashLabel := fingerprint[0]!.2
+  let hashLabel := toString (fingerprintHash fingerprint)
   return cwd / ".lake" / "leanreach" /
     s!"{rootLabel}-{hashLabel}-v{cacheVersion}.index"
+
+private def cacheKey (fingerprint : CacheFingerprint) : Name :=
+  Name.str `LeanReach.sourceIndex (toString (fingerprintHash fingerprint))
 
 private unsafe def readCache? (path : System.FilePath) (expected : CacheFingerprint) :
     IO (Option (Index × CompactedRegion)) := do
@@ -168,14 +188,14 @@ private unsafe def writeCache (path : System.FilePath) (fingerprint : CacheFinge
   if let some parent := path.parent then
     IO.FS.createDirAll parent
   let payload : CachePayload := (cacheVersion, fingerprint, index)
-  let _ ← unsafe CompactedRegion.save path cacheKey payload #[] none
+  let _ ← unsafe CompactedRegion.save path (cacheKey fingerprint) payload #[] none
 
 /--
 Restore a valid source index or build and best-effort persist one. `log` receives cache lifecycle
 messages and is silent by default.
 -/
-unsafe def load (roots : Array Name) (log : String → IO Unit := fun _ => pure ()) :
-    IO Loaded := do
+private unsafe def load (roots : Array Name) (log : String → IO Unit) :
+    IO (Index × Option CompactedRegion) := do
   let roots := normalizeRoots roots
   if roots.isEmpty then
     throw <| IO.userError "source index needs at least one root module"
@@ -184,16 +204,32 @@ unsafe def load (roots : Array Name) (log : String → IO Unit := fun _ => pure 
     let path ← cachePath roots fingerprint
     if let some (index, region) ← unsafe readCache? path fingerprint then
       log s!"source index restored: {path}"
-      return { index, region? := some region }
+      return (index, some region)
     log s!"source index cache miss: {path}"
-    let index ← build roots
-    try
-      unsafe writeCache path fingerprint index
-      log s!"source index saved: {path}"
-    catch error =>
-      log s!"source index cache write failed: {error}"
-    return { index }
+    let (index, missing) ← buildIndex roots
+    if missing.isEmpty then
+      try
+        unsafe writeCache path fingerprint index
+        log s!"source index saved: {path}"
+      catch error =>
+        log s!"source index cache write failed: {error}"
+    else
+      log s!"source index not cached: {missing.size} imported .ilean files are missing"
+    return (index, none)
   log "source index cache disabled: a root module has no Lake depHash"
-  return { index := ← build roots }
+  return (← build roots, none)
+
+/--
+Load an index for one action and release any mapped compacted region afterwards. The action must
+materialize its result instead of returning values that share storage with the index.
+-/
+unsafe def withIndex {α : Type} (roots : Array Name)
+    (action : Index → IO α) (log : String → IO Unit := fun _ => pure ()) : IO α := do
+  let (index, region?) ← unsafe load roots log
+  try
+    action index
+  finally
+    if let some region := region? then
+      unsafe region.free
 
 end LeanReach.SourceIndex
