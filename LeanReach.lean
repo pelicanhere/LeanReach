@@ -1,6 +1,7 @@
 import Lean.DeclarationRange
 import Lean.Meta
 import Lean.PrettyPrinter.Delaborator.Builtins
+import Lean.Structure
 import Lean.Util.FoldConsts
 import Lean.Util.Path
 
@@ -19,13 +20,13 @@ private def Relation.find (relation : Relation) (name : Name) : NameSet :=
 private def Relation.insert (relation : Relation) (source target : Name) : Relation :=
   NameMap.insert relation source ((relation.find source).insert target)
 
-/-- A compact name table and the reverse of Lean's direct signature dependencies. -/
+/-- A compact name table and the reverse of Lean's direct declaration dependencies. -/
 structure Index where
   private names : Array (Name × String)
   private downstream : Relation
   deriving Inhabited
 
-private def cacheVersion := 2
+private def cacheVersion := 3
 
 private def Index.build : CoreM Index := do
   let env ← getEnv
@@ -34,7 +35,7 @@ private def Index.build : CoreM Index := do
   for (name, info) in env.constants do
     if visible name then
       names := names.push (name, name.toString.toLower)
-      for dependency in info.type.getUsedConstantsAsSet do
+      for dependency in info.getUsedConstantsAsSet do
         if dependency != name && visible dependency && env.contains dependency then
           downstream := downstream.insert dependency name
   return {
@@ -115,6 +116,7 @@ structure QueryOptions where
 structure Session where
   index : Index
   sourcePath : SearchPath
+  private declarations : IO.Ref (NameMap Declaration)
 
 private def Index.matchBuckets (index : Index) (query : String) (limit : Nat) :
     Array (Array Name) := Id.run do
@@ -148,32 +150,61 @@ private def Index.resolve (index : Index) (query : String) : CoreM Name := do
   throwError "ambiguous declaration '{query}':\n{String.intercalate "\n" <|
     candidates.toList.map fun name => s!"  {name}"}"
 
-private def renderSignature (name : Name) : MetaM String := withCurrHeartbeats do
+private def renderSignature (name : Name) : MetaM String := do
   let expression ← mkConstWithLevelParams name
-  let (signatureSyntax, _) ← PrettyPrinter.delabCore expression
+  let (stx, _) ← PrettyPrinter.delabCore expression
     (delab := PrettyPrinter.Delaborator.delabConstWithSignature (universes := false))
-  return (← PrettyPrinter.ppTerm ⟨signatureSyntax⟩).pretty (width := 10000)
+  return (← PrettyPrinter.ppTerm ⟨stx⟩).pretty (width := 10000)
+
+private def renderList (label : String) (names : Array Name) : MetaM String := do
+  if names.isEmpty then return ""
+  let lines ← names.mapM renderSignature
+  return s!"\n  {label}:\n    {String.intercalate "\n    " lines.toList}"
+
+private def renderDeclaration (name : Name) (info : ConstantInfo) : MetaM String :=
+    withCurrHeartbeats do
+  let signature ← renderSignature name
+  if ← isProp info.type then return signature
+  if let some value := info.value? (allowOpaque := true) then
+    let body := (← PrettyPrinter.ppExpr value).pretty (width := 100)
+    return s!"{signature} :=\n  {body.replace "\n" "\n  "}"
+  let .inductInfo inductiveInfo := info | return signature
+  let env ← getEnv
+  let fields :=
+    if isStructure env name then
+      getStructureFieldsFlattened env name (includeSubobjectFields := false)
+        |>.filterMap (getProjFnForField? env name)
+    else #[]
+  return signature ++
+    (← renderList "fields" fields) ++
+    (← renderList "constructors" inductiveInfo.ctors.toArray)
 
 private def describe (session : Session) (name : Name) : CoreM Declaration := do
+  if let some declaration := (← session.declarations.get).find? name then
+    return declaration
+  let env ← getEnv
+  let some info := env.find? name | throwError "unknown declaration '{name}'"
   let moduleName? ← findModuleOf? name
   let file? ← match moduleName? with
     | some moduleName =>
       pure ((← session.sourcePath.findModuleWithExt "lean" moduleName).map (·.toString))
     | none => pure none
   let range? := (← findDeclarationRanges? name).map (·.selectionRange)
-  return {
+  let declaration := {
     name := name.toString
-    signature := ← MetaM.run' (renderSignature name)
+    signature := ← MetaM.run' (renderDeclaration name info)
     moduleName := moduleName?.map (·.toString) |>.getD ""
     file := file?
     line := range?.map (·.pos.line) |>.getD 0
     column := range?.map (·.pos.column + 1) |>.getD 0
   }
+  session.declarations.modify (·.insert name declaration)
+  return declaration
 
 private def directUpstream (name : Name) : CoreM NameSet := do
   let env ← getEnv
   let some info := env.find? name | return {}
-  return info.type.getUsedConstantsAsSet.filter fun dependency =>
+  return info.getUsedConstantsAsSet.filter fun dependency =>
     dependency != name && visible dependency && env.contains dependency
 
 private def traverse (start : Name) (depth limit : Nat)
@@ -237,10 +268,11 @@ the entire action. Run the binary through `lake env` to search another local Lak
 -/
 unsafe def withSession {α : Type} (root : Name) (action : Session → CoreM α) : IO α := do
   let sourcePath ← initializePaths
+  let declarations ← IO.mkRef {}
   Lean.enableInitializersExecution
   let env ← importModules (loadExts := true) #[{ module := root }] {}
   Core.CoreM.toIO'
-    (do action { index := ← unsafe Index.load root, sourcePath })
+    (do action { index := ← unsafe Index.load root, sourcePath, declarations })
     { fileName := "<leanreach>", fileMap := default }
     { env }
 

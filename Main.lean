@@ -83,8 +83,8 @@ OPTIONS:
   -m, --module MODULE   import root module (default: Mathlib)
   -d, --depth N         dependency depth (default: 1)
   -n, --limit N         maximum results per list (default: 20)
-      --upstream        only declarations used by the target signature
-      --downstream      only declarations whose signatures use the target
+      --upstream        only declarations used by the target
+      --downstream      only declarations that use the target
   -i, --interactive     reuse one environment; read queries from stdin
   -j, --json            emit JSON (NDJSON in interactive mode)
       --profile         print elapsed time to stderr
@@ -98,14 +98,16 @@ private def location (declaration : Declaration) : String :=
   s!"{declaration.file.getD declaration.moduleName}:{declaration.line}:{declaration.column}"
 
 private def printDeclaration (indent : String) (declaration : Declaration) : IO Unit := do
-  IO.println s!"{indent}{declaration.signature}"
+  let continuation := String.ofList (List.replicate indent.length ' ')
+  IO.println <| indent ++ declaration.signature.replace "\n" ("\n" ++ continuation)
   IO.println s!"{indent}  {location declaration}"
 
 private def printRelated (label : String) (items : Array Related) : IO Unit := do
   IO.println s!"{label} ({items.size})"
   if items.isEmpty then IO.println "  <none>"
   for (distance, declaration) in items do
-    IO.println s!"  [{distance}] {declaration.signature}"
+    let marker := s!"  [{distance}] "
+    IO.println <| marker ++ declaration.signature.replace "\n" "\n      "
     IO.println s!"      {location declaration}"
 
 private def printQuery (json : Bool) (result : QueryResult) : IO Unit := do

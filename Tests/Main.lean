@@ -15,6 +15,13 @@ private unsafe def runTests : IO Unit :=
       "local declaration has no source file"
     check (result.target.line == 5)
       "local declaration has the wrong source line"
+    check (result.target.signature.contains ":=\n")
+      "non-Prop declaration body is missing"
+    check (result.target.signature.contains "n + n")
+      "definition body was not pretty-printed with notation"
+    check
+      (result.upstream.any fun (_, declaration) => declaration.name == "HAdd.hAdd")
+      "implementation-only upstream relation is missing"
     check
       (result.downstream.any fun (_, declaration) =>
         declaration.name == "LeanReachFixture.double_eq_add")
@@ -30,6 +37,30 @@ private unsafe def runTests : IO Unit :=
       (theoremResult.upstream.any fun (_, declaration) =>
         declaration.name == "LeanReachFixture.double")
       "upstream relation is missing"
+
+    let proofResult ← session.query "LeanReachFixture.double_zero_again" {
+      downstream := false
+      limit := 100
+    }
+    check
+      (proofResult.upstream.any fun (_, declaration) =>
+        declaration.name == "LeanReachFixture.double_zero")
+      "proof-only upstream relation is missing"
+
+    let usedResult ← session.query "LeanReachFixture.double_zero" {
+      upstream := false
+      limit := 100
+    }
+    check
+      (usedResult.downstream.any fun (_, declaration) =>
+        declaration.name == "LeanReachFixture.double_zero_again")
+      "proof-only downstream relation is missing"
+
+    let classResult ← session.query "Add" { upstream := false, downstream := false }
+    check (classResult.target.signature.contains "fields:")
+      "class fields are missing"
+    check (classResult.target.signature.contains "Add.add")
+      "class field signature is missing"
 
     let searchResult ← session.search "double_eq" 10
     check
