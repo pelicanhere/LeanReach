@@ -36,15 +36,9 @@ private def takeNat (option : String) : CliM Nat := do
   return number
 
 private def shortOption : Char → CliM PUnit
-  | 'm' => do
-    let root := (← takeArg "-m").toName
-    modifyThe Config ({ · with root })
-  | 'd' => do
-    let depth ← takeNat "-d"
-    modifyThe Config ({ · with depth })
-  | 'n' => do
-    let limit ← takeNat "-n"
-    modifyThe Config ({ · with limit })
+  | 'm' => do modifyThe Config ({ · with root := (← takeArg "-m").toName })
+  | 'd' => do modifyThe Config ({ · with depth := ← takeNat "-d" })
+  | 'n' => do modifyThe Config ({ · with limit := ← takeNat "-n" })
   | 'i' => modifyThe Config ({ · with interactive := true })
   | 'j' => modifyThe Config ({ · with json := true })
   | 'h' => modifyThe Config ({ · with help := true })
@@ -126,9 +120,6 @@ private def printSearch (json : Bool) (query : String) (items : Array Declaratio
     for declaration in items do
       printDeclaration "  " declaration
 
-private def flush : IO Unit := do
-  (← IO.getStdout).flush
-
 private def runOne (session : Session) (config : Config) (command : Command) : CoreM Unit := do
   match command with
   | .query name =>
@@ -164,7 +155,7 @@ private partial def runInteractive (session : Session) (config : Config) : CoreM
       IO.println (Json.mkObj [("error", toJson message)]).compress
     else
       IO.eprintln s!"leanreach: {message}"
-  flush
+  (← IO.getStdout).flush
   runInteractive session config
 
 private def validate (config : Config) : CliMainM Unit := do

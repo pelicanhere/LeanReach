@@ -115,10 +115,11 @@ DAG or a runtime call graph.
 ## Layout
 
 ```text
-LeanReach.lean       environment, cache, search, traversal, rendering, and locations
-Main.lean            Lake ArgsT CLI and interactive transport
-Tests/Fixture.lean   local-library fixture
-Tests/Main.lean      signature, location, search, and dependency checks
+LeanReach/Index.lean  names, dependency index, cache, and resolution
+LeanReach/Query.lean  rendering, source locations, traversal, and sessions
+LeanReach.lean        environment-loading facade
+Main.lean             Lake ArgsT CLI and interactive transport
+Tests/                local-library fixture and behavior checks
 ```
 
 The environment lifecycle, disk-cache strategy, and CLI organization are adapted from
