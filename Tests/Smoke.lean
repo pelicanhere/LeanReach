@@ -1,33 +1,31 @@
-import LeanReach.Query
 import LeanReach.SourceIndex
 
 namespace LeanReach.Tests
 
-open Lean Lean.Core
+open Lean
 
-private def check (condition : Bool) (message : String) : CoreM Unit :=
+private def check (condition : Bool) (message : String) : IO Unit :=
   unless condition do
-    throwError message
+    throw <| IO.userError message
 
-private def expectQuery (result : Except QueryFailure QueryResult) : CoreM QueryResult :=
+private def expectQuery (result : Except QueryFailure QueryResult) : IO QueryResult :=
   match result with
   | .ok result => pure result
-  | .error failure => throwError failure.error
+  | .error failure => throw <| IO.userError failure.error
 
-private unsafe def sourceIndexTests : CoreM Unit := do
+private unsafe def sourceIndexTests : IO Unit := do
   let roots := #["Mathlib.Data.Nat.GCD.Basic".toName]
   let index ← SourceIndex.build roots
   let sourcePath ← Query.sourceSearchPath
-  let result ← match ← SourceIndex.runQuery index sourcePath "Nat.gcd" {
+  let result ← expectQuery (← SourceIndex.runQuery index sourcePath "Nat.gcd" {
       direction := .both
       depth := 1
       limit := 1000
-    } with
-    | .ok result => pure result
-    | .error failure => throwError failure.error
+    })
   check (result.target.name == "Nat.gcd") "source index resolved the wrong declaration"
   check result.target.source.file.isSome "source index did not resolve the target file"
-  check result.target.source.line.isSome "source index did not resolve the target line"
+  check (!result.target.source.moduleName.isEmpty) "source index did not resolve the target module"
+  check (result.target.source.line > 0) "source index returned a zero source line"
   check
     (result.upstream.items.any fun relation =>
       relation.declaration.name == "Nat.mod_lt")
@@ -64,35 +62,10 @@ private unsafe def sourceIndexTests : CoreM Unit := do
       pure true
   check rejectedMissing "source index accepted a closure with a missing .ilean"
 
-private def kernelTests : CoreM Unit := do
-  let result ← expectQuery (← runKernelQuery "Nat.gcd_comm" {
-    mode := .kernel
-    direction := .upstream
-    depth := 1
-    limit := 100
-  })
-  check (result.mode == "kernel") "kernel query reported the wrong mode"
-  check (result.upstream.total > 0) "kernel query returned no upstream dependencies"
-  check
-    (result.upstream.items.any fun relation =>
-      relation.declaration.name == "Nat.gcd")
-    "kernel query omitted the Nat.gcd constant"
-
-private unsafe def runWithEnvironment (level : OLeanLevel) (action : CoreM Unit) : IO Unit := do
-  let imports : Array Import := #["Mathlib.Data.Nat.GCD.Basic".toName].map
-    ({ module := · })
-  let env ← importModules imports {} (trustLevel := 1024) (loadExts := false) (level := level)
-  try
-    CoreM.toIO' action
-      { fileName := "<leanreach-tests>", fileMap := default }
-      { env }
-  finally
-    env.freeRegions
-
 unsafe def run : IO UInt32 := do
   try
     initSearchPath (← findSysroot)
-    runWithEnvironment .private (sourceIndexTests *> kernelTests)
+    unsafe sourceIndexTests
     IO.println "LeanReach semantic smoke tests passed"
     return 0
   catch error =>

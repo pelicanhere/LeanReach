@@ -117,9 +117,8 @@ Fresh native processes with the cache already present measured:
 | exact `Submodule.span_le` neighborhood | 148 ms | 1 ms | 26 ms | 175 ms |
 | ranked `search span_le --limit 5` | 149 ms | 16 ms | 708 ms | 873 ms |
 
-The previous full-Mathlib Environment path spent about 506 seconds importing before a one-shot
-search on this machine. Source mode no longer performs that import. Kernel mode remains explicit for
-users who need elaborated dependency semantics.
+The previous Environment-based implementation spent about 506 seconds importing full Mathlib before
+a one-shot search on this machine. The current `.ilean` implementation does not perform that import.
 
 An attempted exact-name interning pass was rejected after measurement: it left the 147,386,416-byte
 cache unchanged and did not improve the 58-second internal build. The experiment was not committed.

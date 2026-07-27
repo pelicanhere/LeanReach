@@ -2,7 +2,7 @@ import LeanReach.Interactive
 
 namespace LeanReach.Cli
 
-open Lean Lean.Core
+open Lean
 
 inductive Command where
   | query (declaration : String)
@@ -30,8 +30,7 @@ USAGE:
   leanreach --interactive [OPTIONS]
 
 OPTIONS:
-  -m, --module MODULE       import MODULE; repeatable (default: Mathlib)
-      --mode MODE           source or kernel (default: source)
+  -m, --module MODULE       root MODULE; repeatable (default: Mathlib)
       --direction DIR       both, upstream, or downstream (default: both)
       --upstream            shorthand for --direction upstream
       --downstream          shorthand for --direction downstream
@@ -46,7 +45,6 @@ OPTIONS:
 
 EXAMPLES:
   lake exe leanreach Nat.gcd
-  lake exe leanreach Nat.gcd --mode kernel --upstream
   lake exe leanreach map --direction upstream --depth 2
   lake exe leanreach search prime_def --json
   lake exe leanreach index --profile
@@ -89,42 +87,24 @@ private def printIndex (config : Config) (index : SourceIndex.Index) : IO Unit :
     IO.println s!"source index: {index.declarationCount} declarations, \
       {index.relationCount} direct relations"
 
-private def runCommand {m : Type → Type} [Monad m] [MonadLiftT IO m]
-    (config : Config)
-    (runQuery : String → m (Except QueryFailure QueryResult))
-    (runSearch : String → m SearchResult)
-    (runInteractive : m UInt32)
-    (index? : Option SourceIndex.Index := none) : m UInt32 := do
+private def runCommand (config : Config) (index : SourceIndex.Index)
+    (sourcePath : SearchPath) : IO UInt32 := do
   match config.command with
   | some .interactive =>
-    runInteractive
+    LeanReach.runIndexedInteractive index sourcePath config.toQueryOptions config.profile
   | some (.query declaration) =>
-    printQuery config (← runQuery declaration)
+    printQuery config
+      (← SourceIndex.runQuery index sourcePath declaration config.toQueryOptions)
   | some (.search pattern) =>
-    printSearch config (← runSearch pattern)
+    printSearch config
+      (← SourceIndex.runSearch index sourcePath pattern config.toQueryOptions)
   | some .index =>
-    match index? with
-    | some index =>
-      printIndex config index
-      return 0
-    | none =>
-      IO.eprintln "leanreach: index is only available in source mode"
-      return 2
+    printIndex config index
+    return 0
   | none =>
     IO.eprintln "leanreach: no declaration or search pattern provided"
     IO.eprintln "Try 'leanreach --help'."
     return 2
-
-private unsafe def runIndexedInteractiveIO (config : Config) (index : SourceIndex.Index)
-    (sourcePath : SearchPath) : IO UInt32 := do
-  let env ← mkEmptyEnvironment (trustLevel := 1024)
-  try
-    CoreM.toIO'
-      (LeanReach.runIndexedInteractive index sourcePath config.toQueryOptions config.profile)
-      { fileName := "<leanreach>", fileMap := default }
-      { env }
-  finally
-    env.freeRegions
 
 private unsafe def executeSource (config : Config) (started initialized : Nat) :
     IO UInt32 := do
@@ -136,13 +116,7 @@ private unsafe def executeSource (config : Config) (started initialized : Nat) :
       fun _ => pure ()
   unsafe SourceIndex.withIndex roots (log := log) fun index => do
     let loaded ← IO.monoMsNow
-    let exitCode ← runCommand config
-      (fun declaration =>
-        SourceIndex.runQuery index sourcePath declaration config.toQueryOptions)
-      (fun pattern =>
-        SourceIndex.runSearch index sourcePath pattern config.toQueryOptions)
-      (unsafe runIndexedInteractiveIO config index sourcePath)
-      (some index)
+    let exitCode ← runCommand config index sourcePath
     let finished ← IO.monoMsNow
     if config.profile then
       let activity := match config.command with
@@ -154,43 +128,11 @@ private unsafe def executeSource (config : Config) (started initialized : Nat) :
         total={finished - started}ms"
     return exitCode
 
-private unsafe def executeKernel (config : Config) (started initialized : Nat) :
-    IO UInt32 := do
-  let env ← importModules ((importsOrDefault config).map ({ module := · })) {}
-    (trustLevel := 1024) (loadExts := false) (level := .private)
-  try
-    let loaded ← IO.monoMsNow
-    let exitCode ← CoreM.toIO' (runCommand config
-        (fun declaration => LeanReach.runKernelQuery declaration config.toQueryOptions)
-        (fun pattern => LeanReach.runKernelSearch pattern config.toQueryOptions)
-        (LeanReach.runInteractive config.toQueryOptions config.profile))
-      { fileName := "<leanreach>", fileMap := default }
-      { env }
-    let finished ← IO.monoMsNow
-    if config.profile then
-      let activity := match config.command with
-        | some .interactive => "session"
-        | _ => "query"
-      IO.eprintln s!"leanreach profile: init={initialized - started}ms \
-        import={loaded - initialized}ms {activity}={finished - loaded}ms \
-        total={finished - started}ms"
-    return exitCode
-  finally
-    env.freeRegions
-
 unsafe def execute (config : Config) : IO UInt32 := do
   let started ← IO.monoMsNow
   initSearchPath (← findSysroot)
   let initialized ← IO.monoMsNow
-  match config.mode with
-  | .source => unsafe executeSource config started initialized
-  | .kernel =>
-    match config.command with
-    | some .index =>
-      IO.eprintln "leanreach: index is only available in source mode"
-      return 2
-    | _ =>
-      unsafe executeKernel config started initialized
+  unsafe executeSource config started initialized
 
 unsafe def run (config : Config) : IO UInt32 := do
   if config.help then

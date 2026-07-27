@@ -27,12 +27,12 @@ private def sourceLocation (sourcePath : SearchPath) (declaration : Declaration)
   let file? ← sourcePath.findModuleWithExt "lean" declaration.module
   let range := declaration.range
   return {
-    moduleName := some (Query.nameString declaration.module)
+    moduleName := Query.nameString declaration.module
     file := file?.map (·.toString)
-    line := some (range.start.line + 1)
-    column := some (range.start.character + 1)
-    endLine := some (range.end.line + 1)
-    endColumn := some (range.end.character + 1)
+    line := range.start.line + 1
+    column := range.start.character + 1
+    endLine := range.end.line + 1
+    endColumn := range.end.character + 1
   }
 
 private def describeDeclaration (index : Index) (sourcePath : SearchPath) (name : Name) :
@@ -41,7 +41,6 @@ private def describeDeclaration (index : Index) (sourcePath : SearchPath) (name 
     throw <| IO.userError s!"declaration disappeared from the source index: {Query.nameString name}"
   return {
     name := Query.nameString name
-    kind := "declaration"
     source := ← sourceLocation sourcePath declaration
   }
 
@@ -136,7 +135,6 @@ def runQuery (index : Index) (sourcePath : SearchPath) (query : String)
         #[]
     return .ok {
       query
-      mode := "source"
       target := ← describeDeclaration index sourcePath target
       upstream := ← describeRelations index sourcePath options upstream
       downstream := ← describeRelations index sourcePath options downstream

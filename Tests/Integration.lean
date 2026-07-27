@@ -57,10 +57,13 @@ private def testParser (executable : System.FilePath) : IO Unit := do
   expectExit "missing module" 2 missing
   check (missing.stderr.contains "missing module name") "missing module returned the wrong diagnostic"
 
+  let removedMode ← runCli executable #["--mode=kernel", "Nat.gcd"]
+  expectExit "removed kernel mode" 2 removedMode
+  check (removedMode.stderr.contains "--mode") "removed --mode option was unexpectedly accepted"
+
 private def testQuery (executable : System.FilePath) : IO Unit := do
   let output ← runCli executable #[
     "--module=Mathlib.Data.Nat.GCD.Basic",
-    "--mode=kernel",
     "--upstream",
     "-n=5",
     "Nat.gcd_comm",
@@ -70,7 +73,6 @@ private def testQuery (executable : System.FilePath) : IO Unit := do
   let response ← parseJson output.stdout
   let target ← field Json response "target"
   check ((← field String target "name") == "Nat.gcd_comm") "query resolved the wrong target"
-  check ((← field String response "mode") == "kernel") "query ignored --mode=kernel"
   let upstream ← field Json response "upstream"
   let items ← field (Array Json) upstream "items"
   check (items.size ≤ 5) "query ignored -n=5"
@@ -85,7 +87,6 @@ private def testSourceIndex (executable : System.FilePath) : IO Unit := do
   let first ← runCli executable args
   expectExit "source query" 0 first
   let response ← parseJson first.stdout
-  check ((← field String response "mode") == "source") "source query reported the wrong mode"
   let target ← field Json response "target"
   check ((← field String target "name") == "Nat.gcd") "source query resolved the wrong target"
   let source ← field Json target "source"
@@ -134,8 +135,7 @@ private def testInteractive (executable : System.FilePath) : IO Unit := do
   let some quit := responses[4]? | fail "missing quit response"
   check (← field Bool ping "ok") "ping rejected an unrelated malformed field"
   let pingResult ← field Json ping "result"
-  check ((← field String pingResult "mode") == "source")
-    "default interactive session did not use the source index"
+  check ((← field String pingResult "status") == "ready") "interactive ping was not ready"
   check (← field Bool search "ok") "search rejected an unrelated malformed field"
   check (!(← field Bool invalid "ok")) "invalid depth unexpectedly succeeded"
   let invalidId ← field Json invalid "id"

@@ -27,10 +27,6 @@ private def addImport (option : String) : CliM PUnit := do
   modifyThe Config fun config =>
     { config with imports := config.imports.push moduleName.toName }
 
-private def setMode (option : String) : CliM PUnit := do
-  let mode ← failWith <| parseDependencyMode option (← takeOptionArg option "source or kernel")
-  modifyThe Config fun config => { config with mode }
-
 private def setDirection (option : String) : CliM PUnit := do
   let direction ← failWith <|
     parseDirection option (← takeOptionArg option "both, upstream, or downstream")
@@ -55,7 +51,6 @@ private def shortOption : Char → CliM PUnit
 private def longOption : String → CliM PUnit
   | "--module" => addImport "--module"
   | "--import" => addImport "--import"
-  | "--mode" => setMode "--mode"
   | "--direction" => setDirection "--direction"
   | "--depth" => setDepth "--depth"
   | "--limit" => setLimit "--limit"

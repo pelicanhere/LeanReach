@@ -6,12 +6,6 @@ def maxDepth : Nat := 8
 
 def maxLimit : Nat := 1000
 
-def parseDependencyMode (label value : String) : Except String DependencyMode :=
-  match value with
-  | "source" => .ok .source
-  | "kernel" => .ok .kernel
-  | _ => .error s!"{label} expects source or kernel; got '{value}'"
-
 def parseDirection (label value : String) : Except String Direction :=
   match value with
   | "both" => .ok .both

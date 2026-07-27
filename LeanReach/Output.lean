@@ -1,19 +1,16 @@
-import LeanReach.Query
+import LeanReach.Protocol
 
 namespace LeanReach
 
 open Lean
 
 private def formatLocation (source : SourceLocation) : String :=
-  match source.file, source.line, source.column, source.moduleName with
-  | some file, some line, some column, _ => s!"{file}:{line}:{column}"
-  | none, some line, some column, some moduleName => s!"{moduleName}:{line}:{column}"
-  | some file, _, _, _ => file
-  | none, _, _, some moduleName => moduleName
-  | _, _, _, _ => "<source unavailable>"
+  match source.file with
+  | some file => s!"{file}:{source.line}:{source.column}"
+  | none => s!"{source.moduleName}:{source.line}:{source.column}"
 
 private def printDeclaration (indent : String) (declaration : DeclarationView) : IO Unit := do
-  IO.println s!"{indent}{declaration.name} [{declaration.kind}]"
+  IO.println s!"{indent}{declaration.name}"
   IO.println s!"{indent}  {formatLocation declaration.source}"
 
 private def printRelations (label : String) (relations : RelationList) : IO Unit := do
@@ -22,13 +19,12 @@ private def printRelations (label : String) (relations : RelationList) : IO Unit
     IO.println "  <none>"
   for relation in relations.items do
     let via := (relation.via.map fun name => s!" via {name}").getD ""
-    IO.println s!"  d={relation.distance} {relation.declaration.name} [{relation.declaration.kind}]{via}"
+    IO.println s!"  d={relation.distance} {relation.declaration.name}{via}"
     IO.println s!"      {formatLocation relation.declaration.source}"
   if relations.items.size < relations.total then
     IO.println s!"  ... {relations.total - relations.items.size} more (increase --limit)"
 
 def printQueryHuman (result : QueryResult) : IO Unit := do
-  IO.println s!"mode    {result.mode}"
   printDeclaration "target  " result.target
   printRelations "upstream" result.upstream
   printRelations "downstream" result.downstream

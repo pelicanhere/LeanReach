@@ -3,10 +3,8 @@
 LeanReach is a Lean-native CLI for finding declarations, opening their exact source locations, and
 inspecting a bounded neighborhood of upstream and downstream dependencies.
 
-The default `source` mode reads Lean's resolved `.ilean` data. It does not import a Mathlib
-`Environment`, and it stores only declaration locations plus direct-reference postings—not a
-transitive declaration DAG. An explicit `kernel` mode remains available when elaborated constants,
-implicit instances, or generated declarations matter.
+LeanReach reads Lean's resolved `.ilean` data. It does not import a Mathlib `Environment`, and it
+stores only declaration locations plus direct-reference postings—not a transitive declaration DAG.
 
 The command and NDJSON protocol follow the small tagged-dispatch style used by
 [Lean REPL](https://github.com/leanprover-community/repl). Persistent cache validation and the
@@ -54,7 +52,6 @@ Important options:
 
 ```text
 -m, --module MODULE       root MODULE; repeatable (default: Mathlib)
-    --mode MODE           source or kernel (default: source)
     --direction DIR       both, upstream, or downstream
     --upstream            shorthand for upstream only
     --downstream          shorthand for downstream only
@@ -90,26 +87,19 @@ This is lighter than an imported Mathlib environment and deliberately omits decl
 values, transitive closure, and edge paths. Source-upstream reads only the `.ilean` that owns the
 current frontier; source-downstream follows the persistent direct postings.
 
-## Source and kernel semantics
+## Dependency semantics
 
-| Mode | Edge meaning | Startup | Intended use |
-|---|---|---|---|
-| `source` | resolved source identifier attributed to its `parentDecl` | restore or build the `.ilean` index; no Environment import | agent navigation and editable source |
-| `kernel` | constant occurs in an elaborated declaration type or value | import the requested `.olean` Environment | implicit arguments, instances, notation expansion |
+An edge is a resolved source identifier attributed to its enclosing `parentDecl` by Lean's language
+server data. This matches the declarations an agent can open and inspect in source. It deliberately
+does not model constants introduced only by elaboration, such as some implicit instances, notation
+expansions, or generated declarations.
 
-Use kernel mode explicitly:
-
-```console
-lake exe leanreach Nat.gcd_comm --mode kernel --upstream
-```
-
-The two graphs are intentionally different. `.ilean` contains source-visible references and exact
-selection ranges, but no constant kind, type, or value. Consequently source results use the neutral
-kind `"declaration"`; kernel results can report theorem, definition, constructor, and similar kinds.
+`.ilean` contains exact selection ranges but no declaration type, value, or constant kind, so the
+output contract reports names and locations rather than kernel metadata.
 
 ## Agent session protocol
 
-Start one process and reuse its mapped source index (or imported kernel environment):
+Start one process and reuse its mapped source index:
 
 ```console
 lake exe leanreach --interactive --profile
@@ -126,17 +116,16 @@ stdout immediately. Arbitrary JSON `id` values are echoed.
 ```
 
 Supported commands are `query`, `search`, `ping`, and `quit`. A request may override `direction`,
-`depth`, `limit`, and `includeInternal`. Root modules and dependency mode are fixed for the session.
+`depth`, `limit`, and `includeInternal`. Root modules are fixed for the session.
 Malformed requests return an error without terminating the process.
 
 ## Output contract
 
-JSON payloads use `schemaVersion: 1`. Lines and columns are one-based.
+Lines and columns are one-based.
 
 ```json
 {
   "name": "Submodule.span_le",
-  "kind": "declaration",
   "source": {
     "moduleName": "Mathlib.LinearAlgebra.Span.Defs",
     "file": ".../Mathlib/LinearAlgebra/Span/Defs.lean",
@@ -177,11 +166,10 @@ largest LeanReach win was the namespace-heavy `IsLimit.hom_ext` task. See
 
 ```text
 Main.lean                         Lake.ArgsT CLI parser
-LeanReach/Cli.lean                source/kernel lifecycle and shared dispatch
+LeanReach/Cli.lean                source-index lifecycle and command dispatch
 LeanReach/Interactive.lean        tagged NDJSON codec and transport loop
 LeanReach/SourceIndex.lean        indexed source search and bounded BFS
 LeanReach/SourceIndex/Build.lean  .ilean traversal and persistent cache
-LeanReach/Query.lean              explicit kernel query API
 LeanReach/Query/Ilean.lean        shared .ilean and source-path utilities
 LeanReach/Protocol.lean           compact public request/result models
 Tests/Smoke.lean                  semantic and cache lifecycle tests

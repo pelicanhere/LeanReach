@@ -4,7 +4,7 @@ import LeanReach.SourceIndex
 
 namespace LeanReach
 
-open Lean Lean.Core
+open Lean
 
 private inductive Request where
   | query (id? : Option Json) (query : String) (options : QueryOptions)
@@ -127,25 +127,23 @@ private def decodeRequest (defaults : QueryOptions) (line : String) :
   | command =>
     throw (id?, s!"unknown command '{command}'; expected query, search, ping, or quit")
 
-private def processRequest (defaults : QueryOptions)
-    (runQuery : String → QueryOptions → Query.SessionM (Except QueryFailure QueryResult))
-    (runSearch : String → QueryOptions → Query.SessionM SearchResult) (request : Request) :
-    Query.SessionM (Json × Bool) := do
+private def processRequest (index : SourceIndex.Index) (sourcePath : SearchPath)
+    (request : Request) :
+    IO (Json × Bool) := do
   match request with
   | .query id? query options =>
-    match ← runQuery query options with
+    match ← SourceIndex.runQuery index sourcePath query options with
     | .ok result =>
       return (successResponse id? (toJson result), true)
     | .error failure =>
       return (errorResponse id? failure.error (some failure.candidates), true)
   | .search id? query options =>
-    let result ← runSearch query options
+    let result ← SourceIndex.runSearch index sourcePath query options
     return (successResponse id? (toJson result), true)
   | .ping id? =>
     return (
       successResponse id? <| Json.mkObj [
-        ("status", toJson "ready"),
-        ("mode", toJson defaults.mode.label)
+        ("status", toJson "ready")
       ],
       true
     )
@@ -156,7 +154,7 @@ private def processRequest (defaults : QueryOptions)
     )
 
 private partial def serve (defaults : QueryOptions) (profile : Bool)
-    (process : Request → Query.SessionM (Json × Bool)) : Query.SessionM UInt32 := do
+    (process : Request → IO (Json × Bool)) : IO UInt32 := do
   let stdin ← IO.getStdin
   let line ← stdin.getLine
   if line.isEmpty then
@@ -186,31 +184,15 @@ private partial def serve (defaults : QueryOptions) (profile : Bool)
         else
           return 0
       catch error =>
-        let message ← error.toMessageData.toString
-        printJsonLine <| errorResponse request.id? s!"request failed: {message}"
+        printJsonLine <| errorResponse request.id? s!"request failed: {error}"
         if profile then
           let finished ← IO.monoMsNow
           IO.eprintln s!"leanreach request: command=error elapsed={finished - started}ms"
         serve defaults profile process
 
-/--
-Run a newline-delimited JSON session. The imported environment is owned by the caller and reused
-until EOF or a `quit` request.
--/
-def runInteractive (defaults : QueryOptions) (profile : Bool := false) : CoreM UInt32 :=
-  withSession <| serve defaults profile
-    (processRequest defaults
-      (fun query options => runKernelQueryM query options)
-      (fun query options => runKernelSearchM query options))
-
-/-- Run the same NDJSON protocol against a source index without consulting the Environment. -/
+/-- Run the NDJSON protocol against one mapped source index. -/
 def runIndexedInteractive (index : SourceIndex.Index) (sourcePath : SearchPath)
-    (defaults : QueryOptions) (profile : Bool := false) : CoreM UInt32 := do
-  let query (name : String) (options : QueryOptions) :
-      Query.SessionM (Except QueryFailure QueryResult) := do
-    SourceIndex.runQuery index sourcePath name options
-  let search (pattern : String) (options : QueryOptions) : Query.SessionM SearchResult := do
-    SourceIndex.runSearch index sourcePath pattern options
-  (serve defaults profile (processRequest defaults query search)).run sourcePath
+    (defaults : QueryOptions) (profile : Bool := false) : IO UInt32 :=
+  serve defaults profile (processRequest index sourcePath)
 
 end LeanReach
