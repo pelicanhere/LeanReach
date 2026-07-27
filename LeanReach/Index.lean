@@ -11,7 +11,6 @@ structure Index where
   private names : Array (Name × String)
   private forward : NameMap NameSet
   private reverse : NameMap NameSet
-  private count : Nat
   deriving Inhabited
 
 private def usedConstants (included : NameHashSet) (name : Name) (info : ConstantInfo) : NameSet :=
@@ -39,7 +38,6 @@ def Index.build : CoreM Index := do
     names := names.qsort fun a b => Name.lt a.1 b.1
     forward
     reverse
-    count := names.size
   }
 
 private def Index.matchBuckets (index : Index) (query : String) (limit : Nat) :
@@ -78,7 +76,7 @@ def Index.downstream (index : Index) (name : Name) : NameSet :=
   index.reverse.getD name {}
 
 def Index.declarationCount (index : Index) : Nat :=
-  index.count
+  index.names.size
 
 def Index.documentFrequency (index : Index) (name : Name) : Nat :=
   (index.downstream name).size
