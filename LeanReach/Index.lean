@@ -75,6 +75,16 @@ def Index.downstream (index : Index) (name : Name) : NameSet :=
 def Index.moduleOf? (index : Index) (name : Name) : Option Name :=
   index.modules.find? name
 
+def Index.modulesFor (index : Index) (names : Array Name) : Array Name := Id.run do
+  let mut seen : NameHashSet := {}
+  let mut modules := #[]
+  for name in names do
+    if let some moduleName := index.moduleOf? name then
+      unless seen.contains moduleName do
+        seen := seen.insert moduleName
+        modules := modules.push moduleName
+  return modules
+
 def Index.declarationCount (index : Index) : Nat :=
   index.names.size
 

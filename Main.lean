@@ -155,6 +155,23 @@ private def runTimed (session : Session) (config : Config) (command : Command) :
   if config.profile then
     IO.eprintln s!"leanreach: query={(← IO.monoMsNow) - started}ms"
 
+private def commandNames (config : Config) (command : Command) (index : Index) :
+    Except String (Array Name) := do
+  match command with
+  | .query query =>
+    let (target, upstream, downstream) ← index.queryNames query {
+      depth := config.depth
+      limit := config.limit
+      upstream := config.upstream
+      downstream := config.downstream
+    }
+    return #[target] ++ upstream.map (·.2) ++ downstream.map (·.2)
+  | .search pattern =>
+    return index.search pattern config.limit
+  | .context query =>
+    let target ← index.resolve query
+    return #[target] ++ (index.context target config.depth config.limit).map (·.2.2)
+
 private def parseLine (line : String) : Command :=
   if let some pattern := line.dropPrefix? "search " then
     .search pattern.trimAscii.copy
@@ -185,10 +202,12 @@ private def validate (config : Config) : CliMainM Unit := do
 
 private unsafe def execute (config : Config) (command? : Option Command) : IO UInt32 := do
   let started ← IO.monoMsNow
-  withSession config.root fun session =>
-    match command? with
-    | some command => runTimed session config command
-    | none => runInteractive session config
+  match command? with
+  | some command =>
+    withSessionFor config.root (commandNames config command) fun session =>
+      runTimed session config command
+  | none =>
+    withSession config.root fun session => runInteractive session config
   if config.profile then
     IO.eprintln s!"leanreach: elapsed={(← IO.monoMsNow) - started}ms"
   return 0

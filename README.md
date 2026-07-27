@@ -10,8 +10,8 @@ artifacts for local libraries:
 
 - read each built module's `.olean`, `.olean.server`, `.olean.private`, and `.ilean` directly;
 - cache a small dependency fragment per module and materialize a root query index;
-- import the root with `loadExts := true` only for pretty-printing;
-- keep that `Environment` alive for the whole process;
+- plan the bounded query from the index, then import only result modules for pretty-printing;
+- keep a root `Environment` alive only in interactive mode;
 - use Lean's own delaborator and pretty-printer;
 - hide compiler-generated declarations using Loogle/doc-gen-style filtering;
 - index direct constants mentioned by declaration types and values;
@@ -90,9 +90,10 @@ The process emits one compact JSON value per line and flushes stdout after every
 development Windows machine, a small cached local environment took about 10 seconds to start; the
 first name search and pretty-print took 89 ms, and the following dependency query took 7 ms.
 
-The default `Mathlib` root is intentionally a much heavier pretty-printing workload. The dependency
-index itself is loaded without importing Mathlib, but this version still imports the root before
-rendering results. Prefer the narrowest useful root and keep full-Mathlib sessions alive.
+The dependency index is loaded without importing Mathlib. A one-shot command imports only the
+modules needed to render its bounded result set; interactive mode imports the root once and reuses
+it. Prefer a one-shot command for isolated lookups and a long-lived session for a sequence of
+queries over the same root.
 
 ## Searching another local Lake library
 
