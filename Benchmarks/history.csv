@@ -1,0 +1,12 @@
+commit,date,query,tool,metric,median_ms,iterations,note
+81544ba,2026-07-28,span_le,leanreach,end_to_end,180000,1,full Mathlib import timed out
+81544ba,2026-07-28,span_le,rg,end_to_end,269.66,10,warm filesystem
+"08e7952","2026-07-28","span_le","leanreach","end_to_end","12160.08","5","packaged executable"
+"08e7952","2026-07-28","span_le","leanreach","query","333","5","CLI profile"
+"08e7952","2026-07-28","span_le","rg","end_to_end","288.34","5","warm filesystem"
+"08e7952","2026-07-28","continuous_mul","leanreach","end_to_end","10669.05","5","packaged executable"
+"08e7952","2026-07-28","continuous_mul","leanreach","query","269","5","CLI profile"
+"08e7952","2026-07-28","continuous_mul","rg","end_to_end","280.85","5","warm filesystem"
+"08e7952","2026-07-28","tendsto_nat_nhds_top_iff","leanreach","end_to_end","725.8","5","packaged executable"
+"08e7952","2026-07-28","tendsto_nat_nhds_top_iff","leanreach","query","181","5","CLI profile"
+"08e7952","2026-07-28","tendsto_nat_nhds_top_iff","rg","end_to_end","269.62","5","warm filesystem"

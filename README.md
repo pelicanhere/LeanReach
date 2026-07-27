@@ -28,6 +28,14 @@ lake build
 lake exe leanreach_tests
 ```
 
+The repeatable Mathlib benchmark compares direct process wall time with `rg` and also records
+LeanReach's internal query time:
+
+```console
+pwsh Benchmarks/run.ps1
+python Benchmarks/plot.py
+```
+
 LeanReach is pinned to Lean and Mathlib `v4.32.0`. The executable enables interpreter support
 because loading environment extensions at runtime requires it.
 
