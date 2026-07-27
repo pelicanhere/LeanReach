@@ -22,3 +22,7 @@ root = "Main"
 [[lean_exe]]
 name = "leanreach_tests"
 root = "Tests.Smoke"
+
+[[lean_exe]]
+name = "leanreach_integration_tests"
+root = "Tests.Integration"
