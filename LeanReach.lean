@@ -37,32 +37,43 @@ private def sourceSearchPath (roots : List System.FilePath) : IO SearchPath := d
   | none => return fallback
 
 private unsafe def withIndexSession {α : Type} (root : Name)
-    (select : Index → Except String (Array Name)) (action : Session → CoreM α) : IO α := do
+    (select : Index → NameMap Declaration → Except String (Array Name))
+    (action : Session → CoreM α) : IO α := do
   let roots ← workspaceRoots
   initializeSearchPath roots
   let sourcePath ← sourceSearchPath roots
   Lean.enableInitializersExecution
   let index ← unsafe Cache.loadIndex root
+  let rendered ← unsafe Cache.loadRendered root
   let modules ←
-    match select index with
+    match select index rendered with
     | .ok modules => pure modules
     | .error message => throw <| IO.userError message
   let imports := modules.map fun moduleName => { module := moduleName }
   let env ←
     if imports.isEmpty then mkEmptyEnvironment
     else importModules (loadExts := true) imports {}
-  Core.CoreM.toIO'
-    (do action (← Session.create index sourcePath))
+  let session ← Session.create index sourcePath rendered
+  let result ← Core.CoreM.toIO'
+    (action session)
     { fileName := "<leanreach>", fileMap := default }
     { env }
+  let updated ← session.rendered
+  if updated.size != rendered.size then
+    try unsafe Cache.saveRendered root updated
+    catch _ => IO.eprintln "leanreach: could not write rendered declaration cache"
+  return result
 
 /-- Import only the modules needed to render the selected declarations. -/
 unsafe def withSessionFor {α : Type} (root : Name) (select : Index → Except String (Array Name))
     (action : Session → CoreM α) : IO α :=
-  withIndexSession root (fun index => index.modulesFor <$> select index) action
+  withIndexSession root (fun index rendered => do
+    let names ← select index
+    return index.modulesFor (names.filter fun name => !rendered.contains name)
+  ) action
 
 /-- Import a root module once and reuse its environment and index for the entire action. -/
 unsafe def withSession {α : Type} (root : Name) (action : Session → CoreM α) : IO α :=
-  withIndexSession root (fun _ => pure #[root]) action
+  withIndexSession root (fun _ _ => pure #[root]) action
 
 end LeanReach

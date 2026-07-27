@@ -2,6 +2,7 @@ import Lean.Environment
 import Lean.Server.References
 import Lean.Util.Path
 import LeanReach.BlackListed
+import LeanReach.Declaration
 import LeanReach.Index
 
 namespace LeanReach.Cache
@@ -10,6 +11,7 @@ open Lean
 
 private def version := 8
 private def fragmentVersion := 2
+private def renderVersion := 1
 
 structure ModuleFragment where
   imports : Array Name
@@ -111,5 +113,23 @@ unsafe def loadIndex (root : Name) : IO Index := do
   try pickle path root (depHash, index)
   catch _ => IO.eprintln s!"leanreach: could not write cache {path}"
   return index
+
+unsafe def loadRendered (root : Name) : IO (NameMap Declaration) := do
+  let olean ← findOLean root
+  let some depHash ← depHash? olean | return {}
+  let path := olean.withExtension s!"leanreach-render-{renderVersion}"
+  unless ← path.pathExists do return {}
+  try
+    let ((storedHash, declarations), _) ←
+      unsafe unpickle (String × NameMap Declaration) path
+    if storedHash == depHash then return declarations
+  catch _ => pure ()
+  return {}
+
+unsafe def saveRendered (root : Name) (declarations : NameMap Declaration) : IO Unit := do
+  let olean ← findOLean root
+  let some depHash ← depHash? olean | return
+  let path := olean.withExtension s!"leanreach-render-{renderVersion}"
+  pickle path (Name.str root "_leanreachRender") (depHash, declarations)
 
 end LeanReach.Cache

@@ -11,6 +11,7 @@ artifacts for local libraries:
 - read each built module's `.olean`, `.olean.server`, `.olean.private`, and `.ilean` directly;
 - cache a small dependency fragment per module and materialize a root query index;
 - plan the bounded query from the index, then import only result modules for pretty-printing;
+- persist rendered declarations and skip imports entirely when every result is cached;
 - keep a root `Environment` alive only in interactive mode;
 - use Lean's own delaborator and pretty-printer;
 - hide compiler-generated declarations using Loogle/doc-gen-style filtering;

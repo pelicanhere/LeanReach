@@ -46,8 +46,12 @@ structure Session where
   private sourcePath : SearchPath
   private declarations : IO.Ref (NameMap Declaration)
 
-def Session.create (index : Index) (sourcePath : SearchPath) : IO Session :=
-  return { index, sourcePath, declarations := ← IO.mkRef {} }
+def Session.create (index : Index) (sourcePath : SearchPath)
+    (declarations : NameMap Declaration := {}) : IO Session :=
+  return { index, sourcePath, declarations := ← IO.mkRef declarations }
+
+def Session.rendered (session : Session) : IO (NameMap Declaration) :=
+  session.declarations.get
 
 private def renderSignature (name : Name) : MetaM String := do
   let expression ← mkConstWithLevelParams name
