@@ -15,14 +15,9 @@ open Lean Lean.Core
 private abbrev RawRelation := Relation Name Name
 private abbrev ResolveFailure := QueryError Name
 
-/-- State whose lifetime matches one imported Lean environment. -/
-structure SessionState where
-  sourcePath : SearchPath
-  ileans : NameMap Server.Ilean := {}
-
-abbrev SessionM := StateT SessionState CoreM
+/-- Query actions that share the source search path for one imported environment. -/
+abbrev SessionM := ReaderT SearchPath CoreM
 private abbrev RequestM := ReaderT QueryOptions SessionM
-private abbrev QueryM := ExceptT QueryFailure RequestM
 
 private def constantKind : ConstantKind → String
   | .axiom => "axiom"
@@ -196,15 +191,6 @@ private def loadIlean? (moduleName : Name) : IO (Option Server.Ilean) := do
   let some path ← ileanPath? moduleName | return none
   return some (← Server.Ilean.load path)
 
-private def loadIleanCached? (moduleName : Name) : RequestM (Option Server.Ilean) := do
-  if let some ilean := (← getThe SessionState).ileans.find? moduleName then
-    return some ilean
-  let loaded ← loadIlean? moduleName
-  if let some ilean := loaded then
-    modifyThe SessionState fun state =>
-      { state with ileans := state.ileans.insert moduleName ilean }
-  return loaded
-
 private def sourceDependencies (ilean : Server.Ilean) (parent : Name) : NameSet := Id.run do
   let parentName := nameString parent
   let mut dependencies : NameSet := {}
@@ -218,6 +204,7 @@ private def sourceDependencies (ilean : Server.Ilean) (parent : Name) : NameSet 
 private def collectSourceUpstream (target : Name) : RequestM (Array RawRelation) := do
   let env ← getEnv
   let options ← read
+  let mut cache : NameMap Server.Ilean := {}
   let mut visited : NameSet := ({} : NameSet).insert target
   let mut frontier := #[target]
   let mut results := #[]
@@ -225,7 +212,13 @@ private def collectSourceUpstream (target : Name) : RequestM (Array RawRelation)
     let mut next := #[]
     for parent in frontier do
       let some moduleName := moduleOf? env parent | continue
-      let ilean? ← loadIleanCached? moduleName
+      let ilean? ← match cache.find? moduleName with
+        | some ilean => pure (some ilean)
+        | none => do
+          let loaded ← loadIlean? moduleName
+          if let some ilean := loaded then
+            cache := cache.insert moduleName ilean
+          pure loaded
       let some ilean := ilean? | continue
       for dependency in sourceDependencies ilean parent do
         if env.contains dependency && !visited.contains dependency then
@@ -366,10 +359,10 @@ private def sourceSearchPath : IO SearchPath := do
   return sources
 
 def withSession {α : Type} (action : SessionM α) : CoreM α := do
-  action.run' { sourcePath := ← sourceSearchPath }
+  action.run (← sourceSearchPath)
 
 private def sourceLocation (name : Name) : RequestM SourceLocation := do
-  let sourcePath := (← getThe SessionState).sourcePath
+  let sourcePath ← readThe SearchPath
   let moduleName? ← findModuleOf? name
   let file? ← match moduleName? with
     | some moduleName => sourcePath.findModuleWithExt "lean" moduleName
@@ -412,48 +405,43 @@ private def describeRelations (relations : Array RawRelation) : RequestM Relatio
     }
   return { total := relations.size, items }
 
-private def resolve (query : String) : QueryM Name := do
+private def executeQuery (query : String) : RequestM (Except QueryFailure QueryResult) := do
   let env ← getEnv
-  let options ← readThe QueryOptions
+  let options ← read
   match resolveName env query options.includeInternal with
-  | .ok target => return target
   | .error failure =>
-    let candidates ← failure.candidates.mapM fun name =>
-      liftM <| describeDeclaration name
-    throwThe QueryFailure {
+    let candidates ← failure.candidates.mapM describeDeclaration
+    return .error {
       error := failure.error
       candidates
     }
-
-private def executeQuery (query : String) : QueryM QueryResult := do
-  let target ← resolve query
-  let options ← readThe QueryOptions
-  let upstream ←
-    if options.direction.includesUpstream then
-      liftM <| match options.mode with
+  | .ok target => do
+    let upstream ←
+      if options.direction.includesUpstream then
+        match options.mode with
         | .source => collectSourceUpstream target
         | .kernel => collectUpstream target
-    else
-      pure #[]
-  let downstream ←
-    if options.direction.includesDownstream then
-      liftM <| match options.mode with
+      else
+        pure #[]
+    let downstream ←
+      if options.direction.includesDownstream then
+        match options.mode with
         | .source => collectSourceDownstream target
         | .kernel => collectDownstream target
-    else
-      pure #[]
-  return {
-    query
-    mode := options.mode.label
-    target := ← liftM <| describeDeclaration target
-    upstream := ← liftM <| describeRelations upstream
-    downstream := ← liftM <| describeRelations downstream
-  }
+      else
+        pure #[]
+    return .ok {
+      query
+      mode := options.mode.label
+      target := ← describeDeclaration target
+      upstream := ← describeRelations upstream
+      downstream := ← describeRelations downstream
+    }
 
-/-- Query inside an existing session, reusing its source path and `.ilean` cache. -/
+/-- Query inside an existing session, reusing its source search path. -/
 def runQueryM (query : String) (options : QueryOptions := {}) :
     SessionM (Except QueryFailure QueryResult) :=
-  (executeQuery query).run |>.run options
+  (executeQuery query).run options
 
 /-- Resolve a declaration and inspect its bounded dependency neighborhood. -/
 def runQuery (query : String) (options : QueryOptions := {}) :
