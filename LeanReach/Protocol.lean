@@ -9,7 +9,7 @@ inductive Direction where
   | both
   | upstream
   | downstream
-  deriving Repr, BEq
+  deriving Repr, BEq, FromJson
 
 namespace Direction
 

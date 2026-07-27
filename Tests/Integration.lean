@@ -21,6 +21,11 @@ private def field (α : Type) [FromJson α] (json : Json) (name : String) : IO �
   | .ok value => pure value
   | .error message => fail s!"invalid response field '{name}': {message}\n{json.compress}"
 
+private def expectMissingField (label : String) (json : Json) (name : String) : IO Unit :=
+  match json.getObjVal? name with
+  | .error _ => pure ()
+  | .ok _ => fail s!"{label}: obsolete response field '{name}' is still present"
+
 private def leanreachPath : IO System.FilePath := do
   let some binDir := (← IO.appPath).parent |
     fail "integration test executable has no parent directory"
@@ -112,38 +117,55 @@ private def testSourceIndex (executable : System.FilePath) : IO Unit := do
 
 private def testInteractive (executable : System.FilePath) : IO Unit := do
   let input := "\n".intercalate [
-    "{\"id\":1,\"command\":\"ping\",\"depth\":\"ignored\"}",
-    "{\"id\":2,\"command\":\"search\",\"query\":\"gcd\",\"direction\":7,\"limit\":2}",
-    "{\"id\":{\"suite\":\"validation\"},\"command\":\"query\",\"query\":\"Nat.gcd\",\"depth\":99}",
-    "{\"id\":4,\"command\":\"unknown\"}",
-    "{\"id\":5,\"command\":\"quit\"}"
+    "",
+    "{\"command\":\"search\",\"query\":\"gcd\"}",
+    "{\"command\":\"query\",\"query\":\"Nat.gcd\",\"depth\":99}",
+    "{\"command\":\"query\",\"query\":\"Nat.gcd\"}",
+    "{\"command\":\"query\",\"query\":\"Nat.gcd\",\"direction\":\"upstream\",\"limit\":2}",
+    "{\"command\":\"query\",\"query\":\"Nat.gcd\",\"direction\":7}",
+    "{\"command\":\"ping\",\"query\":\"Nat.gcd\"}"
   ] ++ "\n"
   let output ← runCli executable #[
     "--interactive",
-    "--module=Mathlib.Data.Nat.GCD.Basic"
+    "--module=Mathlib.Data.Nat.GCD.Basic",
+    "--downstream",
+    "--limit=1"
   ] (some input)
   expectExit "interactive" 0 output
   let lines := output.stdout.splitOn "\n"
     |>.filter (fun line => !line.trimAscii.isEmpty)
-  check (lines.length == 5)
-    s!"interactive: expected 5 responses, got {lines.length}\n{output.stdout}"
+  check (lines.length == 6)
+    s!"interactive: expected 6 responses, got {lines.length}\n{output.stdout}"
   let responses ← lines.mapM parseJson
-  let some ping := responses[0]? | fail "missing ping response"
-  let some search := responses[1]? | fail "missing search response"
-  let some invalid := responses[2]? | fail "missing validation response"
-  let some unknown := responses[3]? | fail "missing unknown-command response"
-  let some quit := responses[4]? | fail "missing quit response"
-  check (← field Bool ping "ok") "ping rejected an unrelated malformed field"
-  let pingResult ← field Json ping "result"
-  check ((← field String pingResult "status") == "ready") "interactive ping was not ready"
-  check (← field Bool search "ok") "search rejected an unrelated malformed field"
-  check (!(← field Bool invalid "ok")) "invalid depth unexpectedly succeeded"
-  let invalidId ← field Json invalid "id"
-  check ((← field String invalidId "suite") == "validation")
-    "validation error did not preserve its object id"
-  check (!(← field Bool unknown "ok")) "unknown command unexpectedly succeeded"
-  check ((← field Nat unknown "id") == 4) "unknown command did not preserve its scalar id"
-  check (← field Bool quit "ok") "quit failed"
+  let some search := responses[0]? | fail "missing search response"
+  let some invalidDepth := responses[1]? | fail "missing validation response"
+  let some inherited := responses[2]? | fail "missing inherited-options response"
+  let some overridden := responses[3]? | fail "missing overridden-options response"
+  let some invalidDirection := responses[4]? | fail "missing typed-field response"
+  let some removedCommand := responses[5]? | fail "missing removed-command response"
+
+  check ((← field String search "query") == "gcd") "interactive search returned the wrong query"
+  check ((← field (Array Json) search "items").size ≤ 1)
+    "interactive search did not inherit the CLI limit"
+  expectMissingField "interactive search" search "ok"
+  expectMissingField "interactive search" search "result"
+
+  let _ ← field String invalidDepth "error"
+  let inheritedTarget ← field Json inherited "target"
+  check ((← field String inheritedTarget "name") == "Nat.gcd")
+    "session did not continue after an invalid request"
+  let inheritedUpstream ← field Json inherited "upstream"
+  check ((← field Nat inheritedUpstream "total") == 0)
+    "interactive query did not inherit the CLI direction"
+
+  let overriddenDownstream ← field Json overridden "downstream"
+  check ((← field Nat overriddenDownstream "total") == 0)
+    "interactive query did not apply its direction override"
+  check ((← field (Array Json) (← field Json overridden "upstream") "items").size ≤ 2)
+    "interactive query did not apply its limit override"
+
+  let _ ← field String invalidDirection "error"
+  let _ ← field String removedCommand "error"
 
 def run : IO UInt32 := do
   try

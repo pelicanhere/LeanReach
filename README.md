@@ -6,7 +6,7 @@ inspecting a bounded neighborhood of upstream and downstream dependencies.
 LeanReach reads Lean's resolved `.ilean` data. It does not import a Mathlib `Environment`, and it
 stores only declaration locations plus direct-reference postings—not a transitive declaration DAG.
 
-The command and NDJSON protocol follow the small tagged-dispatch style used by
+The long-lived process model follows
 [Lean REPL](https://github.com/leanprover-community/repl). Persistent cache validation and the
 Lean-native CLI design are influenced by [Loogle](https://github.com/nomeata/loogle).
 
@@ -105,19 +105,18 @@ Start one process and reuse its mapped source index:
 lake exe leanreach --interactive --profile
 ```
 
-Write one JSON object per line. LeanReach emits one compact response per nonblank request and flushes
-stdout immediately. Arbitrary JSON `id` values are echoed.
+Write one JSON object per line. LeanReach emits the query result, search result, or error directly as
+one compact response per nonblank request and flushes stdout immediately.
 
 ```json
-{"id":1,"command":"ping"}
-{"id":2,"command":"search","query":"span_le","limit":10}
-{"id":3,"command":"query","query":"Submodule.span_le","direction":"downstream","limit":20}
-{"id":4,"command":"quit"}
+{"command":"search","query":"span_le","limit":10}
+{"command":"query","query":"Submodule.span_le","direction":"downstream","limit":20}
 ```
 
-Supported commands are `query`, `search`, `ping`, and `quit`. A request may override `direction`,
-`depth`, `limit`, and `includeInternal`. Root modules are fixed for the session.
-Malformed requests return an error without terminating the process.
+`command` and `query` are required. Supported commands are `query` and `search`; a request may
+override `direction`, `depth`, and `limit`. Root modules and `--include-internal` are fixed for the
+session. EOF ends the session. Malformed requests return `{"error":...,"candidates":[]}` without
+terminating the process.
 
 ## Output contract
 
@@ -167,7 +166,7 @@ largest LeanReach win was the namespace-heavy `IsLimit.hom_ext` task. See
 ```text
 Main.lean                         Lake.ArgsT CLI parser
 LeanReach/Cli.lean                source-index lifecycle and command dispatch
-LeanReach/Interactive.lean        tagged NDJSON codec and transport loop
+LeanReach/Interactive.lean        typed NDJSON request and transport loop
 LeanReach/SourceIndex.lean        indexed source search and bounded BFS
 LeanReach/SourceIndex/Build.lean  .ilean traversal and persistent cache
 LeanReach/Query/Ilean.lean        shared .ilean and source-path utilities

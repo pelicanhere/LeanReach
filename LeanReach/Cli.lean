@@ -91,7 +91,7 @@ private def runCommand (config : Config) (index : SourceIndex.Index)
     (sourcePath : SearchPath) : IO UInt32 := do
   match config.command with
   | some .interactive =>
-    LeanReach.runIndexedInteractive index sourcePath config.toQueryOptions config.profile
+    LeanReach.Interactive.run index sourcePath config.toQueryOptions config.profile
   | some (.query declaration) =>
     printQuery config
       (← SourceIndex.runQuery index sourcePath declaration config.toQueryOptions)
