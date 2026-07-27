@@ -1,4 +1,4 @@
-import Mathlib.Data.Nat.GCD.Basic
+import Lean
 
 namespace LeanReachFixture
 

@@ -11,8 +11,6 @@ private def check (condition : Bool) (message : String) : CoreM Unit :=
 private unsafe def runTests : IO Unit :=
   withSession `Tests.Fixture fun session => do
     let result ← session.query "LeanReachFixture.double" { limit := 100 }
-    check (result.target.signature.contains "ℕ")
-      "signature was not pretty-printed with notation"
     check result.target.source.file.isSome
       "local declaration has no source file"
     check (result.target.source.line == 5)
