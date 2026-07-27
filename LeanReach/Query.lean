@@ -1,6 +1,7 @@
 import Lean.DeclarationRange
 import Lean.OriginalConstKind
 import LeanReach.Query.Kernel
+import LeanReach.Query.Names
 import LeanReach.Query.Source
 
 namespace LeanReach
@@ -17,56 +18,21 @@ private def constantKind : ConstantKind → String
   | .ctor => "constructor"
   | .recursor => "recursor"
 
-private def nameScore (query : String) (name : Name) : Option Nat :=
-  let candidate := Query.nameString name
-  let queryLower := query.toLower
-  let candidateLower := candidate.toLower
-  if candidate == query then
-    some 0
-  else if candidate.endsWith ("." ++ query) then
-    some 1
-  else if candidateLower == queryLower then
-    some 2
-  else if candidateLower.endsWith ("." ++ queryLower) then
-    some 3
-  else if candidateLower.contains queryLower then
-    some 4
-  else
-    none
-
 private def scoredNames (env : Environment) (query : String) (includeInternal : Bool) :
-    Array (Nat × Name) := Id.run do
+    Array Query.ScoredName := Id.run do
   let mut hits := #[]
   for (name, _) in env.constants do
     if Query.visibleName includeInternal name then
-      if let some score := nameScore query name then
+      if let some score := Query.nameScore query name then
         hits := hits.push (score, name)
-  return hits.qsort fun left right =>
-    left.1 < right.1 || (left.1 == right.1 && Name.quickLt left.2 right.2)
+  return Query.sortScoredNames hits
 
 private def resolveName (env : Environment) (query : String) (includeInternal : Bool) :
     Except (QueryError Name) Name := do
   let exact := query.toName
   if env.contains exact && Query.visibleName includeInternal exact then
     return exact
-  let hits := scoredNames env query includeInternal
-  let suggestions := (hits.take 10).map (·.2)
-  let some best := hits[0]? | throw {
-    error := s!"unknown declaration '{query}'"
-    candidates := #[]
-  }
-  let bestMatches := hits.takeWhile (·.1 == best.1)
-  if best.1 ≤ 3 && bestMatches.size == 1 then
-    return best.2
-  if best.1 ≤ 3 then
-    throw {
-      error := s!"ambiguous declaration '{query}'"
-      candidates := suggestions
-    }
-  throw {
-    error := s!"unknown declaration '{query}'"
-    candidates := suggestions
-  }
+  Query.resolveScoredName query (scoredNames env query includeInternal)
 
 def withSession {α : Type} (action : Query.SessionM α) : CoreM α := do
   action.run (← Query.sourceSearchPath)
