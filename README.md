@@ -80,10 +80,11 @@ For each root set, LeanReach:
 5. stores only direct `target → parent declaration` postings;
 6. saves the payload with `Lean.CompactedRegion`.
 
-The payload has an explicit format version and a cache name derived from the complete sorted root
-fingerprint. A missing required `.ilean` is an error; missing imported artifacts prevent persistence,
-so an incomplete index cannot become a valid-looking cache. A mapped compacted region is bracketed
-around one command or interactive session and released afterwards.
+The payload has an explicit format version and a stable cache name derived from the complete sorted
+root set; the stored build fingerprint controls invalidation and overwrite. Any missing `.ilean` in
+the traversed closure is an error, so a partial index cannot produce complete-looking results. A
+mapped compacted region is bracketed around one command or interactive session and released
+afterwards.
 
 This is lighter than an imported Mathlib environment and deliberately omits declaration types,
 values, transitive closure, and edge paths. Source-upstream reads only the `.ilean` that owns the

@@ -96,29 +96,24 @@ private def loadBatch (modules : Array Name) :
   | some error => throw error
   | none => return results
 
-private def buildIndex (requestedRoots : Array Name) : IO (Index × Array Name) := do
+private def buildIndex (requestedRoots : Array Name) : IO Index := do
   let requestedRoots := normalizeRoots requestedRoots
   if requestedRoots.isEmpty then
     throw <| IO.userError "source index needs at least one root module"
   -- Lean implicitly imports `Init` unless a module uses `prelude`; `.ilean` records only explicit
   -- imports, so include the standard prelude closure explicitly.
   let roots := normalizeRoots (requestedRoots.push `Init)
-  let required := NameSet.ofArray roots
   let mut queue := roots
   let mut visited := NameSet.ofArray roots
   let mut offset := 0
   let mut index : Index := {}
-  let mut missing := #[]
   while offset < queue.size do
     let stop := min (offset + buildBatchSize) queue.size
     let batch := queue.extract offset stop
     for (moduleName, ilean?) in (← loadBatch batch) do
       let some ilean := ilean? |
-        if required.contains moduleName then
-          throw <| IO.userError
-            s!"missing .ilean for required module {Query.nameString moduleName}"
-        missing := missing.push moduleName
-        continue
+        throw <| IO.userError
+          s!"missing .ilean for module {Query.nameString moduleName}"
       if ilean.version != 5 then
         throw <| IO.userError
           s!"unsupported .ilean version {ilean.version} for {Query.nameString moduleName}"
@@ -129,11 +124,11 @@ private def buildIndex (requestedRoots : Array Name) : IO (Index × Array Name) 
           visited := visited.insert importedName
           queue := queue.push importedName
     offset := stop
-  return (index, missing)
+  return index
 
 /-- Build a source-visible declaration and direct-reference index without importing an Environment. -/
 def build (roots : Array Name) : IO Index :=
-  return (← buildIndex roots).1
+  buildIndex roots
 
 private def readModuleDepHash? (moduleName : Name) : IO (Option String) := do
   try
@@ -157,13 +152,18 @@ private def fingerprintHash (fingerprint : CacheFingerprint) : UInt64 :=
   fingerprint.foldl (init := 7) fun state (moduleName, depHash) =>
     mixHash state (mixHash (hash moduleName) (hash depHash))
 
-private def cachePath (roots : Array Name) (fingerprint : CacheFingerprint) :
-    IO System.FilePath := do
+private def rootSetHash (roots : Array Name) : UInt64 :=
+  roots.foldl (init := 7) fun state moduleName =>
+    mixHash state (hash moduleName)
+
+private def cachePath (roots : Array Name) : IO System.FilePath := do
   let cwd ← IO.Process.getCurrentDir
   let rootLabel := Query.nameString roots[0]!
-  let hashLabel := toString (fingerprintHash fingerprint)
+  let rootLabel :=
+    if roots.size == 1 then rootLabel
+    else s!"{rootLabel}-{rootSetHash roots}"
   return cwd / ".lake" / "leanreach" /
-    s!"{rootLabel}-{hashLabel}-v{cacheVersion}.index"
+    s!"{rootLabel}-v{cacheVersion}.index"
 
 private def cacheKey (fingerprint : CacheFingerprint) : Name :=
   Name.str `LeanReach.sourceIndex (toString (fingerprintHash fingerprint))
@@ -201,20 +201,17 @@ private unsafe def load (roots : Array Name) (log : String → IO Unit) :
     throw <| IO.userError "source index needs at least one root module"
   let fingerprint? ← cacheFingerprint? roots
   if let some fingerprint := fingerprint? then
-    let path ← cachePath roots fingerprint
+    let path ← cachePath roots
     if let some (index, region) ← unsafe readCache? path fingerprint then
       log s!"source index restored: {path}"
       return (index, some region)
     log s!"source index cache miss: {path}"
-    let (index, missing) ← buildIndex roots
-    if missing.isEmpty then
-      try
-        unsafe writeCache path fingerprint index
-        log s!"source index saved: {path}"
-      catch error =>
-        log s!"source index cache write failed: {error}"
-    else
-      log s!"source index not cached: {missing.size} imported .ilean files are missing"
+    let index ← build roots
+    try
+      unsafe writeCache path fingerprint index
+      log s!"source index saved: {path}"
+    catch error =>
+      log s!"source index cache write failed: {error}"
     return (index, none)
   log "source index cache disabled: a root module has no Lake depHash"
   return (← build roots, none)

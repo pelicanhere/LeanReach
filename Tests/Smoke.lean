@@ -56,6 +56,14 @@ private unsafe def sourceIndexTests : CoreM Unit := do
   check (cachedCount > 0) "restored source index was empty"
   check (← restored?.get) "source index cache was not restored on the second load"
 
+  let rejectedMissing ←
+    try
+      let _ ← SourceIndex.build #["LeanReach.Tests.MissingIleanFixture".toName]
+      pure false
+    catch _ =>
+      pure true
+  check rejectedMissing "source index accepted a closure with a missing .ilean"
+
 private def kernelTests : CoreM Unit := do
   let result ← expectQuery (← runKernelQuery "Nat.gcd_comm" {
     mode := .kernel
