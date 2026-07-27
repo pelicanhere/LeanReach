@@ -10,4 +10,11 @@ theorem double_zero : double 0 = 0 := rfl
 
 theorem double_zero_again : double 0 = 0 := double_zero
 
+structure Box where
+  value : Nat
+
+inductive Color where
+  | red
+  | blue
+
 end LeanReachFixture

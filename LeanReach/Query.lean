@@ -134,7 +134,7 @@ def Session.query (session : Session) (query : String) (options : QueryOptions :
     CoreM QueryResult := do
   let target ← session.index.resolve query
   let upstream ← if options.upstream then
-    traverse target options.depth options.limit directUpstream
+    traverse target options.depth options.limit (pure ∘ session.index.upstream)
     else pure #[]
   let downstream ← if options.downstream then
     traverse target options.depth options.limit (pure ∘ session.index.downstream)

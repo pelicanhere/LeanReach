@@ -7,5 +7,5 @@ LeanReach's environment lifecycle, cache strategy, and command-line organization
 > Released under the Apache License 2.0.
 
 LeanReach uses Lean's public `importModules`, delaborator, declaration-range, and module-data APIs;
-its small cache serialization wrapper is adapted from Loogle's `Pickle` module. LeanReach does not
-vendor Loogle's parser, trie, or matcher.
+its cache serialization wrapper and generated-declaration filter are adapted from Loogle's
+`Pickle` and `BlackListed` modules. LeanReach does not vendor Loogle's parser, trie, or matcher.

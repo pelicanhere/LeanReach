@@ -68,6 +68,13 @@ private unsafe def runTests : IO Unit :=
         item.name == "LeanReachFixture.double_eq_add")
       "local name search is missing"
 
+    check (← session.search "LeanReachFixture.Color.noConfusion" 10).isEmpty
+      "generated declaration was not blacklisted"
+    check
+      ((← session.search "LeanReachFixture.Box.value" 10).any fun item =>
+        item.name == "LeanReachFixture.Box.value")
+      "structure projection was blacklisted"
+
 unsafe def main : IO UInt32 := do
   try
     unsafe runTests

@@ -10,6 +10,7 @@ The implementation follows Loogle's deliberately simple process model:
 - import one root module with `loadExts := true`;
 - keep that complete `Environment` alive for the whole process;
 - use Lean's own delaborator and pretty-printer;
+- hide compiler-generated declarations using Loogle/doc-gen-style filtering;
 - index direct constants mentioned by declaration types and values;
 - cache names and the reverse relation next to the root `.olean`;
 - perform bounded breadth-first traversal instead of materializing a transitive DAG.
@@ -117,6 +118,7 @@ DAG or a runtime call graph.
 ```text
 LeanReach/Index.lean  names, dependency index, cache, and resolution
 LeanReach/Cache.lean  persistent index serialization and freshness checks
+LeanReach/BlackListed.lean  generated-declaration filtering
 LeanReach/Query.lean  rendering, source locations, traversal, and sessions
 LeanReach.lean        environment-loading facade
 Main.lean             Lake ArgsT CLI and interactive transport
