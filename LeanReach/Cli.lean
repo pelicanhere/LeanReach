@@ -9,14 +9,9 @@ inductive Command where
   | search (pattern : String)
   deriving Repr
 
-structure Config where
+structure Config extends QueryOptions where
   command : Option Command := none
   imports : Array Name := #[]
-  mode : DependencyMode := .source
-  direction : Direction := .both
-  depth : Nat := 1
-  limit : Nat := 20
-  includeInternal : Bool := false
   interactive : Bool := false
   json : Bool := false
   profile : Bool := false
@@ -145,24 +140,10 @@ private def importsOrDefault (config : Config) : Array Name :=
 
 private def runCommand (config : Config) : CoreM UInt32 := do
   if config.interactive then
-    LeanReach.runInteractive {
-      mode := config.mode
-      direction := config.direction
-      depth := config.depth
-      limit := config.limit
-      includeInternal := config.includeInternal
-      profile := config.profile
-    }
+    LeanReach.runInteractive config.toQueryOptions config.profile
   else match config.command with
   | some (.query declaration) =>
-    let result ← LeanReach.runQuery {
-      query := declaration
-      mode := config.mode
-      direction := config.direction
-      depth := config.depth
-      limit := config.limit
-      includeInternal := config.includeInternal
-    }
+    let result ← LeanReach.runQuery declaration config.toQueryOptions
     match result with
     | .ok result =>
       if config.json then
@@ -177,7 +158,7 @@ private def runCommand (config : Config) : CoreM UInt32 := do
         LeanReach.printFailureHuman failure
       return 2
   | some (.search pattern) =>
-    let result ← LeanReach.runSearch pattern config.limit config.includeInternal
+    let result ← LeanReach.runSearch pattern config.toQueryOptions
     if config.json then
       LeanReach.printJson result
     else

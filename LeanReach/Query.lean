@@ -6,120 +6,14 @@ import Lean.OriginalConstKind
 import Lean.Server.References
 import Lean.Util.FoldConsts
 import Lean.Util.Path
+import LeanReach.Protocol
 
 namespace LeanReach
 
 open Lean Lean.Core
 
-/-- Which side of a declaration's dependency neighborhood to inspect. -/
-inductive Direction where
-  | both
-  | upstream
-  | downstream
-  deriving Repr, BEq
-
-namespace Direction
-
-def includesUpstream : Direction → Bool
-  | .both | .upstream => true
-  | .downstream => false
-
-def includesDownstream : Direction → Bool
-  | .both | .downstream => true
-  | .upstream => false
-
-end Direction
-
-/--
-Dependency semantics. Source mode follows resolved source references in `.ilean` files; kernel mode
-follows constants that occur in elaborated types and values.
--/
-inductive DependencyMode where
-  | source
-  | kernel
-  deriving Repr, BEq
-
-namespace DependencyMode
-
-def label : DependencyMode → String
-  | .source => "source"
-  | .kernel => "kernel"
-
-end DependencyMode
-
-/-- Options that affect a dependency query after the requested modules are loaded. -/
-structure QueryConfig where
-  query : String
-  mode : DependencyMode := .source
-  direction : Direction := .both
-  depth : Nat := 1
-  limit : Nat := 20
-  includeInternal : Bool := false
-  deriving Repr
-
-/-- A source location. Lines and columns are both one-based for CLI consumers. -/
-structure SourceLocation where
-  moduleName : Option String
-  file : Option String
-  line : Option Nat
-  column : Option Nat
-  endLine : Option Nat
-  endColumn : Option Nat
-  deriving Repr, ToJson
-
-/-- The agent-facing description of a declaration. -/
-structure DeclarationView where
-  name : String
-  kind : String
-  source : SourceLocation
-  deriving Repr, ToJson
-
-/-- A declaration related to the target, together with one lightweight path witness. -/
-structure RelationView where
-  distance : Nat
-  via : Option String
-  declaration : DeclarationView
-  deriving Repr, ToJson
-
-/-- A bounded list of results plus the number found before applying the output limit. -/
-structure RelationList where
-  total : Nat
-  items : Array RelationView
-  deriving Repr, ToJson
-
-/-- Stable JSON payload for a declaration-neighborhood query. -/
-structure QueryResult where
-  schemaVersion : Nat := 1
-  query : String
-  mode : String
-  target : DeclarationView
-  upstream : RelationList
-  downstream : RelationList
-  deriving Repr, ToJson
-
-/-- A failed exact/suffix resolution with ranked declarations that may have been intended. -/
-structure QueryFailure where
-  schemaVersion : Nat := 1
-  error : String
-  candidates : Array DeclarationView
-  deriving Repr, ToJson
-
-/-- Stable JSON payload for name search. -/
-structure SearchResult where
-  schemaVersion : Nat := 1
-  query : String
-  total : Nat
-  items : Array DeclarationView
-  deriving Repr, ToJson
-
-private structure RawRelation where
-  name : Name
-  distance : Nat
-  via : Option Name
-
-private structure ResolveFailure where
-  message : String
-  candidates : Array Name
+private abbrev RawRelation := Relation Name Name
+private abbrev ResolveFailure := QueryError Name
 
 private def constantKind : ConstantKind → String
   | .axiom => "axiom"
@@ -172,7 +66,7 @@ private def resolveName (env : Environment) (query : String) (includeInternal : 
   let hits := scoredNames env query includeInternal
   let suggestions := (hits.take 10).map (·.2)
   let some best := hits[0]? | throw {
-    message := s!"unknown declaration '{query}'"
+    error := s!"unknown declaration '{query}'"
     candidates := #[]
   }
   let bestMatches := hits.takeWhile (·.1 == best.1)
@@ -180,17 +74,18 @@ private def resolveName (env : Environment) (query : String) (includeInternal : 
     return best.2
   if best.1 ≤ 3 then
     throw {
-      message := s!"ambiguous declaration '{query}'"
+      error := s!"ambiguous declaration '{query}'"
       candidates := suggestions
     }
   throw {
-    message := s!"unknown declaration '{query}'"
+    error := s!"unknown declaration '{query}'"
     candidates := suggestions
   }
 
 private def rawRelationLt (left right : RawRelation) : Bool :=
   left.distance < right.distance ||
-    (left.distance == right.distance && Name.quickLt left.name right.name)
+    (left.distance == right.distance &&
+      Name.quickLt left.declaration right.declaration)
 
 private def collectUpstream (env : Environment) (target : Name) (depth : Nat)
     (includeInternal : Bool) : Array RawRelation := Id.run do
@@ -207,7 +102,7 @@ private def collectUpstream (env : Environment) (target : Name) (depth : Nat)
             next := next.push dependency
             if visibleName includeInternal dependency then
               results := results.push {
-                name := dependency
+                declaration := dependency
                 distance
                 via := if distance == 1 then none else some parent
               }
@@ -264,7 +159,7 @@ private def collectDownstream (env : Environment) (target : Name) (depth : Nat)
           next := next.insert name
           if visibleName includeInternal name then
             results := results.push {
-              name
+              declaration := name
               distance
               via := if distance == 1 then none else some via
             }
@@ -322,7 +217,7 @@ private def collectSourceUpstream (env : Environment) (target : Name) (depth : N
           next := next.push dependency
           if visibleName includeInternal dependency then
             results := results.push {
-              name := dependency
+              declaration := dependency
               distance
               via := if distance == 1 then none else some parent
             }
@@ -424,7 +319,7 @@ private def collectSourceDownstream (env : Environment) (target : Name) (depth :
             next := next.insert parent
             if visibleName includeInternal parent then
               results := results.push {
-                name := parent
+                declaration := parent
                 distance
                 via := if distance == 1 then none else some sourceTarget.name
               }
@@ -491,53 +386,54 @@ private def describeRelations (sourcePath : SearchPath) (limit : Nat)
     items := items.push {
       distance := relation.distance
       via := relation.via.map nameString
-      declaration := ← describeDeclaration sourcePath relation.name
+      declaration := ← describeDeclaration sourcePath relation.declaration
     }
   return { total := relations.size, items }
 
 /-- Resolve a declaration and inspect its bounded dependency neighborhood. -/
-def runQuery (config : QueryConfig) : CoreM (Except QueryFailure QueryResult) := do
+def runQuery (query : String) (options : QueryOptions := {}) :
+    CoreM (Except QueryFailure QueryResult) := do
   let env ← getEnv
   let sourcePath ← sourceSearchPath
-  match resolveName env config.query config.includeInternal with
+  match resolveName env query options.includeInternal with
   | .error failure => do
     let mut candidates := #[]
     for name in failure.candidates do
       candidates := candidates.push (← describeDeclaration sourcePath name)
     return .error {
-      error := failure.message
+      error := failure.error
       candidates
     }
   | .ok target => do
     let upstream ←
-      if config.direction.includesUpstream then
-        match config.mode with
-        | .source => collectSourceUpstream env target config.depth config.includeInternal
-        | .kernel => pure <| collectUpstream env target config.depth config.includeInternal
+      if options.direction.includesUpstream then
+        match options.mode with
+        | .source => collectSourceUpstream env target options.depth options.includeInternal
+        | .kernel => pure <| collectUpstream env target options.depth options.includeInternal
       else
         pure #[]
     let downstream ←
-      if config.direction.includesDownstream then
-        match config.mode with
-        | .source => collectSourceDownstream env target config.depth config.includeInternal
-        | .kernel => pure <| collectDownstream env target config.depth config.includeInternal
+      if options.direction.includesDownstream then
+        match options.mode with
+        | .source => collectSourceDownstream env target options.depth options.includeInternal
+        | .kernel => pure <| collectDownstream env target options.depth options.includeInternal
       else
         pure #[]
     return .ok {
-      query := config.query
-      mode := config.mode.label
+      query
+      mode := options.mode.label
       target := ← describeDeclaration sourcePath target
-      upstream := ← describeRelations sourcePath config.limit upstream
-      downstream := ← describeRelations sourcePath config.limit downstream
+      upstream := ← describeRelations sourcePath options.limit upstream
+      downstream := ← describeRelations sourcePath options.limit downstream
     }
 
 /-- Search declaration names using exact, suffix, case-insensitive, then substring ranking. -/
-def runSearch (query : String) (limit : Nat) (includeInternal : Bool) : CoreM SearchResult := do
+def runSearch (query : String) (options : QueryOptions := {}) : CoreM SearchResult := do
   let env ← getEnv
   let sourcePath ← sourceSearchPath
-  let hits := scoredNames env query includeInternal
+  let hits := scoredNames env query options.includeInternal
   let mut items := #[]
-  for (_, name) in hits.take limit do
+  for (_, name) in hits.take options.limit do
     items := items.push (← describeDeclaration sourcePath name)
   return {
     query

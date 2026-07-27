@@ -5,15 +5,6 @@ namespace LeanReach
 
 open Lean Lean.Core
 
-/-- Defaults inherited by every request in a long-lived NDJSON session. -/
-structure InteractiveDefaults where
-  mode : DependencyMode := .source
-  direction : Direction := .both
-  depth : Nat := 1
-  limit : Nat := 20
-  includeInternal : Bool := false
-  profile : Bool := false
-
 private structure InteractiveRequest where
   id? : Option Json := none
   command? : Option String := none
@@ -54,9 +45,8 @@ private def requiredQuery (request : InteractiveRequest) : Except String String 
     throw "field 'query' must be non-empty"
   return query
 
-private def queryConfig (defaults : InteractiveDefaults) (request : InteractiveRequest) :
-    Except String QueryConfig := do
-  let query ← requiredQuery request
+private def queryOptions (defaults : QueryOptions) (request : InteractiveRequest) :
+    Except String QueryOptions := do
   let direction ← match request.direction? with
     | some direction => parseDirection "field 'direction'" direction
     | none => pure defaults.direction
@@ -67,7 +57,6 @@ private def queryConfig (defaults : InteractiveDefaults) (request : InteractiveR
     | some limit => validateLimit "field 'limit'" limit
     | none => pure defaults.limit
   return {
-    query
     mode := defaults.mode
     direction
     depth
@@ -75,22 +64,22 @@ private def queryConfig (defaults : InteractiveDefaults) (request : InteractiveR
     includeInternal := request.includeInternal?.getD defaults.includeInternal
   }
 
-private def searchLimit (defaults : InteractiveDefaults) (request : InteractiveRequest) :
+private def searchLimit (defaults : QueryOptions) (request : InteractiveRequest) :
     Except String Nat :=
   match request.limit? with
   | some limit => validateLimit "field 'limit'" limit
   | none => pure defaults.limit
 
-private def processRequest (defaults : InteractiveDefaults) (request : InteractiveRequest) :
+private def processRequest (defaults : QueryOptions) (request : InteractiveRequest) :
     CoreM (Json × Bool × String) := do
   let command := request.command?.getD "query"
   match command with
   | "query" =>
-    match queryConfig defaults request with
-    | .error message =>
+    match requiredQuery request, queryOptions defaults request with
+    | .error message, _ | _, .error message =>
       return (errorResponse request.id? message, true, command)
-    | .ok config =>
-      match ← runQuery config with
+    | .ok query, .ok options =>
+      match ← runQuery query options with
       | .ok result =>
         return (successResponse request.id? (toJson result), true, command)
       | .error failure =>
@@ -104,8 +93,11 @@ private def processRequest (defaults : InteractiveDefaults) (request : Interacti
     | .error message, _ | _, .error message =>
       return (errorResponse request.id? message, true, command)
     | .ok query, .ok limit =>
-      let result ← runSearch query limit
-        (request.includeInternal?.getD defaults.includeInternal)
+      let result ← runSearch query {
+        defaults with
+        limit
+        includeInternal := request.includeInternal?.getD defaults.includeInternal
+      }
       return (successResponse request.id? (toJson result), true, command)
   | "ping" =>
     return (
@@ -138,7 +130,7 @@ private def decodeRequest (line : String) : Except String InteractiveRequest := 
 Run a newline-delimited JSON session. The imported environment is owned by the caller and reused
 until EOF or a `quit` request.
 -/
-partial def runInteractive (defaults : InteractiveDefaults) : CoreM UInt32 := do
+partial def runInteractive (defaults : QueryOptions) (profile : Bool := false) : CoreM UInt32 := do
   let stdin ← IO.getStdin
   let rec loop : CoreM UInt32 := do
     let line ← stdin.getLine
@@ -152,7 +144,7 @@ partial def runInteractive (defaults : InteractiveDefaults) : CoreM UInt32 := do
       match decodeRequest line with
       | .error message =>
         printJsonLine <| errorResponse none s!"invalid request: {message}"
-        if defaults.profile then
+        if profile then
           let finished ← IO.monoMsNow
           IO.eprintln s!"leanreach request: command=invalid elapsed={finished - started}ms"
         loop
@@ -160,14 +152,14 @@ partial def runInteractive (defaults : InteractiveDefaults) : CoreM UInt32 := do
         try
           let (response, keepRunning, command) ← processRequest defaults request
           printJsonLine response
-          if defaults.profile then
+          if profile then
             let finished ← IO.monoMsNow
             IO.eprintln s!"leanreach request: command={command} elapsed={finished - started}ms"
           if keepRunning then loop else return 0
         catch error =>
           let message ← error.toMessageData.toString
           printJsonLine <| errorResponse request.id? s!"request failed: {message}"
-          if defaults.profile then
+          if profile then
             let finished ← IO.monoMsNow
             IO.eprintln s!"leanreach request: command=error elapsed={finished - started}ms"
           loop

@@ -14,8 +14,7 @@ private def expectQuery (result : Except QueryFailure QueryResult) : CoreM Query
   | .error failure => throwError failure.error
 
 private def sourceTests : CoreM Unit := do
-  let result ← expectQuery (← runQuery {
-    query := "Nat.gcd"
+  let result ← expectQuery (← runQuery "Nat.gcd" {
     mode := .source
     direction := .both
     depth := 1
@@ -33,8 +32,7 @@ private def sourceTests : CoreM Unit := do
       relation.declaration.name == "Nat.gcd_comm")
     "source query omitted the direct Nat.gcd_comm dependent"
 
-  match ← runQuery {
-    query := "gcd_comm"
+  match ← runQuery "gcd_comm" {
     mode := .source
     direction := .both
     depth := 0
@@ -52,15 +50,14 @@ private def sourceTests : CoreM Unit := do
         declaration.name == "Int.gcd_comm")
       "ambiguous suffix omitted Int.gcd_comm"
 
-  let search ← runSearch "gcd_comm" 20 false
+  let search ← runSearch "gcd_comm" { limit := 20 }
   check (search.total >= 2) "name search returned too few matches"
   check
     (search.items.any fun declaration => declaration.name == "Nat.gcd_comm")
     "name search omitted Nat.gcd_comm"
 
   let generated := "StateCpsT.instMonadStateOf.match_1"
-  match ← runQuery {
-    query := generated
+  match ← runQuery generated {
     mode := .source
     direction := .both
     depth := 0
@@ -68,8 +65,7 @@ private def sourceTests : CoreM Unit := do
   } with
   | .ok _ => throwError "exact generated name bypassed the internal declaration filter"
   | .error _ => pure ()
-  let generatedResult ← expectQuery (← runQuery {
-    query := generated
+  let generatedResult ← expectQuery (← runQuery generated {
     mode := .source
     direction := .both
     depth := 0
@@ -81,8 +77,7 @@ private def sourceTests : CoreM Unit := do
     "includeInternal did not restore exact generated-name resolution"
 
 private def kernelTests : CoreM Unit := do
-  let result ← expectQuery (← runQuery {
-    query := "Nat.gcd_comm"
+  let result ← expectQuery (← runQuery "Nat.gcd_comm" {
     mode := .kernel
     direction := .upstream
     depth := 1

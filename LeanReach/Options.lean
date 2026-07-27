@@ -1,4 +1,4 @@
-import LeanReach.Query
+import LeanReach.Protocol
 
 namespace LeanReach
 
