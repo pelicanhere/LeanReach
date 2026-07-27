@@ -15,7 +15,8 @@ private def workspaceRoots : IO (List System.FilePath) := do
       if ← entry.path.isDir then roots := roots.concat entry.path
   return roots
 
-private def initializeSearchPath (roots : List System.FilePath) : IO Unit := do
+private def initializeSearchPath (sysroot : System.FilePath)
+    (roots : List System.FilePath) : IO Unit := do
   match ← IO.getEnv "LEAN_PATH" with
   | some path => searchPathRef.set (System.SearchPath.parse path)
   | none =>
@@ -23,15 +24,16 @@ private def initializeSearchPath (roots : List System.FilePath) : IO Unit := do
     for root in roots do
       let path := root / ".lake" / "build" / "lib" / "lean"
       if ← path.isDir then paths := paths.concat path
-    initSearchPath (← findSysroot) paths
+    initSearchPath sysroot paths
 
-private def sourceSearchPath (roots : List System.FilePath) : IO SearchPath := do
+private def sourceSearchPath (sysroot : System.FilePath)
+    (roots : List System.FilePath) : IO SearchPath := do
   let mut fallback := []
   for root in roots do
     fallback := fallback.concat root
     let source := root / "src"
     if ← source.isDir then fallback := fallback.concat source
-  fallback := fallback.concat ((← findSysroot) / "src" / "lean")
+  fallback := fallback.concat (sysroot / "src" / "lean")
   match ← IO.getEnv "LEAN_SRC_PATH" with
   | some path => return System.SearchPath.parse path ++ fallback
   | none => return fallback
@@ -41,8 +43,9 @@ private unsafe def withIndexSession {α : Type} (root : Name)
     (select : Index → NameMap Declaration → Except String (Array Name))
     (action : Session → CoreM α) : IO α := do
   let roots ← workspaceRoots
-  initializeSearchPath roots
-  let sourcePath ← sourceSearchPath roots
+  let sysroot ← findSysroot
+  initializeSearchPath sysroot roots
+  let sourcePath ← sourceSearchPath sysroot roots
   Lean.enableInitializersExecution
   let index ← unsafe Cache.loadIndex root loadRelations
   let rendered ← unsafe Cache.loadRendered root
