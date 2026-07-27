@@ -180,6 +180,7 @@ private def directUpstream (name : Name) : CoreM NameSet := do
 
 private def traverse (start : Name) (depth limit : Nat)
     (neighbors : Name → CoreM NameSet) : CoreM (Array (Nat × Name)) := do
+  if depth == 0 || limit == 0 then return #[]
   let mut visited : NameHashSet := ({} : NameHashSet).insert start
   let mut frontier := #[start]
   let mut found := #[]
@@ -230,9 +231,10 @@ private def initializePaths : IO SearchPath := do
   match ← IO.getEnv "LEAN_PATH" with
   | some path => searchPathRef.set (System.SearchPath.parse path)
   | none => initSearchPath (← findSysroot)
+  let fallback := [← IO.currentDir, (← findSysroot) / "src" / "lean"]
   match ← IO.getEnv "LEAN_SRC_PATH" with
-  | some path => return System.SearchPath.parse path
-  | none => return [← IO.currentDir, (← findSysroot) / "src" / "lean"]
+  | some path => return System.SearchPath.parse path ++ fallback
+  | none => return fallback
 
 /--
 Import one root module with all environment extensions, then reuse the environment and index for

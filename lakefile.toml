@@ -1,7 +1,7 @@
 name = "LeanReach"
 version = "0.1.0"
 keywords = ["math"]
-defaultTargets = ["LeanReach", "leanreach"]
+defaultTargets = ["LeanReach", "leanreach", "leanreach_tests"]
 
 [leanOptions]
 pp.unicode.fun = true # pretty-prints `fun a ↦ b`
@@ -15,14 +15,15 @@ rev = "v4.32.0"
 [[lean_lib]]
 name = "LeanReach"
 
+[[lean_lib]]
+name = "Tests"
+
 [[lean_exe]]
 name = "leanreach"
 root = "Main"
+supportInterpreter = true
 
 [[lean_exe]]
 name = "leanreach_tests"
-root = "Tests.Smoke"
-
-[[lean_exe]]
-name = "leanreach_integration_tests"
-root = "Tests.Integration"
+root = "Tests.Main"
+supportInterpreter = true
