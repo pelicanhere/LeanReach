@@ -9,7 +9,7 @@ namespace LeanReach.Cache
 
 open Lean
 
-private def version := 8
+private def version := 9
 private def fragmentVersion := 2
 private def renderVersion := 1
 

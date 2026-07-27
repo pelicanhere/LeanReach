@@ -1,4 +1,4 @@
-import Lean
+import Lean.Data.Trie
 
 namespace LeanReach
 
@@ -9,11 +9,20 @@ private abbrev Entry := Name × String × Name × UInt32
 
 structure Index where
   private entries : Array Entry
+  private trigrams : Data.Trie (Array UInt32)
   private forward : Array (Array UInt32)
   private reverse : Array (Array UInt32)
   deriving Inhabited
 
 abbrev IndexedDeclaration := Name × Name × NameSet
+
+private def stringTrigrams (value : String) : Array String := Id.run do
+  let mut result := #[]
+  let length := value.length
+  for offset in [0:length] do
+    if length < offset + 3 then break
+    result := result.push ((value.drop offset).take 3).copy
+  return result
 
 def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
   let declarations := declarations.qsort fun a b => Name.lt a.1 b.1
@@ -23,6 +32,13 @@ def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
     let id := entries.size.toUInt32
     entries := entries.push (name, name.toString.toLower, moduleName, id)
     ids := ids.insert name id
+  let mut trigramIndex : Data.Trie (Array UInt32) := {}
+  for (_, lower, _, id) in entries do
+    let mut seen : Std.HashSet String := {}
+    for trigram in stringTrigrams lower do
+      unless seen.contains trigram do
+        seen := seen.insert trigram
+        trigramIndex := trigramIndex.upsert trigram fun ids => (ids.getD #[]).push id
   let mut forward := Array.replicate entries.size #[]
   let mut reverse := Array.replicate entries.size #[]
   for (name, _, used) in declarations do
@@ -32,7 +48,7 @@ def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
         if let some target := ids.find? dependency then
           forward := forward.modify source.toNat (·.push target)
           reverse := reverse.modify target.toNat (·.push source)
-  return { entries, forward, reverse }
+  return { entries, trigrams := trigramIndex, forward, reverse }
 
 private def Index.findEntry? (index : Index) (name : Name) : Option Entry :=
   index.entries.binSearch (name, "", .anonymous, 0) fun a b => Name.lt a.1 b.1
@@ -40,12 +56,23 @@ private def Index.findEntry? (index : Index) (name : Name) : Option Entry :=
 private def Index.namesAt (index : Index) (ids : Array UInt32) : Array Name :=
   ids.map fun id => index.entries[id.toNat]!.1
 
+private def Index.candidates (index : Index) (query : String) : Array UInt32 :=
+  if query.length < 3 then
+    index.entries.map fun (_, _, _, id) => id
+  else Id.run do
+    let mut best : Option (Array UInt32) := none
+    for trigram in stringTrigrams query do
+      let some ids := index.trigrams.find? trigram | return #[]
+      if best.all (ids.size < ·.size) then best := some ids
+    return best.getD #[]
+
 private def Index.matchBuckets (index : Index) (query : String) (limit : Nat) :
     Array (Array Name) := Id.run do
   let query := query.toLower
   let suffix := "." ++ query
   let mut buckets : Array (Array Name) := #[#[], #[], #[]]
-  for (name, lower, _, _) in index.entries do
+  for id in index.candidates query do
+    let (name, lower, _, _) := index.entries[id.toNat]!
     let score? :=
       if lower == query then some 0
       else if lower.endsWith suffix then some 1
