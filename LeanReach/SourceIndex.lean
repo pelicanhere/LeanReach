@@ -1,27 +1,30 @@
 import LeanReach.Query.Names
-import LeanReach.Query.Ilean
 import LeanReach.SourceIndex.Build
+import Std.Data.HashSet
 
 namespace LeanReach.SourceIndex
 
 open Lean
 
 private def scoredNames (index : Index) (query : String) (includeInternal : Bool) :
-    Array Query.ScoredName := Id.run do
+    Nat → Nat × Array Query.ScoredName := fun capacity => Id.run do
   let scoreName := Query.nameScore query
-  let mut hits := #[]
-  for (name, _) in index.declarations do
-    if Query.visibleName includeInternal name then
-      if let some score := scoreName name then
-        hits := hits.push (score, name)
-  return Query.sortScoredNames hits
+  let mut total := 0
+  let mut buckets : Array (Array Query.ScoredName) := Array.replicate 5 #[]
+  for declaration in index.declarations do
+    if Query.visibleName includeInternal declaration.name then
+      if let some score := scoreName declaration.name declaration.lowerName then
+        total := total + 1
+        if (buckets[score]!).size < capacity then
+          buckets := buckets.modify score (·.push (score, declaration.name))
+  return (total, buckets.flatten.take capacity)
 
 private def resolveName (index : Index) (query : String) (includeInternal : Bool) :
     Except (QueryError Name) Name := do
   let exact := query.toName
-  if index.declarations.contains exact && Query.visibleName includeInternal exact then
+  if (index.findId? exact).isSome && Query.visibleName includeInternal exact then
     return exact
-  Query.resolveScoredName query (scoredNames index query includeInternal)
+  Query.resolveScoredName query (scoredNames index query includeInternal 10).2
 
 private def sourceLocation (sourcePath : SearchPath) (declaration : Declaration) :
     IO SourceLocation := do
@@ -38,64 +41,33 @@ private def sourceLocation (sourcePath : SearchPath) (declaration : Declaration)
 
 private def describeDeclaration (index : Index) (sourcePath : SearchPath) (name : Name) :
     IO DeclarationView := do
-  let some declaration := index.declarations.find? name |
+  let some declaration := index.find? name |
     throw <| IO.userError s!"declaration disappeared from the source index: {Query.nameString name}"
   return {
     name := Query.nameString name
     source := ← sourceLocation sourcePath declaration
   }
 
-private def collectUpstream (index : Index) (target : Name) (options : QueryOptions) :
-    IO (Array Query.RawRelation) := do
-  let mut cache : NameMap Server.Ilean := {}
-  let mut visited : NameSet := ({} : NameSet).insert target
-  let mut frontier := #[target]
+private def collectRelations (index : Index) (adjacency : Adjacency)
+    (target : Name) (options : QueryOptions) : Array Query.RawRelation := Id.run do
+  let some targetId := index.findId? target | return #[]
+  let mut visited : Std.HashSet DeclId := ({} : Std.HashSet DeclId).insert targetId
+  let mut frontier := #[targetId]
   let mut results := #[]
   for distance in [1:options.depth + 1] do
     let mut next := #[]
-    for parent in frontier do
-      let some declaration := index.declarations.find? parent | continue
-      let ilean? ← match cache.find? declaration.module with
-        | some ilean => pure (some ilean)
-        | none => do
-          let loaded ← Query.loadIlean? declaration.module
-          if let some ilean := loaded then
-            cache := cache.insert declaration.module ilean
-          pure loaded
-      let some ilean := ilean? | continue
-      for dependency in Query.sourceDependencies ilean parent do
-        if index.declarations.contains dependency && !visited.contains dependency then
-          visited := visited.insert dependency
-          next := next.push dependency
-          if Query.visibleName options.includeInternal dependency then
+    for sourceId in frontier do
+      for neighborId in adjacency.neighbors sourceId do
+        if !visited.contains neighborId then
+          visited := visited.insert neighborId
+          next := next.push neighborId
+          let neighbor := index.declarations[neighborId]!.name
+          if Query.visibleName options.includeInternal neighbor then
             results := results.push {
-              declaration := dependency
+              declaration := neighbor
               distance
-              via := if distance == 1 then none else some parent
-            }
-    frontier := next
-    if frontier.isEmpty then
-      break
-  return results.qsort Query.rawRelationLt
-
-private def collectDownstream (index : Index) (target : Name) (options : QueryOptions) :
-    Array Query.RawRelation := Id.run do
-  let mut visited : NameSet := ({} : NameSet).insert target
-  let mut frontier : NameSet := ({} : NameSet).insert target
-  let mut results := #[]
-  for distance in [1:options.depth + 1] do
-    let mut next : NameSet := {}
-    for dependency in frontier do
-      let some parents := index.downstream.find? dependency | continue
-      for parent in parents do
-        if index.declarations.contains parent && !visited.contains parent then
-          visited := visited.insert parent
-          next := next.insert parent
-          if Query.visibleName options.includeInternal parent then
-            results := results.push {
-              declaration := parent
-              distance
-              via := if distance == 1 then none else some dependency
+              via := if distance == 1 then none
+                else some index.declarations[sourceId]!.name
             }
     frontier := next
     if frontier.isEmpty then
@@ -123,14 +95,14 @@ def runQuery (index : Index) (sourcePath : SearchPath) (query : String)
       candidates
     }
   | .ok target => do
-    let upstream ←
+    let upstream :=
       if options.direction.includesUpstream then
-        collectUpstream index target options
+        collectRelations index index.upstream target options
       else
-        pure #[]
+        #[]
     let downstream :=
       if options.direction.includesDownstream then
-        collectDownstream index target options
+        collectRelations index index.downstream target options
       else
         #[]
     return .ok {
@@ -143,12 +115,12 @@ def runQuery (index : Index) (sourcePath : SearchPath) (query : String)
 /-- Search source-visible declaration names without importing an Environment. -/
 def runSearch (index : Index) (sourcePath : SearchPath) (query : String)
     (options : QueryOptions := {}) : IO SearchResult := do
-  let hits := scoredNames index query options.includeInternal
+  let (total, hits) := scoredNames index query options.includeInternal options.limit
   let items ← (hits.take options.limit).mapM fun (_, name) =>
     describeDeclaration index sourcePath name
   return {
     query
-    total := hits.size
+    total
     items
   }
 

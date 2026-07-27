@@ -10,39 +10,93 @@ open Lean
 private abbrev CacheFingerprint := Array (Name × String)
 private abbrev CachePayload := Nat × CacheFingerprint × Index
 
-private def cacheVersion : Nat := 2
+private def cacheVersion : Nat := 3
 private def buildBatchSize : Nat := 32
 private def buildWorkerCount : Nat := 8
+
+private structure Builder where
+  declarations : NameMap (Name × Lsp.Range) := {}
+  downstream : NameMap NameSet := {}
 
 private def normalizeRoots (roots : Array Name) : Array Name :=
   (NameSet.ofArray roots).toArray
 
-private def addIlean (index : Index) (ilean : Server.Ilean) : Index := Id.run do
-  let mut declarations := index.declarations
-  let mut downstream := index.downstream
+private def addIlean (builder : Builder) (ilean : Server.Ilean) : Builder := Id.run do
+  let mut builder := builder
   let moduleString := Query.nameString ilean.module
 
   for (declarationName, range) in ilean.decls do
-    declarations := declarations.insert declarationName.toName {
-      module := ilean.module
-      range := range.selectionRange
-    }
+    let declarations :=
+      builder.declarations.insert declarationName.toName (ilean.module, range.selectionRange)
+    builder := { builder with declarations }
 
   for (ident, info) in ilean.references do
     let .const definitionModule declarationName := ident | continue
     let declaration := declarationName.toName
-    if definitionModule == moduleString && !declarations.contains declaration then
+    if definitionModule == moduleString && !builder.declarations.contains declaration then
       if let some location := info.definition? then
-        declarations := declarations.insert declaration {
-          module := ilean.module
-          range := location.range
-        }
+        let declarations :=
+          builder.declarations.insert declaration (ilean.module, location.range)
+        builder := { builder with declarations }
     for usage in info.usages do
       let some parentName := usage.parentDecl? | continue
-      downstream := downstream.alter declaration fun parents? =>
-        some ((parents?.getD {}).insert parentName.toName)
+      let downstream :=
+        builder.downstream.alter declaration fun parents? =>
+          some ((parents?.getD {}).insert parentName.toName)
+      builder := { builder with downstream }
 
-  return { declarations, downstream }
+  return builder
+
+private def buildDownstream (declarations : Array Declaration)
+    (nameToId : NameMap DeclId) (relations : NameMap NameSet) : Adjacency := Id.run do
+  let mut offsets := Array.replicate (declarations.size + 1) 0
+  let mut edges := #[]
+  for declarationId in [:declarations.size] do
+    offsets := offsets.set! declarationId edges.size
+    if let some parents := relations.find? declarations[declarationId]!.name then
+      for parent in parents do
+        if let some parentId := nameToId.find? parent then
+          edges := edges.push parentId
+  offsets := offsets.set! declarations.size edges.size
+  return { offsets, edges }
+
+private def transpose (size : Nat) (adjacency : Adjacency) : Adjacency := Id.run do
+  let mut counts := Array.replicate size 0
+  for target in adjacency.edges do
+    counts := counts.set! target (counts[target]! + 1)
+
+  let mut offsets := Array.replicate (size + 1) 0
+  for declarationId in [:size] do
+    offsets := offsets.set! (declarationId + 1)
+      (offsets[declarationId]! + counts[declarationId]!)
+
+  let mut cursors := offsets.extract 0 size
+  let mut edges := Array.replicate adjacency.edges.size 0
+  for source in [:size] do
+    for target in adjacency.neighbors source do
+      let cursor := cursors[target]!
+      edges := edges.set! cursor source
+      cursors := cursors.set! target (cursor + 1)
+  return { offsets, edges }
+
+private def Builder.finalize (builder : Builder) : Index := Id.run do
+  let mut declarations := #[]
+  let mut nameToId := {}
+  for (name, moduleName, range) in builder.declarations do
+    nameToId := nameToId.insert name declarations.size
+    declarations := declarations.push {
+      name
+      lowerName := (Query.nameString name).toLower
+      module := moduleName
+      range
+    }
+  let downstream := buildDownstream declarations nameToId builder.downstream
+  return {
+    declarations
+    nameToId
+    upstream := transpose declarations.size downstream
+    downstream
+  }
 
 private def loadChunk (modules : Array Name) :
     IO (Array (Name × Option Server.Ilean)) :=
@@ -78,7 +132,7 @@ def build (requestedRoots : Array Name) : IO Index := do
   let mut queue := roots
   let mut visited := NameSet.ofArray roots
   let mut offset := 0
-  let mut index : Index := {}
+  let mut builder : Builder := {}
   while offset < queue.size do
     let stop := min (offset + buildBatchSize) queue.size
     let batch := queue.extract offset stop
@@ -89,14 +143,14 @@ def build (requestedRoots : Array Name) : IO Index := do
       if ilean.version != 5 then
         throw <| IO.userError
           s!"unsupported .ilean version {ilean.version} for {Query.nameString moduleName}"
-      index := addIlean index ilean
+      builder := addIlean builder ilean
       for imported in ilean.directImports do
         let importedName := imported.module.toName
         unless visited.contains importedName do
           visited := visited.insert importedName
           queue := queue.push importedName
     offset := stop
-  return index
+  return builder.finalize
 
 private def readModuleDepHash? (moduleName : Name) : IO (Option String) := do
   try
