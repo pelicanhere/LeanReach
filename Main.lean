@@ -19,7 +19,7 @@ private def takeOptionArg (option expected : String) : CliM String := do
 
 private def setCommand (command : Command) : CliM PUnit := do
   if (← getThe Config).command.isSome then
-    throw <| .invalidEnv "only one query, search, or interactive mode may be provided"
+    throw <| .invalidEnv "only one query, search, index, or interactive mode may be provided"
   modifyThe Config fun config => { config with command := some command }
 
 private def addImport (option : String) : CliM PUnit := do
@@ -80,6 +80,7 @@ private def parsePositionals : List String → CliM PUnit
   | [] => pure ()
   | ["query"] => throw <| .missingArg "declaration after query"
   | ["search"] => throw <| .missingArg "pattern after search"
+  | ["index"] => setCommand .index
   | ["query", declaration] => setCommand (.query declaration)
   | ["search", pattern] => setCommand (.search pattern)
   | [declaration] => setCommand (.query declaration)

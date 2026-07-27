@@ -1,5 +1,6 @@
 import LeanReach.Options
 import LeanReach.Output
+import LeanReach.SourceIndex
 
 namespace LeanReach
 
@@ -126,17 +127,19 @@ private def decodeRequest (defaults : QueryOptions) (line : String) :
   | command =>
     throw (id?, s!"unknown command '{command}'; expected query, search, ping, or quit")
 
-private def processRequest (defaults : QueryOptions) (request : Request) :
+private def processRequest (defaults : QueryOptions)
+    (runQuery : String → QueryOptions → Query.SessionM (Except QueryFailure QueryResult))
+    (runSearch : String → QueryOptions → Query.SessionM SearchResult) (request : Request) :
     Query.SessionM (Json × Bool) := do
   match request with
   | .query id? query options =>
-    match ← runQueryM query options with
+    match ← runQuery query options with
     | .ok result =>
       return (successResponse id? (toJson result), true)
     | .error failure =>
       return (errorResponse id? failure.error (some failure.candidates), true)
   | .search id? query options =>
-    let result ← runSearchM query options
+    let result ← runSearch query options
     return (successResponse id? (toJson result), true)
   | .ping id? =>
     return (
@@ -195,6 +198,19 @@ Run a newline-delimited JSON session. The imported environment is owned by the c
 until EOF or a `quit` request.
 -/
 def runInteractive (defaults : QueryOptions) (profile : Bool := false) : CoreM UInt32 :=
-  withSession <| serve defaults profile (processRequest defaults)
+  withSession <| serve defaults profile
+    (processRequest defaults
+      (fun query options => runQueryM query options)
+      (fun query options => runSearchM query options))
+
+/-- Run the same NDJSON protocol against a source index without consulting the Environment. -/
+def runIndexedInteractive (index : SourceIndex.Index) (sourcePath : SearchPath)
+    (defaults : QueryOptions) (profile : Bool := false) : CoreM UInt32 := do
+  let query (name : String) (options : QueryOptions) :
+      Query.SessionM (Except QueryFailure QueryResult) := do
+    SourceIndex.runQuery index sourcePath name options
+  let search (pattern : String) (options : QueryOptions) : Query.SessionM SearchResult := do
+    SourceIndex.runSearch index sourcePath pattern options
+  (serve defaults profile (processRequest defaults query search)).run sourcePath
 
 end LeanReach
