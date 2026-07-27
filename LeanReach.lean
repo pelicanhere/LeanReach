@@ -6,10 +6,12 @@ namespace LeanReach
 
 open Lean
 
-private def initializePaths : IO SearchPath := do
+private def initializeSearchPath : IO Unit := do
   match ← IO.getEnv "LEAN_PATH" with
   | some path => searchPathRef.set (System.SearchPath.parse path)
   | none => initSearchPath (← findSysroot)
+
+private def sourceSearchPath : IO SearchPath := do
   let fallback := [← IO.currentDir, (← findSysroot) / "src" / "lean"]
   match ← IO.getEnv "LEAN_SRC_PATH" with
   | some path => return System.SearchPath.parse path ++ fallback
@@ -17,7 +19,8 @@ private def initializePaths : IO SearchPath := do
 
 private unsafe def withIndexSession {α : Type} (root : Name)
     (select : Index → Except String (Array Name)) (action : Session → CoreM α) : IO α := do
-  let sourcePath ← initializePaths
+  initializeSearchPath
+  let sourcePath ← sourceSearchPath
   Lean.enableInitializersExecution
   let index ← unsafe Cache.loadIndex root
   let modules ←
