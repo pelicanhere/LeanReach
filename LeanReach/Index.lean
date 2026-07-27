@@ -5,10 +5,12 @@ namespace LeanReach
 open Lean
 
 /-- Searchable names and cached direct dependency postings in both directions. -/
-private abbrev Entry := Name × String × Name × UInt32
+abbrev CatalogEntry := Name × String × Name × UInt32
+abbrev Catalog := Array CatalogEntry × Data.Trie (Array UInt32)
+abbrev Relations := Array (Array UInt32) × Array (Array UInt32)
 
 structure Index where
-  private entries : Array Entry
+  private entries : Array CatalogEntry
   private trigrams : Data.Trie (Array UInt32)
   private forward : Array (Array UInt32)
   private reverse : Array (Array UInt32)
@@ -50,7 +52,16 @@ def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
           reverse := reverse.modify target.toNat (·.push source)
   return { entries, trigrams := trigramIndex, forward, reverse }
 
-private def Index.findEntry? (index : Index) (name : Name) : Option Entry :=
+def Index.catalog (index : Index) : Catalog :=
+  (index.entries, index.trigrams)
+
+def Index.relations (index : Index) : Relations :=
+  (index.forward, index.reverse)
+
+def Index.ofParts (catalog : Catalog) (relations : Relations) : Index :=
+  { entries := catalog.1, trigrams := catalog.2, forward := relations.1, reverse := relations.2 }
+
+private def Index.findEntry? (index : Index) (name : Name) : Option CatalogEntry :=
   index.entries.binSearch (name, "", .anonymous, 0) fun a b => Name.lt a.1 b.1
 
 private def Index.namesAt (index : Index) (ids : Array UInt32) : Array Name :=
