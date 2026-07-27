@@ -6,7 +6,7 @@ namespace LeanReach.Cache
 
 open Lean
 
-private def version := 4
+private def version := 5
 
 /-- Save a compacted Lean object. Adapted from Loogle's `Pickle` module. -/
 private def pickle {α : Type} (path : System.FilePath) (value : α) : IO Unit :=
