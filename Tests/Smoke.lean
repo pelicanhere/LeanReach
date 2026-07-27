@@ -1,4 +1,5 @@
 import LeanReach.Query
+import LeanReach.SourceIndex
 
 namespace LeanReach.Tests
 
@@ -76,6 +77,34 @@ private def sourceTests : CoreM Unit := do
     (generatedResult.target.name == generated)
     "includeInternal did not restore exact generated-name resolution"
 
+private def sourceIndexTests : CoreM Unit := do
+  let index ← SourceIndex.build #["Mathlib.Data.Nat.GCD.Basic".toName]
+  let sourcePath ← Query.sourceSearchPath
+  let result ← match ← SourceIndex.runQuery index sourcePath "Nat.gcd" {
+      direction := .both
+      depth := 1
+      limit := 1000
+    } with
+    | .ok result => pure result
+    | .error failure => throwError failure.error
+  check (result.target.name == "Nat.gcd") "source index resolved the wrong declaration"
+  check result.target.source.file.isSome "source index did not resolve the target file"
+  check result.target.source.line.isSome "source index did not resolve the target line"
+  check
+    (result.upstream.items.any fun relation =>
+      relation.declaration.name == "Nat.mod_lt")
+    "source index omitted the direct Nat.mod_lt dependency"
+  check
+    (result.downstream.items.any fun relation =>
+      relation.declaration.name == "Nat.gcd_comm")
+    "source index omitted the direct Nat.gcd_comm dependent"
+
+  let search ← SourceIndex.runSearch index sourcePath "gcd_comm" { limit := 20 }
+  check (search.total >= 2) "source index name search returned too few matches"
+  check
+    (search.items.any fun declaration => declaration.name == "Nat.gcd_comm")
+    "source index name search omitted Nat.gcd_comm"
+
 private def kernelTests : CoreM Unit := do
   let result ← expectQuery (← runQuery "Nat.gcd_comm" {
     mode := .kernel
@@ -104,7 +133,7 @@ private unsafe def runWithEnvironment (level : OLeanLevel) (action : CoreM Unit)
 unsafe def run : IO UInt32 := do
   try
     initSearchPath (← findSysroot)
-    runWithEnvironment .server sourceTests
+    runWithEnvironment .server (sourceTests *> sourceIndexTests)
     runWithEnvironment .private kernelTests
     IO.println "LeanReach semantic smoke tests passed"
     return 0
