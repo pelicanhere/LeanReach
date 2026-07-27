@@ -1,0 +1,10 @@
+# Third-party notices
+
+LeanReach's environment lifecycle, cache strategy, and command-line organization were informed by
+[Loogle](https://github.com/nomeata/loogle):
+
+> Copyright (c) 2023 Joachim Breitner and contributors  
+> Released under the Apache License 2.0.
+
+LeanReach uses Lean's public `importModules`, delaborator, declaration-range, and module-data APIs;
+it does not vendor Loogle's parser, trie, matcher, or source files.
