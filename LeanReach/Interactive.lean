@@ -71,7 +71,7 @@ private def searchLimit (defaults : QueryOptions) (request : InteractiveRequest)
   | none => pure defaults.limit
 
 private def processRequest (defaults : QueryOptions) (request : InteractiveRequest) :
-    SessionM (Json × Bool × String) := do
+    Query.SessionM (Json × Bool × String) := do
   let command := request.command?.getD "query"
   match command with
   | "query" =>
@@ -133,7 +133,7 @@ until EOF or a `quit` request.
 partial def runInteractive (defaults : QueryOptions) (profile : Bool := false) : CoreM UInt32 := do
   withSession do
     let stdin ← IO.getStdin
-    let rec loop : SessionM UInt32 := do
+    let rec loop : Query.SessionM UInt32 := do
       let line ← stdin.getLine
       if line.isEmpty then
         return 0

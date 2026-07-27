@@ -1,23 +1,11 @@
-import Lean.CoreM
-import Lean.Data.Json
-import Lean.Data.Name
 import Lean.DeclarationRange
 import Lean.OriginalConstKind
-import Lean.Server.References
-import Lean.Util.FoldConsts
-import Lean.Util.Path
-import LeanReach.Protocol
+import LeanReach.Query.Kernel
+import LeanReach.Query.Source
 
 namespace LeanReach
 
 open Lean Lean.Core
-
-private abbrev RawRelation := Relation Name Name
-private abbrev ResolveFailure := QueryError Name
-
-/-- Query actions that share the source search path for one imported environment. -/
-abbrev SessionM := ReaderT SearchPath CoreM
-private abbrev RequestM := ReaderT QueryOptions SessionM
 
 private def constantKind : ConstantKind → String
   | .axiom => "axiom"
@@ -29,14 +17,8 @@ private def constantKind : ConstantKind → String
   | .ctor => "constructor"
   | .recursor => "recursor"
 
-private def visibleName (includeInternal : Bool) (name : Name) : Bool :=
-  includeInternal || !name.isInternalDetail
-
-private def nameString (name : Name) : String :=
-  name.toString (escape := false)
-
 private def nameScore (query : String) (name : Name) : Option Nat :=
-  let candidate := nameString name
+  let candidate := Query.nameString name
   let queryLower := query.toLower
   let candidateLower := candidate.toLower
   if candidate == query then
@@ -56,16 +38,16 @@ private def scoredNames (env : Environment) (query : String) (includeInternal : 
     Array (Nat × Name) := Id.run do
   let mut hits := #[]
   for (name, _) in env.constants do
-    if visibleName includeInternal name then
+    if Query.visibleName includeInternal name then
       if let some score := nameScore query name then
         hits := hits.push (score, name)
   return hits.qsort fun left right =>
     left.1 < right.1 || (left.1 == right.1 && Name.quickLt left.2 right.2)
 
 private def resolveName (env : Environment) (query : String) (includeInternal : Bool) :
-    Except ResolveFailure Name := do
+    Except (QueryError Name) Name := do
   let exact := query.toName
-  if env.contains exact && visibleName includeInternal exact then
+  if env.contains exact && Query.visibleName includeInternal exact then
     return exact
   let hits := scoredNames env query includeInternal
   let suggestions := (hits.take 10).map (·.2)
@@ -86,282 +68,10 @@ private def resolveName (env : Environment) (query : String) (includeInternal : 
     candidates := suggestions
   }
 
-private def rawRelationLt (left right : RawRelation) : Bool :=
-  left.distance < right.distance ||
-    (left.distance == right.distance &&
-      Name.quickLt left.declaration right.declaration)
+def withSession {α : Type} (action : Query.SessionM α) : CoreM α := do
+  action.run (← Query.sourceSearchPath)
 
-private def collectUpstream (target : Name) : RequestM (Array RawRelation) := do
-  let env ← getEnv
-  let options ← read
-  return Id.run do
-    let mut visited : NameSet := ({} : NameSet).insert target
-    let mut frontier := #[target]
-    let mut results := #[]
-    for distance in [1:options.depth + 1] do
-      let mut next := #[]
-      for parent in frontier do
-        if let some info := env.find? parent then
-          for dependency in info.getUsedConstantsAsSet do
-            if !visited.contains dependency then
-              visited := visited.insert dependency
-              next := next.push dependency
-              if visibleName options.includeInternal dependency then
-                results := results.push {
-                  declaration := dependency
-                  distance
-                  via := if distance == 1 then none else some parent
-                }
-      frontier := next
-      if frontier.isEmpty then
-        break
-    return results.qsort rawRelationLt
-
-private def firstUsedConstant (targets : NameSet) (expr : Expr) : Option Name :=
-  expr.foldConsts none fun name found =>
-    match found with
-    | some _ => found
-    | none => if targets.contains name then some name else none
-
-private def firstUsedName (targets : NameSet) : List Name → Option Name
-  | [] => none
-  | name :: names =>
-    if targets.contains name then some name else firstUsedName targets names
-
-/--
-Returns one direct dependency in `targets`, if present. This avoids materializing a dependency
-set for every declaration during a reverse scan.
--/
-private def firstDependencyIn (targets : NameSet) (info : ConstantInfo) : Option Name :=
-  match firstUsedConstant targets info.type with
-  | some name => some name
-  | none =>
-    match info.value? (allowOpaque := true) with
-    | some value => firstUsedConstant targets value
-    | none =>
-      match info with
-      | .inductInfo value => firstUsedName targets value.ctors
-      | .ctorInfo value =>
-        if targets.contains value.name then some value.name else none
-      | .recInfo value => firstUsedName targets value.all
-      | _ => none
-
-/--
-Collect downstream declarations without retaining a global reverse adjacency map. Each requested
-layer is one linear environment scan; the default depth of one therefore has bounded auxiliary
-memory and a single scan.
--/
-private def collectDownstream (target : Name) : RequestM (Array RawRelation) := do
-  let env ← getEnv
-  let options ← read
-  return Id.run do
-    let mut visited : NameSet := ({} : NameSet).insert target
-    let mut frontier : NameSet := ({} : NameSet).insert target
-    let mut results := #[]
-    for distance in [1:options.depth + 1] do
-      let mut next : NameSet := {}
-      for (name, info) in env.constants do
-        if !visited.contains name then
-          if let some via := firstDependencyIn frontier info then
-            visited := visited.insert name
-            next := next.insert name
-            if visibleName options.includeInternal name then
-              results := results.push {
-                declaration := name
-                distance
-                via := if distance == 1 then none else some via
-              }
-      frontier := next
-      if frontier.isEmpty then
-        break
-    return results.qsort rawRelationLt
-
-private def moduleOf? (env : Environment) (name : Name) : Option Name := do
-  let moduleIdx ← env.getModuleIdxFor? name
-  env.allImportedModuleNames[moduleIdx]?
-
-private def ileanPath? (moduleName : Name) : IO (Option System.FilePath) := do
-  try
-    let path := (← findOLean moduleName).withExtension "ilean"
-    return if ← path.pathExists then some path else none
-  catch _ =>
-    return none
-
-private def loadIlean? (moduleName : Name) : IO (Option Server.Ilean) := do
-  let some path ← ileanPath? moduleName | return none
-  return some (← Server.Ilean.load path)
-
-private def sourceDependencies (ilean : Server.Ilean) (parent : Name) : NameSet := Id.run do
-  let parentName := nameString parent
-  let mut dependencies : NameSet := {}
-  for (ident, info) in ilean.references do
-    let .const _ dependencyName := ident | continue
-    if info.usages.any fun usage => usage.parentDecl? == some parentName then
-      dependencies := dependencies.insert dependencyName.toName
-  return dependencies
-
-/-- Follow resolved source references inside the `.ilean` that owns each declaration. -/
-private def collectSourceUpstream (target : Name) : RequestM (Array RawRelation) := do
-  let env ← getEnv
-  let options ← read
-  let mut cache : NameMap Server.Ilean := {}
-  let mut visited : NameSet := ({} : NameSet).insert target
-  let mut frontier := #[target]
-  let mut results := #[]
-  for distance in [1:options.depth + 1] do
-    let mut next := #[]
-    for parent in frontier do
-      let some moduleName := moduleOf? env parent | continue
-      let ilean? ← match cache.find? moduleName with
-        | some ilean => pure (some ilean)
-        | none => do
-          let loaded ← loadIlean? moduleName
-          if let some ilean := loaded then
-            cache := cache.insert moduleName ilean
-          pure loaded
-      let some ilean := ilean? | continue
-      for dependency in sourceDependencies ilean parent do
-        if env.contains dependency && !visited.contains dependency then
-          visited := visited.insert dependency
-          next := next.push dependency
-          if visibleName options.includeInternal dependency then
-            results := results.push {
-              declaration := dependency
-              distance
-              via := if distance == 1 then none else some parent
-            }
-    frontier := next
-    if frontier.isEmpty then
-      break
-  return results.qsort rawRelationLt
-
-private abbrev SourceTarget := Name × Lsp.RefIdent × String
-
-private def sourceTargets (frontier : NameSet) : RequestM (Array SourceTarget) := do
-  let env ← getEnv
-  return Id.run do
-    let mut targets := #[]
-    for name in frontier do
-      let some moduleName := moduleOf? env name | continue
-      let ident := Lsp.RefIdent.const (nameString moduleName) (nameString name)
-      -- `.ilean` encodes `RefIdent` as a JSON object serialized again as an object key.
-      let keyText := (Json.str (toJson ident).compress).compress ++ ":"
-      targets := targets.push (name, ident, keyText)
-    return targets
-
-private def sourceCandidateModules (target : Name) : RequestM (Array Name) := do
-  let env ← getEnv
-  return Id.run do
-    let modules := env.allImportedModuleNames
-    let some targetIdx := env.getModuleIdxFor? target | return modules
-    let targetIdx := targetIdx.toNat
-    let some targetModule := modules[targetIdx]? | return modules
-    let mut reachable : NameSet := ({} : NameSet).insert targetModule
-    let mut candidates := #[targetModule]
-    -- Imported modules are topologically ordered, so one pass computes module-level dependents.
-    for index in [targetIdx + 1:modules.size] do
-      let some moduleName := modules[index]? | continue
-      let some moduleData := env.header.moduleData[index]? | continue
-      if moduleData.imports.any fun imported => reachable.contains imported.module then
-        reachable := reachable.insert moduleName
-        candidates := candidates.push moduleName
-    return candidates
-
-private def loadIleanContaining? (path : System.FilePath) (targets : Array SourceTarget) :
-    IO (Option Server.Ilean) := do
-  let content ← IO.FS.readFile path
-  if targets.any fun (_, _, keyText) => content.contains keyText then
-    return some (← Server.Ilean.load path)
-  return none
-
-private def scanIleanModule (moduleName : Name) (targets : Array SourceTarget) :
-    IO (Option (Name × Server.Ilean)) := do
-  let some path ← ileanPath? moduleName | return none
-  let some ilean ← loadIleanContaining? path targets | return none
-  return some (moduleName, ilean)
-
-/-- Read `.ilean` files in bounded parallel batches to avoid serial filesystem latency. -/
-private partial def scanIleanModules (modules : Array Name) (targets : Array SourceTarget)
-    (offset : Nat := 0) (results : Array (Name × Server.Ilean) := #[]) :
-    IO (Array (Name × Server.Ilean)) := do
-  if offset >= modules.size then
-    return results
-  let stop := min (offset + 128) modules.size
-  let mut tasks : Array (Task (Except IO.Error (Option (Name × Server.Ilean)))) := #[]
-  for moduleName in modules.extract offset stop do
-    tasks := tasks.push (← IO.asTask (scanIleanModule moduleName targets))
-  let mut results := results
-  let mut firstError? : Option IO.Error := none
-  for task in tasks do
-    match ← IO.wait task with
-    | .ok (some result) => results := results.push result
-    | .ok none => pure ()
-    | .error error =>
-      if firstError?.isNone then
-        firstError? := some error
-  match firstError? with
-  | some error => throw error
-  | none => scanIleanModules modules targets stop results
-
-/--
-Find declarations with source references to the frontier. Files are first checked for the exact
-serialized reference key, and only matching `.ilean` files are parsed.
--/
-private def collectSourceDownstream (target : Name) : RequestM (Array RawRelation) := do
-  let env ← getEnv
-  let options ← read
-  let candidateModules ← sourceCandidateModules target
-  let mut visited : NameSet := ({} : NameSet).insert target
-  let mut frontier : NameSet := ({} : NameSet).insert target
-  let mut results := #[]
-  for distance in [1:options.depth + 1] do
-    let targets ← sourceTargets frontier
-    if targets.isEmpty then
-      break
-    let mut next : NameSet := {}
-    for (_, ilean) in (← scanIleanModules candidateModules targets) do
-      for (sourceName, ident, _) in targets do
-        let some info := ilean.references.get? ident | continue
-        for usage in info.usages do
-          let some parentName := usage.parentDecl? | continue
-          let parent := parentName.toName
-          if env.contains parent && !visited.contains parent then
-            visited := visited.insert parent
-            next := next.insert parent
-            if visibleName options.includeInternal parent then
-              results := results.push {
-                declaration := parent
-                distance
-                via := if distance == 1 then none else some sourceName
-              }
-    frontier := next
-    if frontier.isEmpty then
-      break
-  return results.qsort rawRelationLt
-
-private def parentN (path : System.FilePath) : Nat → Option System.FilePath
-  | 0 => some path
-  | count + 1 => path.parent.bind fun parent => parentN parent count
-
-/--
-Build a source search path from both `LEAN_SRC_PATH` and Lake's `.olean` roots. Lake reliably sets
-`LEAN_PATH` for executables, but does not set `LEAN_SRC_PATH` on every platform.
--/
-private def sourceSearchPath : IO SearchPath := do
-  let mut sources ← getSrcSearchPath
-  for oleanRoot in (← searchPathRef.get) do
-    -- Lake package/project layout: ROOT/.lake/build/lib/lean
-    if let some packageRoot := parentN oleanRoot 4 then
-      sources := sources ++ [packageRoot]
-    -- Lean toolchain layout: SYSROOT/lib/lean -> SYSROOT/src/lean
-    if let some sysroot := parentN oleanRoot 2 then
-      sources := sources ++ [sysroot / "src" / "lean"]
-  return sources
-
-def withSession {α : Type} (action : SessionM α) : CoreM α := do
-  action.run (← sourceSearchPath)
-
-private def sourceLocation (name : Name) : RequestM SourceLocation := do
+private def sourceLocation (name : Name) : Query.RequestM SourceLocation := do
   let sourcePath ← readThe SearchPath
   let moduleName? ← findModuleOf? name
   let file? ← match moduleName? with
@@ -376,7 +86,7 @@ private def sourceLocation (name : Name) : RequestM SourceLocation := do
        some (ranges.selectionRange.endPos.column + 1))
     | none => (none, none, none, none)
   return {
-    moduleName := moduleName?.map nameString
+    moduleName := moduleName?.map Query.nameString
     file := file?.map (·.toString)
     line := line?
     column := column?
@@ -384,28 +94,30 @@ private def sourceLocation (name : Name) : RequestM SourceLocation := do
     endColumn := endColumn?
   }
 
-private def describeDeclaration (name : Name) : RequestM DeclarationView := do
+private def describeDeclaration (name : Name) : Query.RequestM DeclarationView := do
   let env ← getEnv
   let some kind := getOriginalConstKind? env name |
     throwError "declaration disappeared from the environment: {name}"
   return {
-    name := nameString name
+    name := Query.nameString name
     kind := constantKind kind
     source := ← sourceLocation name
   }
 
-private def describeRelations (relations : Array RawRelation) : RequestM RelationList := do
+private def describeRelations (relations : Array Query.RawRelation) :
+    Query.RequestM RelationList := do
   let limit := (← read).limit
   let mut items := #[]
   for relation in relations.take limit do
     items := items.push {
       distance := relation.distance
-      via := relation.via.map nameString
+      via := relation.via.map Query.nameString
       declaration := ← describeDeclaration relation.declaration
     }
   return { total := relations.size, items }
 
-private def executeQuery (query : String) : RequestM (Except QueryFailure QueryResult) := do
+private def executeQuery (query : String) :
+    Query.RequestM (Except QueryFailure QueryResult) := do
   let env ← getEnv
   let options ← read
   match resolveName env query options.includeInternal with
@@ -419,15 +131,15 @@ private def executeQuery (query : String) : RequestM (Except QueryFailure QueryR
     let upstream ←
       if options.direction.includesUpstream then
         match options.mode with
-        | .source => collectSourceUpstream target
-        | .kernel => collectUpstream target
+        | .source => Query.collectSourceUpstream target
+        | .kernel => pure <| Query.collectKernelUpstream env target options
       else
         pure #[]
     let downstream ←
       if options.direction.includesDownstream then
         match options.mode with
-        | .source => collectSourceDownstream target
-        | .kernel => collectDownstream target
+        | .source => Query.collectSourceDownstream target
+        | .kernel => pure <| Query.collectKernelDownstream env target options
       else
         pure #[]
     return .ok {
@@ -440,7 +152,7 @@ private def executeQuery (query : String) : RequestM (Except QueryFailure QueryR
 
 /-- Query inside an existing session, reusing its source search path. -/
 def runQueryM (query : String) (options : QueryOptions := {}) :
-    SessionM (Except QueryFailure QueryResult) :=
+    Query.SessionM (Except QueryFailure QueryResult) :=
   (executeQuery query).run options
 
 /-- Resolve a declaration and inspect its bounded dependency neighborhood. -/
@@ -448,7 +160,7 @@ def runQuery (query : String) (options : QueryOptions := {}) :
     CoreM (Except QueryFailure QueryResult) :=
   withSession (runQueryM query options)
 
-private def search (query : String) : RequestM SearchResult := do
+private def search (query : String) : Query.RequestM SearchResult := do
   let env ← getEnv
   let options ← read
   let hits := scoredNames env query options.includeInternal
@@ -462,7 +174,7 @@ private def search (query : String) : RequestM SearchResult := do
   }
 
 /-- Search inside an existing session. -/
-def runSearchM (query : String) (options : QueryOptions := {}) : SessionM SearchResult :=
+def runSearchM (query : String) (options : QueryOptions := {}) : Query.SessionM SearchResult :=
   (search query).run options
 
 /-- Search declaration names using exact, suffix, case-insensitive, then substring ranking. -/
