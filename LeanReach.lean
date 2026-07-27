@@ -15,6 +15,16 @@ private def workspaceRoots : IO (List System.FilePath) := do
       if ← entry.path.isDir then roots := roots.concat entry.path
   return roots
 
+private def leanSysroot : IO System.FilePath := do
+  if let some root ← IO.getEnv "LEAN_SYSROOT" then
+    return root
+  let hint := (← IO.appDir) / "leanreach.sysroot"
+  if ← hint.pathExists then
+    let root := System.FilePath.mk (← IO.FS.readFile hint).trimAscii.copy
+    if ← (root / "lib" / "lean").isDir then
+      return root
+  findSysroot
+
 private def initializeSearchPath (sysroot : System.FilePath)
     (roots : List System.FilePath) : IO Unit := do
   match ← IO.getEnv "LEAN_PATH" with
@@ -43,7 +53,7 @@ private unsafe def withIndexSession {α : Type} (root : Name)
     (select : Index → NameMap Declaration → Except String (Array Name))
     (action : Session → CoreM α) : IO α := do
   let roots ← workspaceRoots
-  let sysroot ← findSysroot
+  let sysroot ← leanSysroot
   initializeSearchPath sysroot roots
   let sourcePath ← sourceSearchPath sysroot roots
   Lean.enableInitializersExecution

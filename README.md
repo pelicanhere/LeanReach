@@ -41,7 +41,9 @@ LeanReach is pinned to Lean and Mathlib `v4.32.0`. The executable enables interp
 because loading environment extensions at runtime requires it.
 
 On Windows, create a directly runnable distribution containing the native executable and the Lean
-runtime DLLs:
+runtime DLLs. The package also records the current Lean sysroot so startup does not need to launch
+`lean --print-prefix`; if the package is moved to a machine where that path is invalid, LeanReach
+falls back to the standard lookup:
 
 ```console
 pwsh scripts/package.ps1

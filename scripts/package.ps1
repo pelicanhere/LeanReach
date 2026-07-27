@@ -27,5 +27,10 @@ Copy-Item -LiteralPath $exe -Destination $outputDir -Force
 foreach ($dll in $runtime) {
   Copy-Item -LiteralPath (Join-Path $toolchainBin $dll) -Destination $outputDir -Force
 }
+[IO.File]::WriteAllText(
+  (Join-Path $outputDir "leanreach.sysroot"),
+  $sysroot,
+  [Text.UTF8Encoding]::new($false)
+)
 
 Get-ChildItem -LiteralPath $outputDir | Select-Object Name, Length
