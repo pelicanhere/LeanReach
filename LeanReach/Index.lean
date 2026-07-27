@@ -1,6 +1,5 @@
 import Lean.Meta
 import Lean.Util.FoldConsts
-import Lean.Util.Path
 
 namespace LeanReach
 
@@ -15,13 +14,11 @@ structure Index where
   private reverse : NameMap NameSet
   deriving Inhabited
 
-private def cacheVersion := 3
-
 private def usedConstants (env : Environment) (name : Name) (info : ConstantInfo) : NameSet :=
   info.getUsedConstantsAsSet.filter fun dependency =>
     dependency != name && visible dependency && env.contains dependency
 
-private def Index.build : CoreM Index := do
+def Index.build : CoreM Index := do
   let env ← getEnv
   let mut names := #[]
   let mut reverse : NameMap NameSet := {}
@@ -34,27 +31,6 @@ private def Index.build : CoreM Index := do
     names := names.qsort fun a b => Name.lt a.1 b.1
     reverse
   }
-
-private def moduleDepHash? (root : Name) : IO (Option String) := do
-  let path := (← findOLean root).withExtension "trace"
-  unless ← path.pathExists do return none
-  return (Json.parse (← IO.FS.readFile path) >>= (·.getObjValAs? String "depHash")).toOption
-
-unsafe def Index.load (root : Name) : CoreM Index := do
-  let some depHash ← moduleDepHash? root | return ← Index.build
-  let path := (← findOLean root).withExtension s!"leanreach-{cacheVersion}"
-  if ← path.pathExists then
-    try
-      let (data, _) ← readModuleData path
-      let cache : String × Index := unsafe unsafeCast data
-      if cache.1 == depHash then return cache.2
-    catch _ => pure ()
-  let index ← Index.build
-  try
-    saveModuleData path `LeanReach.cache (unsafe unsafeCast (depHash, index))
-  catch _ =>
-    IO.eprintln s!"leanreach: could not write cache {path}"
-  return index
 
 private def Index.matchBuckets (index : Index) (query : String) (limit : Nat) :
     Array (Array Name) := Id.run do

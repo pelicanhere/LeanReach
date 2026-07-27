@@ -116,6 +116,7 @@ DAG or a runtime call graph.
 
 ```text
 LeanReach/Index.lean  names, dependency index, cache, and resolution
+LeanReach/Cache.lean  persistent index serialization and freshness checks
 LeanReach/Query.lean  rendering, source locations, traversal, and sessions
 LeanReach.lean        environment-loading facade
 Main.lean             Lake ArgsT CLI and interactive transport

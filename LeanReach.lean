@@ -1,4 +1,5 @@
 import Lean.Util.Path
+import LeanReach.Cache
 import LeanReach.Query
 
 namespace LeanReach
@@ -20,7 +21,7 @@ unsafe def withSession {α : Type} (root : Name) (action : Session → CoreM α)
   Lean.enableInitializersExecution
   let env ← importModules (loadExts := true) #[{ module := root }] {}
   Core.CoreM.toIO'
-    (do action (← Session.create (← unsafe Index.load root) sourcePath))
+    (do action (← Session.create (← unsafe Cache.loadIndex root) sourcePath))
     { fileName := "<leanreach>", fileMap := default }
     { env }
 
