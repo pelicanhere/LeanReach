@@ -9,7 +9,7 @@ The implementation follows Loogle's deliberately simple process model, with modu
 artifacts for local libraries:
 
 - read each built module's `.olean`, `.olean.server`, `.olean.private`, and `.ilean` directly;
-- cache a small dependency fragment per module and materialize a root query index;
+- cache a small dependency fragment per module and materialize separate name and relation indexes;
 - plan the bounded query from the index, then import only result modules for pretty-printing;
 - persist rendered declarations and skip imports entirely when every result is cached;
 - keep a root `Environment` alive only in interactive mode;

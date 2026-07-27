@@ -9,7 +9,8 @@ namespace LeanReach.Cache
 
 open Lean
 
-private def version := 9
+private def catalogVersion := 1
+private def relationsVersion := 1
 private def fragmentVersion := 2
 private def renderVersion := 1
 
@@ -25,6 +26,15 @@ private def pickle {α : Type} (path : System.FilePath) (key : Name) (value : α
 private unsafe def unpickle (α : Type) (path : System.FilePath) : IO (α × CompactedRegion) := do
   let (value, region) ← readModuleData path
   return (unsafeCast value, region)
+
+private unsafe def loadPart (α : Type) (path : System.FilePath) (depHash : String) :
+    IO (Option α) := do
+  unless ← path.pathExists do return none
+  try
+    let ((storedHash, value), _) ← unsafe unpickle (String × α) path
+    if storedHash == depHash then return some value
+  catch _ => pure ()
+  return none
 
 private def depHash? (olean : System.FilePath) : IO (Option String) := do
   let path := olean.withExtension "trace"
@@ -100,19 +110,22 @@ private unsafe def buildIndex (root : Name) : IO Index := do
         declarations := declarations.push (name, moduleName, dependencies)
   return Index.build declarations
 
-unsafe def loadIndex (root : Name) : IO Index := do
+unsafe def loadIndex (root : Name) (loadRelations := true) : IO Index := do
   let olean ← findOLean root
   let some depHash ← depHash? olean | return ← buildIndex root
-  let path := olean.withExtension s!"leanreach-{version}"
-  if ← path.pathExists then
-    try
-      let ((storedHash, index), _) ← unsafe unpickle (String × Index) path
-      if storedHash == depHash then return index
-    catch _ => pure ()
+  let catalogPath := olean.withExtension s!"leanreach-catalog-{catalogVersion}"
+  let relationsPath := olean.withExtension s!"leanreach-relations-{relationsVersion}"
+  if let some catalog ← unsafe loadPart Catalog catalogPath depHash then
+    if !loadRelations then return Index.ofParts catalog (#[], #[])
+    if let some relations ← unsafe loadPart Relations relationsPath depHash then
+      return Index.ofParts catalog relations
   let index ← buildIndex root
-  try pickle path root (depHash, index)
-  catch _ => IO.eprintln s!"leanreach: could not write cache {path}"
-  return index
+  try
+    pickle catalogPath (Name.str root "_leanreachCatalog") (depHash, index.catalog)
+    pickle relationsPath (Name.str root "_leanreachRelations") (depHash, index.relations)
+  catch _ => IO.eprintln "leanreach: could not write root index cache"
+  if loadRelations then return index
+  return Index.ofParts index.catalog (#[], #[])
 
 unsafe def loadRendered (root : Name) : IO (NameMap Declaration) := do
   let olean ← findOLean root

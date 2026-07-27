@@ -37,13 +37,14 @@ private def sourceSearchPath (roots : List System.FilePath) : IO SearchPath := d
   | none => return fallback
 
 private unsafe def withIndexSession {α : Type} (root : Name)
+    (loadRelations : Bool)
     (select : Index → NameMap Declaration → Except String (Array Name))
     (action : Session → CoreM α) : IO α := do
   let roots ← workspaceRoots
   initializeSearchPath roots
   let sourcePath ← sourceSearchPath roots
   Lean.enableInitializersExecution
-  let index ← unsafe Cache.loadIndex root
+  let index ← unsafe Cache.loadIndex root loadRelations
   let rendered ← unsafe Cache.loadRendered root
   let modules ←
     match select index rendered with
@@ -66,14 +67,14 @@ private unsafe def withIndexSession {α : Type} (root : Name)
 
 /-- Import only the modules needed to render the selected declarations. -/
 unsafe def withSessionFor {α : Type} (root : Name) (select : Index → Except String (Array Name))
-    (action : Session → CoreM α) : IO α :=
-  withIndexSession root (fun index rendered => do
+    (loadRelations : Bool) (action : Session → CoreM α) : IO α :=
+  withIndexSession root loadRelations (fun index rendered => do
     let names ← select index
     return index.modulesFor (names.filter fun name => !rendered.contains name)
   ) action
 
 /-- Import a root module once and reuse its environment and index for the entire action. -/
 unsafe def withSession {α : Type} (root : Name) (action : Session → CoreM α) : IO α :=
-  withIndexSession root (fun _ _ => pure #[root]) action
+  withIndexSession root true (fun _ _ => pure #[root]) action
 
 end LeanReach

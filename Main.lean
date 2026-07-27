@@ -204,7 +204,8 @@ private unsafe def execute (config : Config) (command? : Option Command) : IO UI
   let started ← IO.monoMsNow
   match command? with
   | some command =>
-    withSessionFor config.root (commandNames config command) fun session =>
+    let loadRelations := !command matches .search _
+    withSessionFor config.root (commandNames config command) loadRelations fun session =>
       runTimed session config command
   | none =>
     withSession config.root fun session => runInteractive session config
