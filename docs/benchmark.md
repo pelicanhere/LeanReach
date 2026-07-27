@@ -7,6 +7,10 @@ evidence.
 
 The result is a small pilot, not a statistically powered claim.
 
+The agent timings below were collected against the earlier one-direction v2 index. They are kept as
+historical end-to-end evidence; the current v4 microbenchmarks and cache measurements are reported
+in the main README.
+
 ## Environment
 
 - date: 2026-07-27;

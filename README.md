@@ -3,8 +3,9 @@
 LeanReach is a Lean-native CLI for finding declarations, opening their exact source locations, and
 inspecting a bounded neighborhood of upstream and downstream dependencies.
 
-LeanReach reads Lean's resolved `.ilean` data. It does not import a Mathlib `Environment`, and it
-stores only declaration locations plus direct-reference postings—not a transitive declaration DAG.
+LeanReach indexes Lean's resolved `.ilean` data and reads selected `.olean` constants only when
+rendering result signatures. It never imports a Mathlib `Environment`, and it stores direct
+references rather than a transitive declaration DAG.
 
 The long-lived process model follows
 [Lean REPL](https://github.com/leanprover-community/repl). Persistent cache validation and the
@@ -74,8 +75,9 @@ For each root set, LeanReach:
 2. traverses `.ilean` imports, including Lean's implicit `Init` closure;
 3. parses files with eight workers and a bounded 32-file window;
 4. extracts `.decls ∪ references.const.definition` locations;
-5. stores only direct `target → parent declaration` postings;
-6. saves the payload with `Lean.CompactedRegion`.
+5. assigns dense declaration IDs and builds both directions of the direct graph as CSR arrays;
+6. caches lowercase names and a 64-bit trigram filter for fast ranked substring search;
+7. saves the payload with `Lean.CompactedRegion`.
 
 The payload has an explicit format version and a stable cache name derived from the complete sorted
 root set; the stored build fingerprint controls invalidation and overwrite. Any missing `.ilean` in
@@ -84,8 +86,8 @@ mapped compacted region is bracketed around one command or interactive session a
 afterwards.
 
 This is lighter than an imported Mathlib environment and deliberately omits declaration types,
-values, transitive closure, and edge paths. Source-upstream reads only the `.ilean` that owns the
-current frontier; source-downstream follows the persistent direct postings.
+values, transitive closure, and full edge paths. Both dependency directions follow persistent
+direct-edge arrays, so a warm query does not reopen `.ilean` files.
 
 ## Dependency semantics
 
@@ -94,8 +96,13 @@ server data. This matches the declarations an agent can open and inspect in sour
 does not model constants introduced only by elaboration, such as some implicit instances, notation
 expansions, or generated declarations.
 
-`.ilean` contains exact selection ranges but no declaration type, value, or constant kind, so the
-output contract reports names and locations rather than kernel metadata.
+`.ilean` contains exact selection ranges but no declaration type. For only the declarations that
+will be returned, LeanReach memory-maps the owning `.olean`, passes its exported `ConstantInfo`
+and the constants directly referenced by its type through Lean's own `PrettyPrinter.ppSignature`
+in a temporary minimal environment, materializes the resulting string, and releases the mappings.
+The session caches those strings, so repeated NDJSON requests do not render them again. This
+preserves lightweight startup while returning an exact, canonical signature; some notation remains
+explicit because no dependency environment is imported.
 
 ## Agent session protocol
 
@@ -124,14 +131,15 @@ Lines and columns are one-based.
 
 ```json
 {
-  "name": "Submodule.span_le",
+  "name": "Nat.gcd_comm",
+  "signature": "Nat.gcd_comm (m n : Nat) : Eq (m.gcd n) (n.gcd m)",
   "source": {
-    "moduleName": "Mathlib.LinearAlgebra.Span.Defs",
-    "file": ".../Mathlib/LinearAlgebra/Span/Defs.lean",
-    "line": 82,
+    "moduleName": "Init.Data.Nat.Gcd",
+    "file": ".../Init/Data/Nat/Gcd.lean",
+    "line": 109,
     "column": 9,
-    "endLine": 82,
-    "endColumn": 16
+    "endLine": 109,
+    "endColumn": 17
   }
 }
 ```
@@ -143,13 +151,17 @@ serialized items while `total` reports the full number found.
 
 On the development Windows machine with a warm filesystem cache:
 
-- first full-Mathlib index build and save: `58.133 s`;
-- index contents: 387,200 source-visible declarations and 2,406,834 direct relations;
-- cache size: 147,386,416 bytes;
-- fresh native process, cached exact `Submodule.span_le` neighborhood:
-  `148 ms` initialization + `1 ms` restore + `26 ms` query = `175 ms`;
-- fresh native process, cached `search span_le`:
-  `149 ms` initialization + `16 ms` restore + `708 ms` search = `873 ms`.
+- full-Mathlib v4 index rebuild and save: `38.763 s`;
+- index contents: 387,200 source-visible declarations and 2,379,347 direct relations whose two
+  endpoints are both source-visible;
+- cache size: 144,814,648 bytes, smaller than the previous one-direction v2 cache;
+- mapped-cache restore: `1–2 ms`;
+- interactive exact `Submodule.span_le` neighborhood: `94 ms` including first signature rendering,
+  then `1 ms` from the session cache;
+- interactive `search span_le --limit 5`: `149 ms` including first signature rendering, then
+  `27 ms`, versus roughly `708 ms` before cached trigram filtering;
+- the intentionally broad `search a --limit 1`: about `336 ms`, versus about `50 s` when every
+  matching name was accumulated and sorted.
 
 Cold setup is paid once per Mathlib build fingerprint. `lake exe` adds Lake startup time; an
 installed/native invocation should run with the project's `LEAN_PATH`, while an interactive session
@@ -169,6 +181,7 @@ LeanReach/Cli.lean                source-index lifecycle and command dispatch
 LeanReach/Interactive.lean        typed NDJSON request and transport loop
 LeanReach/SourceIndex.lean        indexed source search and bounded BFS
 LeanReach/SourceIndex/Build.lean  .ilean traversal and persistent cache
+LeanReach/Signatures.lean         selective .olean signature rendering
 LeanReach/Query/Ilean.lean        shared .ilean and source-path utilities
 LeanReach/Protocol.lean           compact public request/result models
 Tests/Smoke.lean                  semantic and cache lifecycle tests
