@@ -14,69 +14,6 @@ private def expectQuery (result : Except QueryFailure QueryResult) : CoreM Query
   | .ok result => pure result
   | .error failure => throwError failure.error
 
-private def sourceTests : CoreM Unit := do
-  let result ← expectQuery (← runQuery "Nat.gcd" {
-    mode := .source
-    direction := .both
-    depth := 1
-    limit := 1000
-  })
-  check (result.target.name == "Nat.gcd") "source query resolved the wrong declaration"
-  check result.target.source.file.isSome "source query did not resolve the target file"
-  check result.target.source.line.isSome "source query did not resolve the target line"
-  check
-    (result.upstream.items.any fun relation =>
-      relation.declaration.name == "Nat.mod_lt")
-    "source query omitted the direct Nat.mod_lt dependency"
-  check
-    (result.downstream.items.any fun relation =>
-      relation.declaration.name == "Nat.gcd_comm")
-    "source query omitted the direct Nat.gcd_comm dependent"
-
-  match ← runQuery "gcd_comm" {
-    mode := .source
-    direction := .both
-    depth := 0
-    limit := 20
-  } with
-  | .ok _ => throwError "ambiguous suffix unexpectedly resolved to one declaration"
-  | .error failure =>
-    check (failure.candidates.size >= 2) "ambiguous suffix returned too few candidates"
-    check
-      (failure.candidates.any fun declaration =>
-        declaration.name == "Nat.gcd_comm")
-      "ambiguous suffix omitted Nat.gcd_comm"
-    check
-      (failure.candidates.any fun declaration =>
-        declaration.name == "Int.gcd_comm")
-      "ambiguous suffix omitted Int.gcd_comm"
-
-  let search ← runSearch "gcd_comm" { limit := 20 }
-  check (search.total >= 2) "name search returned too few matches"
-  check
-    (search.items.any fun declaration => declaration.name == "Nat.gcd_comm")
-    "name search omitted Nat.gcd_comm"
-
-  let generated := "StateCpsT.instMonadStateOf.match_1"
-  match ← runQuery generated {
-    mode := .source
-    direction := .both
-    depth := 0
-    limit := 20
-  } with
-  | .ok _ => throwError "exact generated name bypassed the internal declaration filter"
-  | .error _ => pure ()
-  let generatedResult ← expectQuery (← runQuery generated {
-    mode := .source
-    direction := .both
-    depth := 0
-    limit := 20
-    includeInternal := true
-  })
-  check
-    (generatedResult.target.name == generated)
-    "includeInternal did not restore exact generated-name resolution"
-
 private unsafe def sourceIndexTests : CoreM Unit := do
   let roots := #["Mathlib.Data.Nat.GCD.Basic".toName]
   let index ← SourceIndex.build roots
@@ -120,7 +57,7 @@ private unsafe def sourceIndexTests : CoreM Unit := do
   check (← restored?.get) "source index cache was not restored on the second load"
 
 private def kernelTests : CoreM Unit := do
-  let result ← expectQuery (← runQuery "Nat.gcd_comm" {
+  let result ← expectQuery (← runKernelQuery "Nat.gcd_comm" {
     mode := .kernel
     direction := .upstream
     depth := 1
@@ -147,8 +84,7 @@ private unsafe def runWithEnvironment (level : OLeanLevel) (action : CoreM Unit)
 unsafe def run : IO UInt32 := do
   try
     initSearchPath (← findSysroot)
-    runWithEnvironment .server (sourceTests *> sourceIndexTests)
-    runWithEnvironment .private kernelTests
+    runWithEnvironment .private (sourceIndexTests *> kernelTests)
     IO.println "LeanReach semantic smoke tests passed"
     return 0
   catch error =>

@@ -200,8 +200,8 @@ until EOF or a `quit` request.
 def runInteractive (defaults : QueryOptions) (profile : Bool := false) : CoreM UInt32 :=
   withSession <| serve defaults profile
     (processRequest defaults
-      (fun query options => runQueryM query options)
-      (fun query options => runSearchM query options))
+      (fun query options => runKernelQueryM query options)
+      (fun query options => runKernelSearchM query options))
 
 /-- Run the same NDJSON protocol against a source index without consulting the Environment. -/
 def runIndexedInteractive (index : SourceIndex.Index) (sourcePath : SearchPath)

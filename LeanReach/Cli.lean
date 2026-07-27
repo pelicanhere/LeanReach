@@ -161,8 +161,8 @@ private unsafe def executeKernel (config : Config) (started initialized : Nat) :
   try
     let loaded ← IO.monoMsNow
     let exitCode ← CoreM.toIO' (runCommand config
-        (fun declaration => LeanReach.runQuery declaration config.toQueryOptions)
-        (fun pattern => LeanReach.runSearch pattern config.toQueryOptions)
+        (fun declaration => LeanReach.runKernelQuery declaration config.toQueryOptions)
+        (fun pattern => LeanReach.runKernelSearch pattern config.toQueryOptions)
         (LeanReach.runInteractive config.toQueryOptions config.profile))
       { fileName := "<leanreach>", fileMap := default }
       { env }

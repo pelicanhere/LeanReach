@@ -1,8 +1,8 @@
 import Lean.DeclarationRange
 import Lean.OriginalConstKind
+import LeanReach.Query.Ilean
 import LeanReach.Query.Kernel
 import LeanReach.Query.Names
-import LeanReach.Query.Source
 
 namespace LeanReach
 
@@ -82,7 +82,7 @@ private def describeRelations (relations : Array Query.RawRelation) :
     }
   return { total := relations.size, items }
 
-private def executeQuery (query : String) :
+private def executeKernelQuery (query : String) :
     Query.RequestM (Except QueryFailure QueryResult) := do
   let env ← getEnv
   let options ← read
@@ -94,37 +94,33 @@ private def executeQuery (query : String) :
       candidates
     }
   | .ok target => do
-    let upstream ←
+    let upstream :=
       if options.direction.includesUpstream then
-        match options.mode with
-        | .source => Query.collectSourceUpstream target
-        | .kernel => pure <| Query.collectKernelUpstream env target options
+        Query.collectKernelUpstream env target options
       else
-        pure #[]
-    let downstream ←
+        #[]
+    let downstream :=
       if options.direction.includesDownstream then
-        match options.mode with
-        | .source => Query.collectSourceDownstream target
-        | .kernel => pure <| Query.collectKernelDownstream env target options
+        Query.collectKernelDownstream env target options
       else
-        pure #[]
+        #[]
     return .ok {
       query
-      mode := options.mode.label
+      mode := "kernel"
       target := ← describeDeclaration target
       upstream := ← describeRelations upstream
       downstream := ← describeRelations downstream
     }
 
-/-- Query inside an existing session, reusing its source search path. -/
-def runQueryM (query : String) (options : QueryOptions := {}) :
+/-- Run a kernel dependency query inside an existing Environment session. -/
+def runKernelQueryM (query : String) (options : QueryOptions := {}) :
     Query.SessionM (Except QueryFailure QueryResult) :=
-  (executeQuery query).run options
+  (executeKernelQuery query).run { options with mode := .kernel }
 
-/-- Resolve a declaration and inspect its bounded dependency neighborhood. -/
-def runQuery (query : String) (options : QueryOptions := {}) :
+/-- Resolve a declaration and inspect its bounded kernel dependency neighborhood. -/
+def runKernelQuery (query : String) (options : QueryOptions := {}) :
     CoreM (Except QueryFailure QueryResult) :=
-  withSession (runQueryM query options)
+  withSession (runKernelQueryM query options)
 
 private def search (query : String) : Query.RequestM SearchResult := do
   let env ← getEnv
@@ -139,12 +135,12 @@ private def search (query : String) : Query.RequestM SearchResult := do
     items
   }
 
-/-- Search inside an existing session. -/
-def runSearchM (query : String) (options : QueryOptions := {}) : Query.SessionM SearchResult :=
+/-- Search Environment declarations inside an existing session. -/
+def runKernelSearchM (query : String) (options : QueryOptions := {}) : Query.SessionM SearchResult :=
   (search query).run options
 
-/-- Search declaration names using exact, suffix, case-insensitive, then substring ranking. -/
-def runSearch (query : String) (options : QueryOptions := {}) : CoreM SearchResult :=
-  withSession (runSearchM query options)
+/-- Search Environment declaration names using exact, suffix, then substring ranking. -/
+def runKernelSearch (query : String) (options : QueryOptions := {}) : CoreM SearchResult :=
+  withSession (runKernelSearchM query options)
 
 end LeanReach
