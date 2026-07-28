@@ -27,6 +27,10 @@ def Session.create (index : Index) (sourcePath : SearchPath)
 def Session.rendered (session : Session) : IO (NameMap Declaration) :=
   session.declarations.get
 
+def Session.merge (session : Session) (declarations : NameMap Declaration) : IO Unit := do
+  for (name, declaration) in declarations do
+    session.declarations.modify (·.insert name declaration)
+
 private def renderSignature (name : Name) : MetaM String := do
   try
     let expression ← mkConstWithLevelParams name
@@ -93,7 +97,7 @@ def Index.queryNames (index : Index) (query : String) (upstreamLimit : Nat := 6)
     index.downstream target downstreamLimit
   )
 
-private def describeRelated (session : Session) (items : Array Name) :
+def Session.describeNames (session : Session) (items : Array Name) :
     CoreM (Array Declaration) :=
   items.mapM (describe session)
 
@@ -107,13 +111,13 @@ def Session.query (session : Session) (query : String) (upstreamLimit : Nat := 6
     liftQuery (session.index.queryNames query upstreamLimit downstreamLimit)
   return {
     target := ← describe session target
-    upstream := ← describeRelated session upstream
-    downstream := ← describeRelated session downstream
+    upstream := ← session.describeNames upstream
+    downstream := ← session.describeNames downstream
   }
 
 def Session.search (session : Session) (query : String) (limit : Nat := 20) :
     CoreM (Array Declaration) :=
-  (session.index.search query limit).mapM (describe session)
+  session.describeNames (session.index.search query limit)
 
 def Session.cacheNames (session : Session) (names : Array Name) : CoreM Nat := do
   names.forM fun name =>

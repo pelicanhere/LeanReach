@@ -56,6 +56,38 @@ private unsafe def prepareEnvironment : IO SearchPath := do
   Lean.enableInitializersExecution
   sourceSearchPath sysroot roots
 
+private def selectNames (index : Index) (select : Index → Except String (Array Name)) :
+    IO (Array Name) :=
+  match select index with
+  | .ok names => pure names
+  | .error message => throw <| IO.userError message
+
+private unsafe def runSession {α : Type} (index : Index) (session : Session)
+    (names : Array Name) (modules? : Option (Array Name)) (wholeModules : Bool)
+    (action : CoreM α) : IO α := do
+  let current ← session.rendered
+  let missing := names.filter fun name => !current.contains name
+  if wholeModules then
+    for moduleName in index.modulesFor missing do
+      session.merge (← unsafe Cache.loadRenderedModule moduleName)
+  else
+    session.merge (← unsafe Cache.loadRendered index missing)
+  let before ← session.rendered
+  let modules := modules?.getD <|
+    index.modulesFor (names.filter fun name => !before.contains name)
+  let env ←
+    if modules.isEmpty then mkEmptyEnvironment
+    else importModules (loadExts := true) (modules.map fun moduleName => { module := moduleName }) {}
+  let result ← Core.CoreM.toIO'
+    action
+    { fileName := "<leanreach>", fileMap := default }
+    { env }
+  let after ← session.rendered
+  if after.size != before.size then
+    try unsafe Cache.saveRendered before after
+    catch _ => IO.eprintln "leanreach: could not write rendered declaration cache"
+  return result
+
 private unsafe def withIndexSession {α : Type} (roots : Array Name)
     (loadRelations : Bool)
     (select : Index → Except String (Array Name))
@@ -63,28 +95,10 @@ private unsafe def withIndexSession {α : Type} (roots : Array Name)
     (action : Session → CoreM α) : IO α := do
   let sourcePath ← prepareEnvironment
   let index ← unsafe Cache.loadIndex roots loadRelations
-  let names ←
-    match select index with
-    | .ok names => pure names
-    | .error message => throw <| IO.userError message
-  let rendered ← unsafe Cache.loadRendered index names
-  let modules :=
-    if forceRootImport then roots
-    else index.modulesFor (names.filter fun name => !rendered.contains name)
-  let imports := modules.map fun moduleName => { module := moduleName }
-  let env ←
-    if imports.isEmpty then mkEmptyEnvironment
-    else importModules (loadExts := true) imports {}
-  let session ← Session.create index sourcePath rendered
-  let result ← Core.CoreM.toIO'
+  let names ← selectNames index select
+  let session ← Session.create index sourcePath
+  unsafe runSession index session names (if forceRootImport then some roots else none) false
     (action session)
-    { fileName := "<leanreach>", fileMap := default }
-    { env }
-  let updated ← session.rendered
-  if updated.size != rendered.size then
-    try unsafe Cache.saveRendered rendered updated
-    catch _ => IO.eprintln "leanreach: could not write rendered declaration cache"
-  return result
 
 /-- Import only the modules needed to render the selected declarations. -/
 unsafe def withSessionFor {α : Type} (roots : Array Name)
@@ -95,6 +109,19 @@ unsafe def withSessionFor {α : Type} (roots : Array Name)
 /-- Import the root modules once and reuse their environment and index for the entire action. -/
 unsafe def withSession {α : Type} (roots : Array Name) (action : Session → CoreM α) : IO α :=
   withIndexSession roots true (fun _ => pure #[]) true action
+
+abbrev SessionRunner :=
+  (Index → Except String (Array Name)) → (Array Name → CoreM Unit) → IO Unit
+
+unsafe def withLazySession {α : Type} (roots : Array Name)
+    (action : Session → SessionRunner → IO α) : IO α := do
+  let sourcePath ← prepareEnvironment
+  let index ← unsafe Cache.loadIndex roots true
+  let session ← Session.create index sourcePath
+  let run : SessionRunner := fun select query => do
+    let names ← selectNames index select
+    discard <| unsafe runSession index session names none true (query names)
+  action session run
 
 unsafe def detectRoots : IO (Array Name) := do
   let roots ← unsafe Project.detectRoots (← leanSysroot)

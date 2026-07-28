@@ -123,19 +123,24 @@ private def printCached (json : Bool) (modules : Array Name) (count : Nat) : IO 
   else
     IO.println s!"cached {count} declarations"
 
-private def runOne (session : Session) (config : Config) (command : Command) : CoreM Unit := do
+private def runOne (session : Session) (config : Config) (command : Command)
+    (selected? : Option (Array Name) := none) : CoreM Unit := do
   match command with
   | .query name =>
     printQuery config.json <| ← session.query name (config.limitOr 6) (config.limitOr 10)
   | .search pattern =>
-    printSearch config.json pattern (← session.search pattern (config.limitOr 20))
+    let items ← match selected? with
+      | some names => session.describeNames names
+      | none => session.search pattern (config.limitOr 20)
+    printSearch config.json pattern items
   | .cache modules =>
     let count ← session.cacheModules modules
     printCached config.json modules count
 
-private def runTimed (session : Session) (config : Config) (command : Command) : CoreM Unit := do
+private def runTimed (session : Session) (config : Config) (command : Command)
+    (selected? : Option (Array Name) := none) : CoreM Unit := do
   let started ← IO.monoMsNow
-  runOne session config command
+  runOne session config command selected?
   if config.profile then
     IO.eprintln s!"leanreach: query={(← IO.monoMsNow) - started}ms"
 
@@ -157,19 +162,22 @@ private def parseLine (line : String) : Command :=
   else
     .query line
 
-private partial def runInteractive (session : Session) (config : Config) : CoreM Unit := do
+private partial def runInteractive (session : Session) (run : SessionRunner)
+    (config : Config) : IO Unit := do
   let line := (← (← IO.getStdin).getLine).trimAscii.copy
   if line.isEmpty then return
+  let command := parseLine line
   try
-    runTimed session config (parseLine line)
+    run (commandNames config command) fun names =>
+      runTimed session config command (some names)
   catch error =>
-    let message ← error.toMessageData.toString
+    let message := toString error
     if config.json then
       IO.println (Json.mkObj [("error", toJson message)]).compress
     else
       IO.eprintln s!"leanreach: {message}"
   (← IO.getStdout).flush
-  runInteractive session config
+  runInteractive session run config
 
 private def validate (config : Config) : CliMainM Unit := do
   if let some limit := config.limit? then
@@ -197,7 +205,7 @@ private unsafe def execute (config : Config) (command? : Option Command) : IO UI
     withSessionFor roots (commandNames config command) loadRelations fun session =>
       runTimed session config command
   | none =>
-    withSession roots fun session => runInteractive session config
+    withLazySession roots fun session run => runInteractive session run config
   if config.profile then
     IO.eprintln s!"leanreach: elapsed={(← IO.monoMsNow) - started}ms"
   return 0

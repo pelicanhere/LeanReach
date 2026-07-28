@@ -90,7 +90,7 @@ their complete value; structures, classes, and inductives show their fields and 
 
 ## Long-lived agent session
 
-Importing a complete Lean environment is the expensive part. Agents should reuse one process:
+Process startup is the dominant PP-hot cost. Agents should reuse one process:
 
 ```console
 lake exe leanreach --interactive --json --profile
@@ -103,14 +103,14 @@ search span_le
 Submodule.span_le
 ```
 
-The process emits one compact JSON value per line and flushes stdout after every response. On the
-development Windows machine, a small cached local environment took about 10 seconds to start; the
-first name search and pretty-print took 89 ms, and the following dependency query took 7 ms.
+The process emits one compact JSON value per line and flushes stdout after every response. It loads
+the dependency index once but does not import Mathlib at startup. The first access to a module loads
+its PP sidecar into the session; only a missing declaration triggers a bounded module import.
 
-The dependency index is loaded without importing Mathlib. A one-shot command imports only the
-modules needed to render its bounded result set; interactive mode imports the root once and reuses
-it. Prefer a one-shot command for isolated lookups and a long-lived session for a sequence of
-queries over the same root.
+On the development Windows machine, a PP-hot chain of nine distinct theorem searches had a 3.34 ms
+median session latency versus 197 ms for `rg` (1.69%). The complete session, including its first
+process startup, took 111 ms versus 1.87 seconds for nine separate `rg` scans. A one-shot LeanReach
+process still costs about 103 ms, so agents should keep the NDJSON session alive.
 
 ## Searching another local Lake library
 

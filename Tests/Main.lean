@@ -82,6 +82,12 @@ private unsafe def runTests : IO Unit := do
         item.name == "LeanReachFixture.Box.value")
       "structure projection was blacklisted"
 
+  withLazySession #[`Tests.Fixture] fun session run => do
+    for query in #["double_eq", "double_zero_again"] do
+      run (fun index => pure <| index.search query 10) fun names => do
+        check (!((← session.describeNames names).isEmpty))
+          "lazy session search is missing"
+
 unsafe def main : IO UInt32 := do
   try
     unsafe runTests

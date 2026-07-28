@@ -52,7 +52,15 @@ def measure_session(
     executable: Path, queries: tuple[str, ...], timeout: float
 ) -> list[tuple[float, int]]:
     process = subprocess.Popen(
-        [executable, "--module", "Mathlib", "--interactive", "--json"],
+        [
+            executable,
+            "--module",
+            "Mathlib",
+            "--limit",
+            "10",
+            "--interactive",
+            "--json",
+        ],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
