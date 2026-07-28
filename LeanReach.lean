@@ -63,7 +63,7 @@ private def selectPlan {α : Type} (index : Index)
 
 private unsafe def runSession {α : Type} (index : Index) (session : Session)
     (names : Array Name) (modules? : Option (Array Name)) (wholeModules : Bool)
-    (action : CoreM α) : IO α := do
+    (emptyEnv? : Option Environment) (action : CoreM α) : IO α := do
   let missing ← session.missing names
   if wholeModules then
     for moduleName in index.modulesFor missing do
@@ -74,7 +74,7 @@ private unsafe def runSession {α : Type} (index : Index) (session : Session)
   let modules := modules?.getD <|
     index.modulesFor (← session.missing names)
   let env ←
-    if modules.isEmpty then mkEmptyEnvironment
+    if modules.isEmpty then emptyEnv?.getDM mkEmptyEnvironment
     else
       Lean.enableInitializersExecution
       importModules (loadExts := true) (modules.map fun moduleName => { module := moduleName }) {}
@@ -97,7 +97,7 @@ private unsafe def withIndexSession {α β : Type} (roots : Array Name)
   let index ← unsafe Cache.loadIndex roots loadRelations
   let (plan, names) ← selectPlan index select
   let session ← Session.create index sourcePath (← unsafe Cache.loadPPBundle roots index)
-  unsafe runSession index session names (if forceRootImport then some roots else none) false
+  unsafe runSession index session names (if forceRootImport then some roots else none) false none
     (action session plan)
 
 /-- Import only the modules needed to pretty-print the selected declarations. -/
@@ -118,9 +118,10 @@ unsafe def withLazySession {α : Type} (roots : Array Name)
   let sourcePath ← prepareEnvironment
   let index ← unsafe Cache.loadIndex roots true
   let session ← Session.create index sourcePath (← unsafe Cache.loadPPBundle roots index)
+  let emptyEnv ← mkEmptyEnvironment
   let run : SessionRunner := fun select query => do
     let (plan, names) ← selectPlan index select
-    discard <| unsafe runSession index session names none true (query plan)
+    discard <| unsafe runSession index session names none true (some emptyEnv) (query plan)
   action session run
 
 unsafe def detectRoots : IO (Array Name) := do

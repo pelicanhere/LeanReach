@@ -111,12 +111,11 @@ memory-mapped declaration array indexed by catalog ID. For a partial cache, the 
 module loads its PP sidecar into the session; only a missing declaration triggers a bounded module
 import.
 
-On the development Windows machine, a PP-hot chain of nine distinct name searches had a 2.54 ms
-median session latency versus 220 ms for `rg` (1.16%). A separate chain of nine distinct exact
-dependency queries, with every selected declaration cached and no PP writes during the
-run, had a 5.04 ms median versus 288 ms for `rg` (1.75%). Its complete session, including startup
-and exit, took 254 ms versus 2.63 seconds for nine separate `rg` scans (9.67%). A one-shot
-LeanReach process still costs about 119 ms, so agents should keep the NDJSON session alive.
+On the development Windows machine, corrected binary-pipe runs of fresh PP-cached name searches
+had 2.85–3.88 ms median session latency versus 203–217 ms for `rg` (1.31–1.91%); selectivity of the
+name fragment accounts for the range. Reusing the session's empty Lean environment reduced a
+steady cached dependency query from 2.42 ms to 1.30 ms. A one-shot LeanReach process still costs
+about 110 ms, so agents should keep the NDJSON session alive.
 
 ## Web frontend
 
