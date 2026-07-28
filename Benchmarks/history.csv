@@ -35,3 +35,39 @@ mathlib-root-baseline,span_sup,rg,202.605,1,distinct query; first session query 
 mathlib-root-baseline,span_eq_iSup_of_singleton_spans,rg,218.112,1,distinct query; first session query includes startup
 mathlib-root-baseline,span_range_eq_iSup,rg,197.113,1,distinct query; first session query includes startup
 mathlib-root-baseline,span_attach_biUnion,rg,216.130,1,distinct query; first session query includes startup
+selected-declarations,span_iUnion,leanreach_process,1897.194,7,distinct query; first session query includes startup
+selected-declarations,span_sSup,leanreach_process,115.137,2,distinct query; first session query includes startup
+selected-declarations,span_sSup',leanreach_process,112.699,1,distinct query; first session query includes startup
+selected-declarations,span_biUnion,leanreach_process,114.736,1,distinct query; first session query includes startup
+selected-declarations,sup_span,leanreach_process,126.185,9,distinct query; first session query includes startup
+selected-declarations,span_sup,leanreach_process,109.931,10,distinct query; first session query includes startup
+selected-declarations,span_eq_iSup_of_singleton_spans,leanreach_process,110.492,1,distinct query; first session query includes startup
+selected-declarations,span_range_eq_iSup,leanreach_process,119.591,2,distinct query; first session query includes startup
+selected-declarations,span_attach_biUnion,leanreach_process,103.024,1,distinct query; first session query includes startup
+selected-declarations,span_iUnion,rg,228.891,1,distinct query; first session query includes startup
+selected-declarations,span_sSup,rg,197.073,1,distinct query; first session query includes startup
+selected-declarations,span_sSup',rg,260.945,1,distinct query; first session query includes startup
+selected-declarations,span_biUnion,rg,215.818,1,distinct query; first session query includes startup
+selected-declarations,sup_span,rg,236.319,1,distinct query; first session query includes startup
+selected-declarations,span_sup,rg,199.873,1,distinct query; first session query includes startup
+selected-declarations,span_eq_iSup_of_singleton_spans,rg,226.306,1,distinct query; first session query includes startup
+selected-declarations,span_range_eq_iSup,rg,199.642,1,distinct query; first session query includes startup
+selected-declarations,span_attach_biUnion,rg,246.160,1,distinct query; first session query includes startup
+selected-cache-lookup,span_iUnion,leanreach_process,113.475,7,distinct query; executables primed without a declaration query
+selected-cache-lookup,span_sSup,leanreach_process,113.912,2,distinct query; executables primed without a declaration query
+selected-cache-lookup,span_sSup',leanreach_process,111.247,1,distinct query; executables primed without a declaration query
+selected-cache-lookup,span_biUnion,leanreach_process,117.476,1,distinct query; executables primed without a declaration query
+selected-cache-lookup,sup_span,leanreach_process,121.790,9,distinct query; executables primed without a declaration query
+selected-cache-lookup,span_sup,leanreach_process,119.873,10,distinct query; executables primed without a declaration query
+selected-cache-lookup,span_eq_iSup_of_singleton_spans,leanreach_process,115.329,1,distinct query; executables primed without a declaration query
+selected-cache-lookup,span_range_eq_iSup,leanreach_process,116.864,2,distinct query; executables primed without a declaration query
+selected-cache-lookup,span_attach_biUnion,leanreach_process,119.045,1,distinct query; executables primed without a declaration query
+selected-cache-lookup,span_iUnion,rg,216.889,1,distinct query; executables primed without a declaration query
+selected-cache-lookup,span_sSup,rg,244.984,1,distinct query; executables primed without a declaration query
+selected-cache-lookup,span_sSup',rg,214.424,1,distinct query; executables primed without a declaration query
+selected-cache-lookup,span_biUnion,rg,215.122,1,distinct query; executables primed without a declaration query
+selected-cache-lookup,sup_span,rg,215.590,1,distinct query; executables primed without a declaration query
+selected-cache-lookup,span_sup,rg,197.038,1,distinct query; executables primed without a declaration query
+selected-cache-lookup,span_eq_iSup_of_singleton_spans,rg,215.177,1,distinct query; executables primed without a declaration query
+selected-cache-lookup,span_range_eq_iSup,rg,226.388,1,distinct query; executables primed without a declaration query
+selected-cache-lookup,span_attach_biUnion,rg,210.694,1,distinct query; executables primed without a declaration query

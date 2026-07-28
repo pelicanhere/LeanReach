@@ -67,7 +67,7 @@ private unsafe def withIndexSession {α : Type} (roots : Array Name)
     match select index with
     | .ok names => pure names
     | .error message => throw <| IO.userError message
-  let rendered ← unsafe Cache.loadRendered (index.modulesFor names)
+  let rendered ← unsafe Cache.loadRendered index names
   let modules :=
     if forceRootImport then roots
     else index.modulesFor (names.filter fun name => !rendered.contains name)
@@ -110,7 +110,7 @@ unsafe def cacheRoots (roots : Array Name)
   let index ← unsafe Cache.loadIndex roots false
   let mut pending := #[]
   for (moduleName, names) in index.declarationsByModule do
-    let rendered ← unsafe Cache.loadRendered #[moduleName]
+    let rendered ← unsafe Cache.loadRenderedModule moduleName
     if names.any fun name => !rendered.contains name then
       pending := pending.push (moduleName, names)
   if pending.isEmpty then
@@ -121,7 +121,7 @@ unsafe def cacheRoots (roots : Array Name)
     let batch := pending.extract start (min pending.size (start + 128))
     let env ← importModules (batch.map fun (moduleName, _) => { module := moduleName }) {}
     for ((moduleName, names), offset) in batch.zipIdx do
-      let before ← unsafe Cache.loadRendered #[moduleName]
+      let before ← unsafe Cache.loadRenderedModule moduleName
       let render := fun (env : Environment) => do
         let session ← Session.create index sourcePath before
         Core.CoreM.toIO'

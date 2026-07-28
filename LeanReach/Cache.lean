@@ -167,7 +167,7 @@ unsafe def loadIndex (roots : Array Name) (loadRelations := true) : IO Index := 
   if loadRelations then return index
   return Index.ofParts index.catalog (#[], #[])
 
-private unsafe def loadRenderedModule (moduleName : Name) : IO (NameMap Declaration) := do
+unsafe def loadRenderedModule (moduleName : Name) : IO (NameMap Declaration) := do
   let olean ← findOLean moduleName
   let some depHash ← depHash? olean | return {}
   let path := olean.withExtension s!"leanreach-render-{renderVersion}"
@@ -179,11 +179,18 @@ unsafe def isFullyRendered (roots : Array Name) : IO Bool := do
   let path := olean.withExtension s!"leanreach-render-{stem}-{renderVersion}"
   return (← unsafe loadPart Bool path depHash).getD false
 
-unsafe def loadRendered (modules : Array Name) : IO (NameMap Declaration) := do
+unsafe def loadRendered (index : Index) (names : Array Name) : IO (NameMap Declaration) := do
+  let mut byModule : NameMap (Array Name) := {}
+  for name in names do
+    if let some moduleName := index.moduleOf? name then
+      byModule := byModule.insert moduleName
+        ((byModule.find? moduleName).getD #[] |>.push name)
   let mut declarations := {}
-  for moduleName in modules do
-    for (name, declaration) in ← unsafe loadRenderedModule moduleName do
-      declarations := declarations.insert name declaration
+  for (moduleName, names) in byModule do
+    let cached ← unsafe loadRenderedModule moduleName
+    for name in names do
+      if let some declaration := cached.find? name then
+        declarations := declarations.insert name declaration
   return declarations
 
 unsafe def saveRenderedModule (moduleName : Name) (declarations : NameMap Declaration) :

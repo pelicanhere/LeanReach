@@ -105,6 +105,8 @@ def main() -> None:
     if not executable.exists():
         raise SystemExit("Run 'pwsh scripts/package.ps1' first.")
 
+    measure_process([executable, "--help"], args.timeout)
+    measure_process(["rg", "--version"], args.timeout)
     rows = []
     if not args.skip_session:
         session = measure_session(executable, QUERIES, args.timeout)
@@ -140,7 +142,7 @@ def main() -> None:
             "tool": tool,
             "latency_ms": f"{latency:.3f}",
             "found": found,
-            "note": "distinct query; first session query includes startup",
+            "note": "distinct query; executables primed without a declaration query",
         }
         for query, tool, latency, found in rows
     ]
