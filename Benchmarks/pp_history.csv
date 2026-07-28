@@ -1,3 +1,5 @@
 stage,modules,declarations,latency_ms,note
 session-path,12,958,17450,shared import; declarations routed through Session and IO.Ref
 module-path,12,958,16326,shared import; direct module pretty printing
+two-import-waves,64,982,29881,two 32-module processes and imports
+single-import-wave,64,982,15278,one process and import for the same modules

@@ -29,11 +29,13 @@ def main() -> None:
             f'font-size="12">{value / 1000:.2f}s</text>'
             f'<text x="{x + 36}" y="{height - margin + 20}" text-anchor="middle" '
             f'font-size="12">{html.escape(row["stage"])}</text>'
+            f'<text x="{x + 36}" y="{height - margin + 37}" text-anchor="middle" '
+            f'font-size="10">{row["modules"]} modules / {row["declarations"]} decls</text>'
         )
     target.write_text(
         f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}">
 <rect width="100%" height="100%" fill="white"/>
-<text x="{margin}" y="28" font-size="18" font-family="sans-serif">Cold PP cache build: 12 modules / 958 declarations</text>
+<text x="{margin}" y="28" font-size="18" font-family="sans-serif">Cold PP cache build latency</text>
 <line x1="{margin}" y1="{height-margin}" x2="{width-margin}" y2="{height-margin}" stroke="#444"/>
 {''.join(bars)}{''.join(labels)}
 </svg>""",
