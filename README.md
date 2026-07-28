@@ -176,10 +176,10 @@ took 29.9 seconds in two 32-module import waves, 15.3 seconds with one import, a
 four pretty-print tasks.
 
 The root cache also materializes the current default top ten upstream and downstream results into
-hash-partitioned exact-query shards. A fully qualified declaration query therefore reads one small
-plan shard and only the selected module PP sidecars, without opening the complete catalog or relation
-index. Fuzzy names and limits above ten deliberately fall back to the complete index so they preserve
-the same matching and ranking semantics.
+hash-partitioned query shards. Fully qualified names and unique final-component names therefore read
+one small plan shard and only the selected module PP sidecars; ambiguous final components are reported
+from that same shard. General substring matching and limits above ten deliberately fall back to the
+complete index so they preserve the same matching and ranking semantics.
 
 ## Dependency semantics
 

@@ -43,4 +43,16 @@ inductive Color where
   | red
   | blue
 
+namespace Topic
+
+theorem duplicateLeaf : double 0 = 0 := double_zero
+
+end Topic
+
+namespace Generic
+
+theorem duplicateLeaf : double 0 = 0 := double_zero
+
+end Generic
+
 end LeanReachFixture

@@ -4,11 +4,16 @@ namespace LeanReach.QueryCache
 
 open Lean
 
-private def version := 4
+private def version := 5
 private def shardCount := 1024
 
+private def leaf : Name → String
+  | .str _ value => value
+  | .num _ value => toString value
+  | .anonymous => ""
+
 private def shard (name : Name) : Nat :=
-  (name.hash % UInt64.ofNat shardCount).toNat
+  (hash (leaf name).toLower % UInt64.ofNat shardCount).toNat
 
 private def shardPath (olean : System.FilePath) (id : Nat) : System.FilePath :=
   olean.withExtension s!"leanreach-query-{version}-{id}"
@@ -89,14 +94,40 @@ unsafe def build (roots : Array Name) (index : Index) : IO Nat := do
   IO.FS.writeFile (markerPath olean) depHash
   return index.size
 
-unsafe def load (roots : Array Name) (name : Name) : IO (Option CachedQuery) := do
+private def findExact (lines : List String) (name : Name) : Option CachedQuery := do
+  let needle := name.toString ++ "\t"
+  for line in lines do
+    if line.startsWith needle then return (← decode line)
+  none
+
+private unsafe def loadLines (roots : Array Name) (name : Name) :
+    IO (Option (List String)) := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
   unless ← ready olean depHash do return none
   let path := shardPath olean (shard name)
   unless ← path.pathExists do return none
-  let needle := name.toString ++ "\t"
-  for line in (← IO.FS.readFile path).splitOn "\n" do
-    if line.startsWith needle then return decode line
-  return none
+  let content ← IO.FS.readFile path
+  return some (content.splitOn "\n")
+
+unsafe def load (roots : Array Name) (name : Name) : IO (Option CachedQuery) := do
+  let some lines ← unsafe loadLines roots name | return none
+  return findExact lines name
+
+unsafe def resolve (roots : Array Name) (query : String) :
+    IO (Except String (Option CachedQuery)) := do
+  let name := query.toName
+  let some lines ← unsafe loadLines roots name | return .ok none
+  if let some cached := findExact lines name then return .ok (some cached)
+  unless name.isAtomic do return .ok none
+  let wanted := query.toLower
+  let candidates := lines.filterMap fun line =>
+    match line.splitOn "\t" with
+    | candidate :: _ =>
+      if (leaf candidate.toName).toLower == wanted then some (candidate, line) else none
+    | _ => none
+  if let [(_, line)] := candidates then return .ok (decode line)
+  if candidates.isEmpty then return .ok none
+  let options := candidates.take 10 |>.map fun (name, _) => s!"  {name}"
+  return .error s!"ambiguous declaration '{query}':\n{String.intercalate "\n" options}"
 
 end LeanReach.QueryCache

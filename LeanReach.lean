@@ -63,7 +63,11 @@ unsafe def withCachedQueryFor {α : Type} (roots : Array Name) (query : String)
     (limits : Limits) (action : Session → QueryNames → CoreM α) : IO (Option α) := do
   unless limits.usesCachedQuery do return none
   let sourcePath ← prepareEnvironment
-  let some cached ← unsafe QueryCache.load roots query.toName | return none
+  let cached? ← unsafe QueryCache.resolve roots query
+  let cached ← match cached? with
+    | .ok (some cached) => pure cached
+    | .ok none => return none
+    | .error message => throw <| IO.userError message
   let names := cached.queryNames limits
   let session ← Session.create sourcePath
   return some (← unsafe runSession cached.moduleOf? session names.all none false none

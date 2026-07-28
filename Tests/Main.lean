@@ -33,6 +33,13 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "fixture query is missing"
   unless cachedQuery.queryNames {} == expectedQuery do
     throw <| IO.userError "cached query does not preserve ranking"
+  let .ok (some shortQuery) ← unsafe QueryCache.resolve #[`Tests.Fixture]
+      "doubleViaPrivate" |
+    throw <| IO.userError "unique short query did not resolve from its shard"
+  unless shortQuery.target.name == `LeanReachFixture.doubleViaPrivate do
+    throw <| IO.userError "short query resolved to the wrong declaration"
+  let .error _ ← unsafe QueryCache.resolve #[`Tests.Fixture] "duplicateLeaf" |
+    throw <| IO.userError "ambiguous short query was not rejected"
   withSession #[`Tests.Fixture] fun index session => do
     let fixtureNames ← unsafe Cache.moduleNames `Tests.Fixture
     check (fixtureNames.contains `LeanReachFixture.double)
