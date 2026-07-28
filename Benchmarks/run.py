@@ -11,15 +11,15 @@ from pathlib import Path
 
 
 QUERIES = (
-    "norm_le_norm_add_norm_div",
-    "norm_le_mul_norm_add",
-    "norm_mul_eq_norm_left",
-    "norm_div_eq_norm_right",
-    "norm_le_of_mem_closedBall'",
-    "norm_le_norm_add_const_of_dist_le'",
-    "norm_lt_of_mem_ball'",
-    "norm_eq_of_mem_sphere'",
-    "ne_one_of_mem_sphere",
+    "nndist_eq_nnnorm_div",
+    "dist_inv",
+    "enorm_sum_le",
+    "enorm_prod_le_of_le",
+    "preimage_mul_sphere",
+    "pow_mem_closedBall",
+    "NormedCommGroup.uniformity_basis_dist",
+    "mem_ball_iff_norm'''",
+    "coe_normGroupNorm",
 )
 
 
@@ -76,19 +76,24 @@ def measure_session(
     watchdog.daemon = True
     watchdog.start()
     samples = []
+
+    def exchange(query: str) -> bytes:
+        process.stdin.write(f"search {query}\n".encode())
+        process.stdin.flush()
+        line = process.stdout.readline()
+        if line:
+            return line
+        if timed_out.is_set():
+            raise TimeoutError("LeanReach session timed out")
+        raise RuntimeError(
+            f"LeanReach session stopped with exit code {process.poll()}"
+        )
+
     try:
+        json.loads(exchange("__leanreach_benchmark_ready__"))
         for query in queries:
             started = time.perf_counter()
-            process.stdin.write(f"search {query}\n".encode())
-            process.stdin.flush()
-            line = process.stdout.readline()
-            if not line:
-                if timed_out.is_set():
-                    raise TimeoutError("LeanReach session timed out")
-                raise RuntimeError(
-                    f"LeanReach session stopped with exit code {process.poll()}"
-                )
-            data = json.loads(line)
+            data = json.loads(exchange(query))
             samples.append((elapsed_ms(started), len(data["items"])))
         process.stdin.write(b"\n")
         process.stdin.flush()
