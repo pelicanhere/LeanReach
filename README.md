@@ -139,6 +139,11 @@ An edge `A → B` means `ConstantInfo.getUsedConstantsAsSet` for `A` contains `B
 The bounded traversal remains a lightweight navigation aid rather than a materialized transitive
 DAG or a runtime call graph.
 
+Direct dependencies are ordered once while building the relation index. Declarations from the same
+module and nearby namespaces come first; ties prefer rarer upstream symbols and more widely reused
+downstream declarations. This keeps generic proof plumbing below definitions and lemmas local to
+the target without maintaining a heavier graph.
+
 ## Ranked context
 
 `context` selects informative upstream declarations without an embedding model or a complete DAG.

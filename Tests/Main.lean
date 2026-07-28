@@ -56,6 +56,15 @@ private unsafe def runTests : IO Unit :=
         declaration.name == "LeanReachFixture.double_zero_again")
       "proof-only downstream relation is missing"
 
+    let rankedResult ← session.query "LeanReachFixture.Topic.ranked" {
+      downstream := false
+      limit := 100
+    }
+    let some (_, first) := rankedResult.upstream[0]? |
+      throwError "ranked dependencies are empty"
+    check (first.name == "LeanReachFixture.Topic.nearby")
+      "nearby dependency was not ranked first"
+
     let classResult ← session.query "Add" { upstream := false, downstream := false }
     check (classResult.target.signature.contains "fields:")
       "class fields are missing"

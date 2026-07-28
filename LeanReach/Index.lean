@@ -1,3 +1,4 @@
+import Lean.Data.Name
 import Lean.Data.Trie
 
 namespace LeanReach
@@ -25,6 +26,17 @@ private def stringTrigrams (value : String) : Array String := Id.run do
     if length < offset + 3 then break
     result := result.push ((value.drop offset).take 3).copy
   return result
+
+private def commonPrefixLength : List Name → List Name → Nat
+  | a :: as, b :: bs => if a == b then commonPrefixLength as bs + 1 else 0
+  | _, _ => 0
+
+private def locality (entries : Array CatalogEntry) (source candidate : UInt32) : Nat :=
+  let (sourceName, _, sourceModule, _) := entries[source.toNat]!
+  let (candidateName, _, candidateModule, _) := entries[candidate.toNat]!
+  (if sourceModule == candidateModule then 64 else 0) +
+    16 * commonPrefixLength sourceName.components candidateName.components +
+    4 * commonPrefixLength sourceModule.components candidateModule.components
 
 def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
   let declarations := declarations.qsort fun a b => Name.lt a.1 b.1
@@ -66,6 +78,16 @@ private def Index.findEntry? (index : Index) (name : Name) : Option CatalogEntry
 
 private def Index.namesAt (index : Index) (ids : Array UInt32) : Array Name :=
   ids.map fun id => index.entries[id.toNat]!.1
+
+private def Index.rankIds (index : Index) (source : UInt32)
+    (ids : Array UInt32) (upstream : Bool) : Array UInt32 :=
+  (ids.map fun id => (locality index.entries source id, index.reverse[id.toNat]!.size, id))
+    |>.qsort (fun (scoreA, frequencyA, a) (scoreB, frequencyB, b) =>
+      if scoreA != scoreB then scoreA > scoreB
+      else if frequencyA != frequencyB then
+        if upstream then frequencyA < frequencyB else frequencyA > frequencyB
+      else Name.lt index.entries[a.toNat]!.1 index.entries[b.toNat]!.1)
+    |>.map (·.2.2)
 
 private def Index.candidates (index : Index) (query : String) : Array UInt32 :=
   if query.length < 3 then
@@ -114,6 +136,16 @@ def Index.upstream (index : Index) (name : Name) : Array Name :=
 def Index.downstream (index : Index) (name : Name) : Array Name :=
   match index.findEntry? name with
   | some (_, _, _, id) => index.namesAt index.reverse[id.toNat]!
+  | none => #[]
+
+def Index.rankedUpstream (index : Index) (name : Name) : Array Name :=
+  match index.findEntry? name with
+  | some (_, _, _, id) => index.namesAt (index.rankIds id index.forward[id.toNat]! true)
+  | none => #[]
+
+def Index.rankedDownstream (index : Index) (name : Name) : Array Name :=
+  match index.findEntry? name with
+  | some (_, _, _, id) => index.namesAt (index.rankIds id index.reverse[id.toNat]! false)
   | none => #[]
 
 def Index.moduleOf? (index : Index) (name : Name) : Option Name :=

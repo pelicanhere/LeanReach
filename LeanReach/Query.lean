@@ -129,10 +129,10 @@ def Index.queryNames (index : Index) (query : String) (options : QueryOptions :=
   return (
     target,
     if options.upstream then
-      traverse target options.depth options.limit index.upstream
+      traverse target options.depth options.limit index.rankedUpstream
     else #[],
     if options.downstream then
-      traverse target options.depth options.limit index.downstream
+      traverse target options.depth options.limit index.rankedDownstream
     else #[]
   )
 
