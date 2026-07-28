@@ -31,11 +31,11 @@ lake build
 lake exe leanreach_tests
 ```
 
-The repeatable Mathlib benchmark compares direct process wall time with `rg` and also records
-LeanReach's internal query time:
+The Mathlib benchmark runs a chain of distinct declaration searches exactly once. It compares a
+long-lived LeanReach session, one LeanReach process per query, and one `rg` process per query:
 
 ```console
-pwsh Benchmarks/run.ps1
+python Benchmarks/run.py --stage baseline --append-history
 python Benchmarks/plot.py
 ```
 
