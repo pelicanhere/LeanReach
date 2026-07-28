@@ -35,12 +35,6 @@ structure RankedDeclaration where
   declaration : Declaration
   deriving ToJson
 
-structure QueryOptions where
-  depth : Nat := 1
-  limit : Nat := 20
-  upstream : Bool := true
-  downstream : Bool := true
-
 structure Session where
   private index : Index
   private sourcePath : SearchPath
@@ -123,16 +117,17 @@ private def traverse (start : Name) (depth limit : Nat)
 
 abbrev QueryNames := Name × Array (Nat × Name) × Array (Nat × Name)
 
-def Index.queryNames (index : Index) (query : String) (options : QueryOptions := {}) :
+def Index.queryNames (index : Index) (query : String) (depth : Nat := 1)
+    (limit : Nat := 20) (upstream := true) (downstream := true) :
     Except String QueryNames := do
   let target ← index.resolve query
   return (
     target,
-    if options.upstream then
-      traverse target options.depth options.limit index.rankedUpstream
+    if upstream then
+      traverse target depth limit index.rankedUpstream
     else #[],
-    if options.downstream then
-      traverse target options.depth options.limit index.rankedDownstream
+    if downstream then
+      traverse target depth limit index.rankedDownstream
     else #[]
   )
 
@@ -144,10 +139,11 @@ private def liftQuery {α : Type} : Except String α → CoreM α
   | .ok result => pure result
   | .error message => throwError message
 
-def Session.query (session : Session) (query : String) (options : QueryOptions := {}) :
+def Session.query (session : Session) (query : String) (depth : Nat := 1)
+    (limit : Nat := 20) (upstream := true) (downstream := true) :
     CoreM QueryResult := do
   let (target, upstream, downstream) ←
-    liftQuery (session.index.queryNames query options)
+    liftQuery (session.index.queryNames query depth limit upstream downstream)
   return {
     target := ← describe session target
     upstream := ← describeRelated session upstream

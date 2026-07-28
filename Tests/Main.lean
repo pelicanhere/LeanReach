@@ -10,7 +10,7 @@ private def check (condition : Bool) (message : String) : CoreM Unit :=
 
 private unsafe def runTests : IO Unit :=
   withSession `Tests.Fixture fun session => do
-    let result ← session.query "LeanReachFixture.double" { limit := 100 }
+    let result ← session.query "LeanReachFixture.double" (limit := 100)
     check result.target.file.isSome
       "local declaration has no source file"
     check (result.target.line == 5)
@@ -27,10 +27,8 @@ private unsafe def runTests : IO Unit :=
         declaration.name == "LeanReachFixture.double_eq_add")
       "downstream relation is missing"
 
-    let theoremResult ← session.query "LeanReachFixture.double_eq_add" {
-      downstream := false
-      limit := 100
-    }
+    let theoremResult ← session.query "LeanReachFixture.double_eq_add"
+      (limit := 100) (downstream := false)
     check (theoremResult.target.signature.contains "n + n")
       "theorem signature was not pretty-printed with notation"
     check
@@ -38,34 +36,28 @@ private unsafe def runTests : IO Unit :=
         declaration.name == "LeanReachFixture.double")
       "upstream relation is missing"
 
-    let proofResult ← session.query "LeanReachFixture.double_zero_again" {
-      downstream := false
-      limit := 100
-    }
+    let proofResult ← session.query "LeanReachFixture.double_zero_again"
+      (limit := 100) (downstream := false)
     check
       (proofResult.upstream.any fun (_, declaration) =>
         declaration.name == "LeanReachFixture.double_zero")
       "proof-only upstream relation is missing"
 
-    let usedResult ← session.query "LeanReachFixture.double_zero" {
-      upstream := false
-      limit := 100
-    }
+    let usedResult ← session.query "LeanReachFixture.double_zero"
+      (limit := 100) (upstream := false)
     check
       (usedResult.downstream.any fun (_, declaration) =>
         declaration.name == "LeanReachFixture.double_zero_again")
       "proof-only downstream relation is missing"
 
-    let rankedResult ← session.query "LeanReachFixture.Topic.ranked" {
-      downstream := false
-      limit := 100
-    }
+    let rankedResult ← session.query "LeanReachFixture.Topic.ranked"
+      (limit := 100) (downstream := false)
     let some (_, first) := rankedResult.upstream[0]? |
       throwError "ranked dependencies are empty"
     check (first.name == "LeanReachFixture.Topic.nearby")
       "nearby dependency was not ranked first"
 
-    let classResult ← session.query "Add" { upstream := false, downstream := false }
+    let classResult ← session.query "Add" (upstream := false) (downstream := false)
     check (classResult.target.signature.contains "fields:")
       "class fields are missing"
     check (classResult.target.signature.contains "Add.add")

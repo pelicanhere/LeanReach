@@ -139,12 +139,8 @@ private def printContext (json : Bool) (target : Declaration)
 private def runOne (session : Session) (config : Config) (command : Command) : CoreM Unit := do
   match command with
   | .query name =>
-    printQuery config.json (← session.query name {
-      depth := config.depth
-      limit := config.limit
-      upstream := config.upstream
-      downstream := config.downstream
-    })
+    printQuery config.json <| ← session.query name config.depth config.limit
+      config.upstream config.downstream
   | .search pattern =>
     printSearch config.json pattern (← session.search pattern config.limit)
   | .context name =>
@@ -170,12 +166,8 @@ private def commandNames (config : Config) (command : Command) (index : Index) :
     Except String (Array Name) := do
   match command with
   | .query query =>
-    let (target, upstream, downstream) ← index.queryNames query {
-      depth := config.depth
-      limit := config.limit
-      upstream := config.upstream
-      downstream := config.downstream
-    }
+    let (target, upstream, downstream) ← index.queryNames query config.depth config.limit
+      config.upstream config.downstream
     return #[target] ++ upstream.map (·.2) ++ downstream.map (·.2)
   | .search pattern =>
     return index.search pattern config.limit
