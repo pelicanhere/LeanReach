@@ -1,9 +1,5 @@
-import Lean.DeclarationRange
-import Lean.PrettyPrinter.Delaborator.Builtins
-import Lean.Structure
-import Lean.Util.Path
-import LeanReach.Declaration
 import LeanReach.Index
+import LeanReach.PrettyPrint
 
 namespace LeanReach
 
@@ -51,60 +47,12 @@ def Session.missing (session : Session) (names : Array Name) : IO (Array Name) :
   return names.filter fun name =>
     !cached.contains name && (session.bundled? name).isNone
 
-private def ppSignature (name : Name) : MetaM String := do
-  try
-    let expression ← mkConstWithLevelParams name
-    let (stx, _) ← PrettyPrinter.delabCore expression
-      (delab := PrettyPrinter.Delaborator.delabConstWithSignature (universes := false))
-    return (← PrettyPrinter.ppTerm ⟨stx⟩).pretty (width := 10000)
-  catch _ =>
-    let info ← getConstInfo name
-    return s!"{name} : {(← PrettyPrinter.ppExpr info.type).pretty (width := 10000)}"
-
-private def ppList (label : String) (names : Array Name) : MetaM String := do
-  if names.isEmpty then return ""
-  let lines ← names.mapM ppSignature
-  return s!"\n  {label}:\n    {String.intercalate "\n    " lines.toList}"
-
-private def ppDeclaration (name : Name) (info : ConstantInfo) : MetaM String :=
-    withCurrHeartbeats do
-  let signature ← ppSignature name
-  if info.isTheorem || (← isProp info.type) then return signature
-  if let some value := info.value? (allowOpaque := true) then
-    let body ←
-      try pure <| (← PrettyPrinter.ppExpr value).pretty (width := 100)
-      catch _ => pure (toString value)
-    return s!"{signature} :=\n  {body.replace "\n" "\n  "}"
-  let .inductInfo inductiveInfo := info | return signature
-  let env ← getEnv
-  let fields :=
-    if isStructure env name then
-      getStructureFieldsFlattened env name (includeSubobjectFields := false)
-        |>.filterMap (getProjFnForField? env name)
-    else #[]
-  return signature ++
-    (← ppList "fields" fields) ++
-    (← ppList "constructors" inductiveInfo.ctors.toArray)
-
 private def describe (session : Session) (name : Name) : CoreM Declaration := do
   if let some declaration := (← session.declarations.get).find? name then
     return declaration
   if let some declaration := session.bundled? name then
     return declaration
-  let env ← getEnv
-  let some info := env.find? name | throwError "unknown declaration '{name}'"
-  let moduleName? ← findModuleOf? name
-  let file? ← moduleName?.mapM fun moduleName =>
-    return (← session.sourcePath.findModuleWithExt "lean" moduleName).map (·.toString)
-  let range? := (← findDeclarationRanges? name).map (·.selectionRange)
-  let declaration := {
-    name := name.toString
-    signature := ← MetaM.run' (ppDeclaration name info)
-    moduleName := moduleName?.map (·.toString) |>.getD ""
-    file := file?.getD none
-    line := range?.map (·.pos.line) |>.getD 0
-    column := range?.map (·.pos.column + 1) |>.getD 0
-  }
+  let declaration ← prettyPrintDeclaration session.sourcePath name
   session.declarations.modify (·.insert name declaration)
   return declaration
 
