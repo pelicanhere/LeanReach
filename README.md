@@ -64,7 +64,7 @@ lake exe leanreach Submodule.span_le
 # Machine-readable output.
 lake exe leanreach Submodule.span_le --json
 
-# Pre-render the complete root. This resumes at the next incomplete module if interrupted.
+# Pre-render the complete detected view. This resumes at the next incomplete module if interrupted.
 lake exe leanreach cache
 
 # Or pre-render only selected built modules.
@@ -77,7 +77,7 @@ lake exe leanreach --module Mathlib.LinearAlgebra.Span.Defs Submodule.span_le
 Important options:
 
 ```text
--m, --module MODULE   imported root module (default: Mathlib)
+-m, --module MODULE   override automatic local-library and Mathlib detection
 -n, --limit N         override both dependency limits, 1 through 1000
 -i, --interactive     keep the environment alive and read stdin
 -j, --json            JSON, or NDJSON with --interactive
@@ -115,21 +115,26 @@ queries over the same root.
 ## Searching another local Lake library
 
 Build LeanReach with the same Lean toolchain as the target project. From the target project's
-directory, invoke the packaged binary and name an aggregate/root module:
+directory or any of its subdirectories, invoke the packaged binary directly:
 
 ```console
-/path/to/LeanReach/.lake/build/leanreach-dist/leanreach \
-  --module MyProject search my_theorem
+/path/to/LeanReach/.lake/build/leanreach-dist/leanreach search my_theorem
 ```
 
-Without `LEAN_PATH`, LeanReach discovers the current project's default `.lake/build/lib/lean`,
-dependency build directories under `.lake/packages`, package roots, and common `src` directories.
-`lake env` remains supported for projects with custom Lake build or source directories.
+LeanReach walks upward to the nearest Lake configuration and uses Lake's own package APIs to find
+the local `lean_lib` modules. Every module with an existing `.olean` is searchable, so a partial
+`lake build` is enough; missing modules are not built implicitly. If that package directly
+`require`s Mathlib, the Mathlib root is included in the same search view. The small discovery result
+is cached under `.lake` and invalidated by the Lake configuration hash.
+
+`--module MyProject` remains available as an explicit override. Without `LEAN_PATH`, LeanReach also
+discovers the project and dependency build directories plus their source roots. `lake env` remains
+supported for projects with custom Lake build or source directories.
 
 After `lake build`, pre-render the complete built root once:
 
 ```console
-/path/to/leanreach --module MyProject cache
+/path/to/leanreach cache
 ```
 
 This pays index construction, environment import, and pretty-printing once. Work is saved after each
@@ -182,6 +187,7 @@ LeanReach/Index.lean  names, direct-reference postings, and resolution
 LeanReach/Cache.lean  persistent index serialization and freshness checks
 LeanReach/BlackListed.lean  generated-declaration filtering
 LeanReach/Query.lean  rendering, source locations, and sessions
+LeanReach/Project.lean  Lake project and built-module discovery
 LeanReach.lean        environment-loading facade
 Main.lean             Lake ArgsT CLI and interactive transport
 Tests/                local-library fixture and behavior checks

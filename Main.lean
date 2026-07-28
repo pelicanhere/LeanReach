@@ -67,15 +67,15 @@ USAGE:
   leanreach [OPTIONS] --interactive
 
 OPTIONS:
-  -m, --module MODULE   import root module (default: Mathlib)
+  -m, --module MODULE   override the detected local library or Mathlib root
   -n, --limit N         override both dependency limits (defaults: 6 upstream, 10 downstream)
   -i, --interactive     reuse one environment; read queries from stdin
   -j, --json            emit JSON (NDJSON in interactive mode)
       --profile         print elapsed time to stderr
   -h, --help            show this help
 
-Run through `lake env` with `--module Your.Root` to search a local library.
-With no modules, `cache` pre-renders the complete root and resumes module by module.
+Without `--module`, combine built local lean_lib roots with required Mathlib.
+With no modules, `cache` pre-renders the complete detected view and resumes module by module.
 In interactive mode, enter a declaration name or `search PATTERN` on each line.
 "
 
@@ -113,9 +113,6 @@ private def printSearch (json : Bool) (query : String) (items : Array Declaratio
 
 private def Config.limitOr (config : Config) (default : Nat) : Nat :=
   config.limit?.getD default
-
-private def Config.root (config : Config) : Name :=
-  config.root?.getD `Mathlib
 
 private def printCached (json : Bool) (modules : Array Name) (count : Nat) : IO Unit := do
   if json then
@@ -181,23 +178,26 @@ private def validate (config : Config) : CliMainM Unit := do
 
 private unsafe def execute (config : Config) (command? : Option Command) : IO UInt32 := do
   let started ← IO.monoMsNow
+  let roots ← match config.root? with
+    | some root => pure #[root]
+    | none => detectRoots
   match command? with
   | some (.cache modules) =>
     if modules.isEmpty then
-      let count ← cacheRoot config.root fun moduleName done total =>
+      let count ← cacheRoots roots fun moduleName done total =>
         unless config.json do
           if done == total || done % 100 == 0 then
             IO.eprintln s!"leanreach: cached modules {done}/{total} ({moduleName})"
       printCached config.json modules count
     else
-      withSessionFor config.root (commandNames config (.cache modules)) false fun session =>
+      withSessionFor roots (commandNames config (.cache modules)) false fun session =>
         runTimed session config (.cache modules)
   | some command =>
     let loadRelations := command matches .query _
-    withSessionFor config.root (commandNames config command) loadRelations fun session =>
+    withSessionFor roots (commandNames config command) loadRelations fun session =>
       runTimed session config command
   | none =>
-    withSession config.root fun session => runInteractive session config
+    withSession roots fun session => runInteractive session config
   if config.profile then
     IO.eprintln s!"leanreach: elapsed={(← IO.monoMsNow) - started}ms"
   return 0

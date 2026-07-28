@@ -8,8 +8,13 @@ open Lean
 private def check (condition : Bool) (message : String) : CoreM Unit :=
   unless condition do throwError message
 
-private unsafe def runTests : IO Unit :=
-  withSession `Tests.Fixture fun session => do
+private unsafe def runTests : IO Unit := do
+  let roots ← detectRoots
+  unless roots.contains `Tests.Fixture do
+    throw <| IO.userError "built local modules were not detected"
+  unless roots.contains `Mathlib do
+    throw <| IO.userError "required Mathlib was not detected"
+  withSession #[`Tests.Fixture] fun session => do
     let result ← session.query "LeanReachFixture.double" 100 100
     check result.target.file.isSome
       "local declaration has no source file"

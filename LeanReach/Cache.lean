@@ -117,8 +117,8 @@ private unsafe def loadFragment (moduleName : Name) : IO ModuleFragment := do
     catch _ => pure ()
   return (← readFragment moduleName olean).1
 
-private unsafe def buildIndex (root : Name) : IO Index := do
-  let mut pending := #[root]
+private unsafe def buildIndex (roots : Array Name) : IO Index := do
+  let mut pending := roots
   let mut seen : NameHashSet := {}
   let mut declarations := #[]
   while !pending.isEmpty do
@@ -137,16 +137,29 @@ private unsafe def buildIndex (root : Name) : IO Index := do
         declarations := declarations.push (name, moduleName, dependencies)
   return Index.build declarations
 
-unsafe def loadIndex (root : Name) (loadRelations := true) : IO Index := do
+private unsafe def rootData (roots : Array Name) : IO (System.FilePath × String × Name) := do
+  let some root := roots[0]? | throw <| IO.userError "no root modules"
   let olean ← findOLean root
-  let some depHash ← depHash? olean | return ← buildIndex root
-  let catalogPath := olean.withExtension s!"leanreach-catalog-{catalogVersion}"
-  let relationsPath := olean.withExtension s!"leanreach-relations-{relationsVersion}"
+  let some firstHash ← depHash? olean |
+    throw <| IO.userError s!"could not hash root module '{root}'"
+  if roots.size == 1 then return (olean, firstHash, root)
+  let mut hashes := #[s!"{root}:{firstHash}"]
+  for root in roots.extract 1 roots.size do
+    let some hash ← depHash? (← findOLean root) |
+      throw <| IO.userError s!"could not hash root module '{root}'"
+    hashes := hashes.push s!"{root}:{hash}"
+  return (olean, String.intercalate ":" hashes.toList, root)
+
+unsafe def loadIndex (roots : Array Name) (loadRelations := true) : IO Index := do
+  let (olean, depHash, root) ← unsafe rootData roots
+  let stem := if roots.size == 1 then "leanreach" else "leanreach-roots"
+  let catalogPath := olean.withExtension s!"{stem}-catalog-{catalogVersion}"
+  let relationsPath := olean.withExtension s!"{stem}-relations-{relationsVersion}"
   if let some catalog ← unsafe loadPart Catalog catalogPath depHash then
     if !loadRelations then return Index.ofParts catalog (#[], #[])
     if let some relations ← unsafe loadPart Relations relationsPath depHash then
       return Index.ofParts catalog relations
-  let index ← buildIndex root
+  let index ← buildIndex roots
   try
     pickle catalogPath (Name.str root "_leanreachCatalog") (depHash, index.catalog)
     pickle relationsPath (Name.str root "_leanreachRelations") (depHash, index.relations)
@@ -160,10 +173,10 @@ private unsafe def loadRenderedModule (moduleName : Name) : IO (NameMap Declarat
   let path := olean.withExtension s!"leanreach-render-{renderVersion}"
   return (← unsafe loadPart (NameMap Declaration) path depHash).getD {}
 
-unsafe def isFullyRendered (root : Name) : IO Bool := do
-  let olean ← findOLean root
-  let some depHash ← depHash? olean | return false
-  let path := olean.withExtension s!"leanreach-render-root-{renderVersion}"
+unsafe def isFullyRendered (roots : Array Name) : IO Bool := do
+  let (olean, depHash, _) ← unsafe rootData roots
+  let stem := if roots.size == 1 then "root" else "roots"
+  let path := olean.withExtension s!"leanreach-render-{stem}-{renderVersion}"
   return (← unsafe loadPart Bool path depHash).getD false
 
 unsafe def loadRendered (modules : Array Name) : IO (NameMap Declaration) := do
@@ -193,10 +206,10 @@ unsafe def saveRendered (before after : NameMap Declaration) : IO Unit := do
       declarations := declarations.insert name declaration
     unsafe saveRenderedModule moduleName declarations
 
-unsafe def markFullyRendered (root : Name) : IO Unit := do
-  let olean ← findOLean root
-  let some depHash ← depHash? olean | return
-  let path := olean.withExtension s!"leanreach-render-root-{renderVersion}"
+unsafe def markFullyRendered (roots : Array Name) : IO Unit := do
+  let (olean, depHash, root) ← unsafe rootData roots
+  let stem := if roots.size == 1 then "root" else "roots"
+  let path := olean.withExtension s!"leanreach-render-{stem}-{renderVersion}"
   pickle path (Name.str root "_leanreachRenderRoot") (depHash, true)
 
 end LeanReach.Cache

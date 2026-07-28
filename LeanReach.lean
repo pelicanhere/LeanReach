@@ -1,5 +1,6 @@
 import Lean.Util.Path
 import LeanReach.Cache
+import LeanReach.Project
 import LeanReach.Query
 
 namespace LeanReach
@@ -7,7 +8,7 @@ namespace LeanReach
 open Lean
 
 private def workspaceRoots : IO (List System.FilePath) := do
-  let cwd ← IO.currentDir
+  let cwd ← (← Project.findDir?).getDM IO.currentDir
   let packages := cwd / ".lake" / "packages"
   let mut roots := [cwd]
   if ← packages.isDir then
@@ -55,20 +56,20 @@ private unsafe def prepareEnvironment : IO SearchPath := do
   Lean.enableInitializersExecution
   sourceSearchPath sysroot roots
 
-private unsafe def withIndexSession {α : Type} (root : Name)
+private unsafe def withIndexSession {α : Type} (roots : Array Name)
     (loadRelations : Bool)
     (select : Index → Except String (Array Name))
     (forceRootImport : Bool)
     (action : Session → CoreM α) : IO α := do
   let sourcePath ← prepareEnvironment
-  let index ← unsafe Cache.loadIndex root loadRelations
+  let index ← unsafe Cache.loadIndex roots loadRelations
   let names ←
     match select index with
     | .ok names => pure names
     | .error message => throw <| IO.userError message
   let rendered ← unsafe Cache.loadRendered (index.modulesFor names)
   let modules :=
-    if forceRootImport then #[root]
+    if forceRootImport then roots
     else index.modulesFor (names.filter fun name => !rendered.contains name)
   let imports := modules.map fun moduleName => { module := moduleName }
   let env ←
@@ -86,27 +87,34 @@ private unsafe def withIndexSession {α : Type} (root : Name)
   return result
 
 /-- Import only the modules needed to render the selected declarations. -/
-unsafe def withSessionFor {α : Type} (root : Name) (select : Index → Except String (Array Name))
-    (loadRelations : Bool) (action : Session → CoreM α) : IO α :=
-  withIndexSession root loadRelations select false action
+unsafe def withSessionFor {α : Type} (roots : Array Name)
+    (select : Index → Except String (Array Name)) (loadRelations : Bool)
+    (action : Session → CoreM α) : IO α :=
+  withIndexSession roots loadRelations select false action
 
-/-- Import a root module once and reuse its environment and index for the entire action. -/
-unsafe def withSession {α : Type} (root : Name) (action : Session → CoreM α) : IO α :=
-  withIndexSession root true (fun _ => pure #[]) true action
+/-- Import the root modules once and reuse their environment and index for the entire action. -/
+unsafe def withSession {α : Type} (roots : Array Name) (action : Session → CoreM α) : IO α :=
+  withIndexSession roots true (fun _ => pure #[]) true action
+
+unsafe def detectRoots : IO (Array Name) := do
+  let roots ← unsafe Project.detectRoots (← leanSysroot)
+  if roots.isEmpty then
+    throw <| IO.userError "could not detect a built local lean_lib or required Mathlib; use --module"
+  return roots
 
 /-- Pre-render every declaration below a root, checkpointing once per defining module. -/
-unsafe def cacheRoot (root : Name)
+unsafe def cacheRoots (roots : Array Name)
     (progress : Name → Nat → Nat → IO Unit := fun _ _ _ => pure ()) : IO Nat := do
   let sourcePath ← prepareEnvironment
-  if ← unsafe Cache.isFullyRendered root then return 0
-  let index ← unsafe Cache.loadIndex root false
+  if ← unsafe Cache.isFullyRendered roots then return 0
+  let index ← unsafe Cache.loadIndex roots false
   let mut pending := #[]
   for (moduleName, names) in index.declarationsByModule do
     let rendered ← unsafe Cache.loadRendered #[moduleName]
     if names.any fun name => !rendered.contains name then
       pending := pending.push (moduleName, names)
   if pending.isEmpty then
-    unsafe Cache.markFullyRendered root
+    unsafe Cache.markFullyRendered roots
     return 0
   let mut count := 0
   for start in [0:pending.size:128] do
@@ -127,7 +135,7 @@ unsafe def cacheRoot (root : Name)
       count := count + after.size - before.size
       unsafe Cache.saveRenderedModule moduleName after
       progress moduleName (start + offset + 1) pending.size
-  unsafe Cache.markFullyRendered root
+  unsafe Cache.markFullyRendered roots
   return count
 
 end LeanReach
