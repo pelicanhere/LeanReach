@@ -14,3 +14,4 @@ shared-import-boundary,12,958,15148,warm-filesystem control; private import rout
 query-private-import,7,12,16811,first dependency query; private olean level
 query-server-import,7,12,13647,first dependency query; server olean level; identical JSON and sidecars
 query-server-leak,7,12,13001,first dependency query; persistent process-lifetime environment
+private-body-module,1,27,1232,private-level import; public definitions retain bodies through private constants

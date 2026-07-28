@@ -12,6 +12,6 @@ open Lean
 
 /-- Hide generated implementation details that can still have source ranges. -/
 def isBlackListed (name : Name) : Bool :=
-  name.isInternal || name.isInternalDetail
+  name.isInternal || name.isInternalDetail || isPrivateName name
 
 end LeanReach

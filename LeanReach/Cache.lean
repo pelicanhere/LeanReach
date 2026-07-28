@@ -10,9 +10,9 @@ namespace LeanReach.Cache
 
 open Lean
 
-private def catalogVersion := 1
-private def relationsVersion := 2
-private def fragmentVersion := 3
+private def catalogVersion := 2
+private def relationsVersion := 3
+private def fragmentVersion := 4
 private def ppVersion := 3
 private def ppBundleVersion := 2
 

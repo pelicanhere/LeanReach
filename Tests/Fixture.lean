@@ -14,6 +14,10 @@ private theorem hidden_double_zero : double 0 = 0 := double_zero
 
 theorem double_zero_via_private : double 0 = 0 := hidden_double_zero
 
+private def hiddenDouble (n : Nat) : Nat := n + n
+
+def doubleViaPrivate (n : Nat) : Nat := hiddenDouble n
+
 namespace Topic
 
 theorem nearby : double 0 = 0 := double_zero

@@ -59,11 +59,14 @@ unsafe def runCore {α : Type} (env : Environment) (action : CoreM α) : IO α :
     { fileName := "<leanreach>", fileMap := default }
     { env }
 
-unsafe def importEnvironment (modules : Array Name) (leakEnv := false) : IO Environment := do
+unsafe def importEnvironment (modules : Array Name) (leakEnv := false)
+    (level := OLeanLevel.server) : IO Environment := do
   Lean.enableInitializersExecution
   let imports := modules.map fun module => { module }
-  try
-    importModules (loadExts := true) (level := .server) (leakEnv := leakEnv) imports {}
+  if level == .private then
+    importModules (loadExts := true) (level := level) (leakEnv := leakEnv) imports {}
+  else try
+    importModules (loadExts := true) (level := level) (leakEnv := leakEnv) imports {}
   catch _ =>
     Lean.enableInitializersExecution
     importModules (loadExts := true) (leakEnv := leakEnv) imports {}

@@ -20,6 +20,8 @@ private unsafe def runTests : IO Unit := do
       "module fragment is missing a source declaration"
     check (!fixtureNames.any (·.toString.contains "noConfusion"))
       "module fragment contains a generated declaration"
+    check (!fixtureNames.any isPrivateName)
+      "module fragment contains a private declaration"
     let result ← session.query "LeanReachFixture.double" (Limits.uniform 100)
     check result.target.file.isSome
       "local declaration has no source file"
@@ -35,6 +37,10 @@ private unsafe def runTests : IO Unit := do
       (result.downstream.any fun declaration =>
         declaration.name == "LeanReachFixture.double_eq_add")
       "downstream relation is missing"
+
+    let privateBodyResult ← session.query "LeanReachFixture.doubleViaPrivate"
+    check (privateBodyResult.target.signature.contains "hiddenDouble")
+      "definition body through a private constant was not pretty-printed"
 
     let theoremResult ← session.query "LeanReachFixture.double_eq_add" (Limits.uniform 100)
     check (theoremResult.target.signature.contains "n + n")

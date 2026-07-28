@@ -49,7 +49,8 @@ unsafe def buildPPModules (modules : Array Name) : IO Nat := do
     unless missing.isEmpty do
       inputs := inputs.push (moduleName, missing, before)
   if inputs.isEmpty then return 0
-  let env ← importEnvironment (inputs.map fun (module, _, _) => module) (leakEnv := true)
+  let env ← importEnvironment (inputs.map fun (module, _, _) => module)
+    (leakEnv := true) (level := .private)
   unsafe buildModules sourcePath env inputs
 
 private def fillBundle (index : Index) (slots : Array (Option Declaration))
@@ -77,7 +78,8 @@ unsafe def buildPPRoots (roots : Array Name)
       inputs := inputs.push (moduleName, missing, before)
   let mut count := 0
   unless inputs.isEmpty do
-    let env ← importEnvironment roots (leakEnv := true)
+    let env ← importEnvironment (inputs.map fun (module, _, _) => module)
+      (leakEnv := true) (level := .private)
     let slotsRef ← IO.mkRef slots
     count ← unsafe buildModules sourcePath env inputs fun moduleName added done => do
       slotsRef.modify fun slots => fillBundle index slots added
