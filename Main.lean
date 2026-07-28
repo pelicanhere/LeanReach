@@ -12,7 +12,7 @@ inductive Command where
   | cache (modules : Array Name)
 
 structure Config where
-  root : Name := `Mathlib
+  root? : Option Name := none
   limit? : Option Nat := none
   interactive : Bool := false
   json : Bool := false
@@ -34,7 +34,7 @@ private def takeNat (option : String) : CliM Nat := do
   return number
 
 private def shortOption : Char → CliM PUnit
-  | 'm' => do modifyThe Config ({ · with root := (← takeArg "-m").toName })
+  | 'm' => do modifyThe Config ({ · with root? := some (← takeArg "-m").toName })
   | 'n' => do modifyThe Config ({ · with limit? := some (← takeNat "-n") })
   | 'i' => modifyThe Config ({ · with interactive := true })
   | 'j' => modifyThe Config ({ · with json := true })
@@ -113,6 +113,9 @@ private def printSearch (json : Bool) (query : String) (items : Array Declaratio
 
 private def Config.limitOr (config : Config) (default : Nat) : Nat :=
   config.limit?.getD default
+
+private def Config.root (config : Config) : Name :=
+  config.root?.getD `Mathlib
 
 private def printCached (json : Bool) (modules : Array Name) (count : Nat) : IO Unit := do
   if json then
