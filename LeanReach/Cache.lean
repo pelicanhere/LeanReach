@@ -83,16 +83,10 @@ private unsafe def loadFragment (moduleName : Name) : IO ModuleFragment := do
   let hash? ← depHash? olean
   let path := olean.withExtension s!"leanreach-module-{fragmentVersion}"
   if let some hash := hash? then
-    if ← path.pathExists then
-      try
-        let ((storedHash, fragment), _) ← unsafe unpickle (String × ModuleFragment) path
-        if storedHash == hash then return fragment
-      catch _ => pure ()
-  if let some hash := hash? then
+    if let some fragment ← unsafe loadPart ModuleFragment path hash then return fragment
     try
       writeFragment moduleName olean path hash
-      let ((_, fragment), _) ← unsafe unpickle (String × ModuleFragment) path
-      return fragment
+      if let some fragment ← unsafe loadPart ModuleFragment path hash then return fragment
     catch _ => pure ()
   return (← readFragment moduleName olean).1
 
