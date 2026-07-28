@@ -16,3 +16,6 @@ query-server-import,7,12,13647,first dependency query; server olean level; ident
 query-server-leak,7,12,13001,first dependency query; persistent process-lifetime environment
 private-body-module,1,27,1232,private-level import; public definitions retain bodies through private constants
 server-private-overlay,1,27,1150,server import plus module-local private constants; same complete declarations
+mathlib-resume,8250,375372,762600,resumed from module sidecars; completed every remaining module and checkpointed before bundle assembly
+mathlib-bundle-assembly,9978,375372,45885,rebuild deduplicated catalog and assemble existing sidecars into the root bundle
+mathlib-bundle-hit,9978,375372,3,validated root marker and loaded the complete bundle without scanning module sidecars

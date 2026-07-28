@@ -91,7 +91,14 @@ private def heapKeepBest {α : Type u} [Inhabited α] (lt : α → α → Bool)
   | none => items
 
 def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
-  let declarations := declarations.qsort fun a b => Name.lt a.1 b.1
+  let mut byName : NameMap (Name × NameSet) := {}
+  for (name, moduleName, used) in declarations do
+    let (owner, previous) := (byName.find? name).getD (moduleName, {})
+    byName := byName.insert name (owner, previous ++ used)
+  let mut declarations := #[]
+  for (name, moduleName, used) in byName do
+    declarations := declarations.push (name, moduleName, used)
+  declarations := declarations.qsort fun a b => Name.lt a.1 b.1
   let mut entries := #[]
   let mut ids : NameMap UInt32 := {}
   for (name, moduleName, _) in declarations do
@@ -130,6 +137,9 @@ private def Index.findEntry? (index : Index) (name : Name) : Option CatalogEntry
 
 def Index.size (index : Index) : Nat :=
   index.entries.size
+
+def Index.nameAt? (index : Index) (id : Nat) : Option Name :=
+  index.entries[id]? |>.map (·.1)
 
 def Index.idOf? (index : Index) (name : Name) : Option UInt32 :=
   index.findEntry? name |>.map fun (_, _, _, id) => id

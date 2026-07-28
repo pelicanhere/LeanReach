@@ -9,6 +9,15 @@ private def check (condition : Bool) (message : String) : CoreM Unit :=
   unless condition do throwError message
 
 private unsafe def runTests : IO Unit := do
+  let duplicateIndex := Index.build #[
+    (`LeanReachFixture.a, `Tests.Fixture, ({} : NameSet).insert `LeanReachFixture.b),
+    (`LeanReachFixture.a, `Tests.Fixture, ({} : NameSet).insert `LeanReachFixture.c),
+    (`LeanReachFixture.b, `Tests.Fixture, {}),
+    (`LeanReachFixture.c, `Tests.Fixture, {})
+  ]
+  unless duplicateIndex.size == 3 &&
+      (duplicateIndex.upstream `LeanReachFixture.a 10).size == 2 do
+    throw <| IO.userError "index did not merge duplicate declarations"
   let roots ← detectRoots
   unless roots.contains `Tests.Fixture do
     throw <| IO.userError "built local modules were not detected"

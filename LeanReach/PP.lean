@@ -22,7 +22,7 @@ private unsafe def saveModule (moduleName : Name) (before added : NameMap Declar
   return added.size
 
 private unsafe def buildModules (sourcePath : SearchPath) (env : Environment)
-    (inputs : Array Input)
+    (inputs : Array Input) (moduleOf? : Name → Option Name := fun _ => none)
     (progress : Name → NameMap Declaration → Nat → IO Unit := fun _ _ _ => pure ()) : IO Nat := do
   let workers ← parallelism
   let mut count := 0
@@ -31,7 +31,7 @@ private unsafe def buildModules (sourcePath : SearchPath) (env : Environment)
     let stop := min inputs.size (offset + workers)
     let batch := inputs.extract offset stop
     let tasks ← batch.mapM fun (moduleName, names, _) =>
-      IO.asTask <| unsafe Cache.withModulePrivateConstants env moduleName fun env =>
+      IO.asTask <| unsafe Cache.withModuleConstants env moduleName names moduleOf? fun env =>
         unsafe runCore env (prettyPrintModule sourcePath moduleName names)
     for (((moduleName, _, before), task), done) in (batch.zip tasks).zipIdx do
       let added ← IO.ofExcept task.get
@@ -78,15 +78,16 @@ unsafe def buildPPRoots (roots : Array Name)
       inputs := inputs.push (moduleName, missing, before)
   let mut count := 0
   unless inputs.isEmpty do
-    let env ← importEnvironment (inputs.map fun (module, _, _) => module) (leakEnv := true)
+    let env ← importEnvironment roots (leakEnv := true)
     let slotsRef ← IO.mkRef slots
-    count ← unsafe buildModules sourcePath env inputs fun moduleName added done => do
+    count ← unsafe buildModules sourcePath env inputs index.moduleOf? fun moduleName added done => do
       slotsRef.modify fun slots => fillBundle index slots added
       progress moduleName done inputs.size
     slots ← slotsRef.get
-  let declarations ← slots.mapM fun
+  let declarations ← slots.mapIdxM fun id slot =>
+    match slot with
     | some declaration => pure declaration
-    | none => throw <| IO.userError "PP bundle is incomplete"
+    | none => throw <| IO.userError s!"PP bundle is missing '{(index.nameAt? id).getD .anonymous}'"
   unsafe Cache.savePPBundle roots declarations
   unsafe Cache.markFullyPP roots
   return count

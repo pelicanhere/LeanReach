@@ -10,13 +10,13 @@ open Lean Meta
 
 private def prettyPrintSignature (name : Name) : MetaM String := do
   try
-    let expression ← mkConstWithLevelParams name
-    let (stx, _) ← PrettyPrinter.delabCore expression
-      (delab := PrettyPrinter.Delaborator.delabConstWithSignature (universes := false))
-    return (← PrettyPrinter.ppTerm ⟨stx⟩).pretty (width := 10000)
+    return (← PrettyPrinter.ppSignature name).fmt.pretty (width := 10000)
   catch _ =>
-    let info ← getConstInfo name
-    return s!"{name} : {(← PrettyPrinter.ppExpr info.type).pretty (width := 10000)}"
+    let some info := (← getEnv).find? name | return name.toString
+    try
+      return s!"{name} : {(← PrettyPrinter.ppExpr info.type).pretty (width := 10000)}"
+    catch _ =>
+      return s!"{name} : {info.type}"
 
 private def prettyPrintList (label : String) (names : Array Name) : MetaM String := do
   if names.isEmpty then return ""
@@ -26,7 +26,8 @@ private def prettyPrintList (label : String) (names : Array Name) : MetaM String
 private def prettyPrintConstant (name : Name) (info : ConstantInfo) : MetaM String :=
     withCurrHeartbeats do
   let signature ← prettyPrintSignature name
-  if info.isTheorem || (← isProp info.type) then return signature
+  let isProposition ← try isProp info.type catch _ => pure false
+  if info.isTheorem || isProposition then return signature
   if let some value := info.value? (allowOpaque := true) then
     let body ←
       try pure <| (← PrettyPrinter.ppExpr value).pretty (width := 100)
@@ -68,8 +69,11 @@ def prettyPrintModule (sourcePath : SearchPath) (moduleName : Name)
   let file := (← sourcePath.findModuleWithExt "lean" moduleName).map (·.toString)
   let mut declarations := {}
   for name in names do
-    declarations := declarations.insert name
-      (← prettyPrintKnownDeclaration moduleName file name)
+    let declaration ←
+      try prettyPrintKnownDeclaration moduleName file name
+      catch error =>
+        throwError m!"could not pretty-print '{name}' from '{moduleName}': {error.toMessageData}"
+    declarations := declarations.insert name declaration
   return declarations
 
 end LeanReach
