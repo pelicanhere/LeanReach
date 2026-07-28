@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Search and navigate Lean declarations with LeanReach.">
+  <title>LeanReach</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header>
+    <a class="brand" href="/">Lean<span>Reach</span></a>
+    <p>Fast declaration search and direct dependency navigation for Lean.</p>
+  </header>
+
+  <main>
+    <form id="search-form" role="search">
+      <label for="query">Declaration name</label>
+      <div class="search-row">
+        <input id="query" name="q" autocomplete="off" autofocus
+               placeholder="Submodule.span_le or span singleton">
+        <button type="submit">Search</button>
+      </div>
+      <div class="examples" aria-label="Example searches">
+        <span>Try</span>
+        <button type="button" data-query="span_le">span_le</button>
+        <button type="button" data-query="continuous">continuous</button>
+        <button type="button" data-query="Matrix.det">Matrix.det</button>
+      </div>
+    </form>
+
+    <div id="status" role="status" aria-live="polite"></div>
+    <section id="results" aria-label="Search results"></section>
+    <section id="detail" aria-label="Declaration dependencies"></section>
+  </main>
+
+  <footer>
+    <span>Lean-native index · cached pretty-printing · direct dependencies</span>
+    <a href="https://github.com/pelicanhere/LeanReach">Source</a>
+  </footer>
+</body>
+</html>

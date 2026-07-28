@@ -116,6 +116,29 @@ run, had a 5.04 ms median versus 288 ms for `rg` (1.75%). Its complete session, 
 and exit, took 254 ms versus 2.63 seconds for nine separate `rg` scans (9.67%). A one-shot
 LeanReach process still costs about 119 ms, so agents should keep the NDJSON session alive.
 
+## Web frontend
+
+The frontend follows Loogle's process boundary: a small Python standard-library HTTP server owns
+one long-lived `--interactive --json` LeanReach worker. Search and dependency requests therefore
+reuse the same index and PP cache without adding a web framework to the Lean executable.
+
+From this checkout:
+
+```console
+python Frontend/server.py --project-dir .
+```
+
+Or from a packaged distribution while serving another Lake project:
+
+```console
+python /path/to/leanreach-dist/Frontend/server.py \
+  --project-dir /path/to/project
+```
+
+Open `http://127.0.0.1:8088`. Forward root or limit options after `--`, for example
+`-- --module Mathlib --limit 20`. The browser uses `/json?q=PATTERN` for name search and
+`/json?name=DECLARATION` for dependency navigation.
+
 ## Searching another local Lake library
 
 Build LeanReach with the same Lean toolchain as the target project. From the target project's
@@ -197,6 +220,7 @@ LeanReach/Query.lean  pretty-printing, source locations, and sessions
 LeanReach/Project.lean  Lake project and built-module discovery
 LeanReach.lean        environment-loading facade
 Main.lean             Lake ArgsT CLI and interactive transport
+Frontend/             Loogle-style HTTP worker and browser UI
 Tests/                local-library fixture and behavior checks
 ```
 

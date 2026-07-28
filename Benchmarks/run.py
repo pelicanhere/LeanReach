@@ -12,15 +12,15 @@ from pathlib import Path
 
 
 QUERIES = (
-    "span_iUnion",
-    "span_sSup",
-    "span_sSup'",
-    "span_biUnion",
-    "sup_span",
-    "span_sup",
-    "span_eq_iSup_of_singleton_spans",
-    "span_range_eq_iSup",
-    "span_attach_biUnion",
+    "closure_le_toAddSubmonoid_span",
+    "span_span_coe_preimage",
+    "span_setOf_mem_eq_top",
+    "span_nat_eq_addSubmonoidClosure",
+    "span_eq_closure",
+    "submodule_eq_sSup_le_nonzero_spans",
+    "mem_span_finite_of_mem_span",
+    "subset_span_finite_of_subset_span",
+    "span_range_update_sub_smul",
 )
 
 

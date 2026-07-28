@@ -1,7 +1,7 @@
 # Third-party notices
 
-LeanReach's environment lifecycle, cache strategy, and command-line organization were informed by
-[Loogle](https://github.com/nomeata/loogle):
+LeanReach's environment lifecycle, cache strategy, command-line organization, and thin HTTP worker
+model were informed by [Loogle](https://github.com/nomeata/loogle):
 
 > Copyright (c) 2023 Joachim Breitner and contributors  
 > Released under the Apache License 2.0.

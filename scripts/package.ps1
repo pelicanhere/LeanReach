@@ -24,6 +24,11 @@ $runtime = @(
 
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 Copy-Item -LiteralPath $exe -Destination $outputDir -Force
+$frontendDir = Join-Path $outputDir "Frontend"
+New-Item -ItemType Directory -Force -Path $frontendDir | Out-Null
+foreach ($asset in @("server.py", "index.html", "app.js", "style.css")) {
+  Copy-Item -LiteralPath (Join-Path $root "Frontend/$asset") -Destination $frontendDir -Force
+}
 foreach ($dll in $runtime) {
   Copy-Item -LiteralPath (Join-Path $toolchainBin $dll) -Destination $outputDir -Force
 }
