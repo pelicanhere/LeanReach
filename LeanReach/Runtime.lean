@@ -61,7 +61,12 @@ unsafe def runCore {α : Type} (env : Environment) (action : CoreM α) : IO α :
 
 unsafe def importEnvironment (modules : Array Name) : IO Environment := do
   Lean.enableInitializersExecution
-  importModules (loadExts := true) (modules.map fun module => { module }) {}
+  let imports := modules.map fun module => { module }
+  try
+    importModules (loadExts := true) (level := .server) imports {}
+  catch _ =>
+    Lean.enableInitializersExecution
+    importModules (loadExts := true) imports {}
 
 unsafe def detectRoots : IO (Array Name) := do
   let roots ← unsafe Project.detectRoots (← leanSysroot)

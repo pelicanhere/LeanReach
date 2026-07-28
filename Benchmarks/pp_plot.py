@@ -35,7 +35,7 @@ def main() -> None:
     target.write_text(
         f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}">
 <rect width="100%" height="100%" fill="white"/>
-<text x="{margin}" y="28" font-size="18" font-family="sans-serif">Cold PP cache build latency</text>
+<text x="{margin}" y="28" font-size="18" font-family="sans-serif">Cold PP construction and first-use latency</text>
 <line x1="{margin}" y1="{height-margin}" x2="{width-margin}" y2="{height-margin}" stroke="#444"/>
 {''.join(bars)}{''.join(labels)}
 </svg>""",
