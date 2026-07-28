@@ -1,5 +1,5 @@
-import Batteries.Util.Pickle
 import Lake.Build.Trace
+import Lean.Environment
 import Lean.Server.References
 import Lean.Util.Path
 import LeanReach.BlackListed
@@ -21,6 +21,14 @@ structure ModuleFragment where
   declarations : Array (Name × NameSet)
 
 /-- Save a compacted Lean object. Adapted from Loogle's `Pickle` module. -/
+private def pickle {α : Type} (path : System.FilePath) (value : α) (key : Name) : IO Unit :=
+  saveModuleData path key (unsafe unsafeCast value)
+
+private unsafe def unpickle (α : Type) (path : System.FilePath) :
+    IO (α × CompactedRegion) := do
+  let (value, region) ← readModuleData path
+  return (unsafeCast value, region)
+
 private unsafe def loadPart (α : Type) (path : System.FilePath) (depHash : String) :
     IO (Option α) := do
   unless ← path.pathExists do return none

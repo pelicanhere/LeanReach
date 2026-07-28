@@ -1,10 +1,11 @@
 import Lean.Data.Name
 import Lean.Data.Trie
-import Batteries.Data.BinaryHeap.Basic
 
 namespace LeanReach
 
 open Lean
+
+universe u
 
 /-- Searchable names and cached direct dependency postings in both directions. -/
 abbrev CatalogEntry := Name × String × Name × UInt32
@@ -55,6 +56,39 @@ private def locality (entries : Array CatalogEntry) (sourceModule : Name)
     4.0 * (commonPrefixLength sourceNameParts candidateName.components).toFloat +
     (commonPrefixLength sourceModuleParts candidateModule.components).toFloat +
     nameAffinity sourceLeaf sourceParts candidateName
+
+private def heapifyDown {α : Type u} [Inhabited α] (lt : α → α → Bool)
+    (items : Array α) : Array α := Id.run do
+  let mut items := items
+  let mut parent : Nat := 0
+  while 2 * parent + 1 < items.size do
+    let left := 2 * parent + 1
+    let right := left + 1
+    let child : Nat :=
+      if right < items.size && lt items[left]! items[right]! then right else left
+    if lt items[parent]! items[child]! then
+      items := items.swapIfInBounds parent child
+      parent := child
+    else break
+  return items
+
+private def heapInsert {α : Type u} [Inhabited α] (lt : α → α → Bool)
+    (items : Array α) (item : α) : Array α := Id.run do
+  let mut items := items.push item
+  let mut child : Nat := items.size - 1
+  while child > 0 do
+    let parent := (child - 1) / 2
+    if lt items[parent]! items[child]! then
+      items := items.swapIfInBounds parent child
+      child := parent
+    else break
+  return items
+
+private def heapKeepBest {α : Type u} [Inhabited α] (lt : α → α → Bool)
+    (items : Array α) (item : α) : Array α :=
+  match items[0]? with
+  | some worst => if lt item worst then heapifyDown lt (items.set! 0 item) else items
+  | none => items
 
 def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
   let declarations := declarations.qsort fun a b => Name.lt a.1 b.1
@@ -131,13 +165,13 @@ private def Index.rankIds (index : Index) (source : UInt32)
     if ids.size ≤ limit then ids.map fun id => (score id, id)
     else
       Id.run do
-        let mut heap := Batteries.BinaryHeap.empty better
+        let mut heap := #[]
         for id in ids do
           let item := (score id, id)
           heap :=
-            if heap.size < limit then heap.insert item
-            else (heap.insertExtractMax item).2
-        return heap.arr
+            if heap.size < limit then heapInsert better heap item
+            else heapKeepBest better heap item
+        return heap
   return (best.qsort better).map (·.2)
 
 private def Index.candidates (index : Index) (query : String) : Array UInt32 :=

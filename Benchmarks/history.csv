@@ -296,3 +296,30 @@ exact-pp-hot,Submodule.span_singleton_eq_top_iff,rg,288.106,1,distinct exact que
 exact-pp-hot,Submodule.span_zero_singleton,rg,288.119,1,distinct exact query
 exact-pp-hot,Submodule.span_singleton_eq_range,rg,280.127,1,distinct exact query
 exact-pp-hot,Submodule.span_singleton_smul_eq,rg,258.621,1,distinct exact query
+batteries-free-fresh,span_singleton_generator,leanreach_session,19612.522,2,distinct query; executables primed without a declaration query
+batteries-free-fresh,span_sdiff_singleton_zero,leanreach_session,17.547,2,distinct query; executables primed without a declaration query
+batteries-free-fresh,span_singleton_smul_le,leanreach_session,8.952,1,distinct query; executables primed without a declaration query
+batteries-free-fresh,span_singleton_group_smul_eq,leanreach_session,2.843,1,distinct query; executables primed without a declaration query
+batteries-free-fresh,mem_span_singleton_trans,leanreach_session,20.227,1,distinct query; executables primed without a declaration query
+batteries-free-fresh,span_singleton_le_iff_mem,leanreach_session,17.067,2,distinct query; executables primed without a declaration query
+batteries-free-fresh,span_singleton_eq_span_singleton,leanreach_session,5.883,2,distinct query; executables primed without a declaration query
+batteries-free-fresh,map_subtype_span_singleton,leanreach_session,21.028,1,distinct query; executables primed without a declaration query
+batteries-free-fresh,singleton_span_isCompactElement,leanreach_session,9.154,1,distinct query; executables primed without a declaration query
+batteries-free-fresh,span_singleton_generator,leanreach_process,106.334,2,distinct query; executables primed without a declaration query
+batteries-free-fresh,span_sdiff_singleton_zero,leanreach_process,105.249,2,distinct query; executables primed without a declaration query
+batteries-free-fresh,span_singleton_smul_le,leanreach_process,111.250,1,distinct query; executables primed without a declaration query
+batteries-free-fresh,span_singleton_group_smul_eq,leanreach_process,102.809,1,distinct query; executables primed without a declaration query
+batteries-free-fresh,mem_span_singleton_trans,leanreach_process,103.941,1,distinct query; executables primed without a declaration query
+batteries-free-fresh,span_singleton_le_iff_mem,leanreach_process,111.768,2,distinct query; executables primed without a declaration query
+batteries-free-fresh,span_singleton_eq_span_singleton,leanreach_process,109.827,2,distinct query; executables primed without a declaration query
+batteries-free-fresh,map_subtype_span_singleton,leanreach_process,105.276,1,distinct query; executables primed without a declaration query
+batteries-free-fresh,singleton_span_isCompactElement,leanreach_process,114.408,1,distinct query; executables primed without a declaration query
+batteries-free-fresh,span_singleton_generator,rg,233.564,1,distinct query; executables primed without a declaration query
+batteries-free-fresh,span_sdiff_singleton_zero,rg,187.627,1,distinct query; executables primed without a declaration query
+batteries-free-fresh,span_singleton_smul_le,rg,220.824,1,distinct query; executables primed without a declaration query
+batteries-free-fresh,span_singleton_group_smul_eq,rg,187.260,1,distinct query; executables primed without a declaration query
+batteries-free-fresh,mem_span_singleton_trans,rg,229.788,1,distinct query; executables primed without a declaration query
+batteries-free-fresh,span_singleton_le_iff_mem,rg,194.043,1,distinct query; executables primed without a declaration query
+batteries-free-fresh,span_singleton_eq_span_singleton,rg,184.774,1,distinct query; executables primed without a declaration query
+batteries-free-fresh,map_subtype_span_singleton,rg,217.545,1,distinct query; executables primed without a declaration query
+batteries-free-fresh,singleton_span_isCompactElement,rg,201.630,1,distinct query; executables primed without a declaration query
