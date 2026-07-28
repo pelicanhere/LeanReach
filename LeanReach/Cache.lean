@@ -14,7 +14,6 @@ private def catalogVersion := 4
 private def relationsVersion := 5
 private def fragmentVersion := 5
 private def ppVersion := 3
-private def ppBundleVersion := 2
 
 structure ModuleFragment where
   imports : Array Name
@@ -262,17 +261,6 @@ private unsafe def ppRootData (roots : Array Name) (suffix : String) :
     depHash,
     root
   )
-
-unsafe def loadPPBundle (roots : Array Name) (index : Index) :
-    IO (Array Declaration) := do
-  let (path, depHash, _) ← unsafe ppRootData roots s!"bundle-{ppBundleVersion}"
-  let declarations :=
-    (← unsafe loadPart (Array Declaration) path depHash).getD #[]
-  return if declarations.size == index.size then declarations else #[]
-
-unsafe def savePPBundle (roots : Array Name) (declarations : Array Declaration) : IO Unit := do
-  let (path, depHash, root) ← unsafe ppRootData roots s!"bundle-{ppBundleVersion}"
-  pickle path (depHash, declarations) (Name.str root "_leanreachPPBundle")
 
 unsafe def isFullyPP (roots : Array Name) : IO Bool := do
   let (path, depHash, _) ← unsafe ppRootData roots (toString ppVersion)

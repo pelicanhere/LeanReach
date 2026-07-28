@@ -170,12 +170,12 @@ After `lake build`, precompute PP for the complete built root once:
 This pays index construction, environment import, and pretty-printing once. LeanReach imports the
 detected roots once, shares the immutable environment across four bounded module tasks, and writes
 one PP sidecar after each completed module. An interruption therefore leaves completed modules
-reusable. The root bundle is filled during the same pass in catalog order, so it does not reread the
-sidecars that were just written and later queries open one array instead of merging module maps.
-Sidecars are reusable from larger roots and invalidated by the defining module's build hash;
-LeanReach never builds missing modules implicitly. On the development Windows machine, the same 64
-modules and 982 declarations took 29.9 seconds in two 32-module import waves, 15.3 seconds with one
-import, and 14.1 seconds with four pretty-print tasks.
+reusable. A small root marker makes later `pp` calls return before loading the catalog, while queries
+read only the module sidecars containing their selected declarations. Sidecars are reusable from
+larger roots and invalidated by the defining module's build hash; LeanReach never builds missing
+modules implicitly. On the development Windows machine, the same 64 modules and 982 declarations
+took 29.9 seconds in two 32-module import waves, 15.3 seconds with one import, and 14.1 seconds with
+four pretty-print tasks.
 
 ## Dependency semantics
 

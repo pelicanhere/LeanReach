@@ -21,3 +21,6 @@ mathlib-bundle-assembly,9978,375372,45885,rebuild deduplicated catalog and assem
 mathlib-bundle-hit,9978,375372,3,validated root marker and loaded the complete bundle without scanning module sidecars
 mathlib-full-cold,9978,375372,1377105,deleted every PP sidecar and root bundle; rebuilt with the packaged executable in 22m57.1s
 mathlib-full-cold-overlap,9978,375372,1000558,cold PP cache with warm filesystem; overlapped sidecar scan and root import; rebuilt in 16m40.6s
+first-query-root-bundle,9978,5,39299,new process immediately after the full PP rebuild; root bundle and index pages were cold
+first-query-module-sidecars,9978,2,25145,new process after removing the root bundle; cold index pages still dominate
+mathlib-marker-hit,9978,375372,15,internal elapsed time; small root marker returns before loading the catalog

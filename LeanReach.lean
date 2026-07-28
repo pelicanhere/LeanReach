@@ -43,7 +43,7 @@ private unsafe def withIndexSession {α β : Type} (roots : Array Name)
   let sourcePath ← prepareEnvironment
   let index ← unsafe Cache.loadIndex roots loadRelations
   let (plan, names) ← selectPlan index select
-  let session ← Session.create index sourcePath (← unsafe Cache.loadPPBundle roots index)
+  let session ← Session.create index sourcePath
   unsafe runSession index session names (if forceRootImport then some roots else none) false none
     (action session plan)
 
@@ -64,7 +64,7 @@ unsafe def withLazySession {α : Type} (roots : Array Name)
     (action : Session → SessionRunner → IO α) : IO α := do
   let sourcePath ← prepareEnvironment
   let index ← unsafe Cache.loadIndex roots true
-  let session ← Session.create index sourcePath (← unsafe Cache.loadPPBundle roots index)
+  let session ← Session.create index sourcePath
   let emptyEnv ← mkEmptyEnvironment
   let run : SessionRunner := fun select query => do
     let (plan, names) ← selectPlan index select

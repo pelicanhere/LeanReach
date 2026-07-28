@@ -138,9 +138,6 @@ private def Index.findEntry? (index : Index) (name : Name) : Option CatalogEntry
 def Index.size (index : Index) : Nat :=
   index.entries.size
 
-def Index.nameAt? (index : Index) (id : Nat) : Option Name :=
-  index.entries[id]? |>.map (·.1)
-
 def Index.idOf? (index : Index) (name : Name) : Option UInt32 :=
   index.findEntry? name |>.map fun (_, _, _, id) => id
 

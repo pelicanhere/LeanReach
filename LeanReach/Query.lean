@@ -22,12 +22,10 @@ def Limits.uniform (limit : Nat) : Limits :=
 structure Session where
   private index : Index
   private sourcePath : SearchPath
-  private bundle : Array Declaration
   private declarations : IO.Ref (NameMap Declaration)
 
-def Session.create (index : Index) (sourcePath : SearchPath)
-    (bundle : Array Declaration := #[]) : IO Session :=
-  return { index, sourcePath, bundle, declarations := ← IO.mkRef {} }
+def Session.create (index : Index) (sourcePath : SearchPath) : IO Session :=
+  return { index, sourcePath, declarations := ← IO.mkRef {} }
 
 def Session.ppCache (session : Session) : IO (NameMap Declaration) :=
   session.declarations.get
@@ -39,18 +37,12 @@ def Session.merge (session : Session) (declarations : NameMap Declaration) : IO 
       current := current.insert name declaration
     return current
 
-private def Session.bundled? (session : Session) (name : Name) : Option Declaration :=
-  (session.index.idOf? name).bind (session.bundle[·.toNat]?)
-
 def Session.missing (session : Session) (names : Array Name) : IO (Array Name) := do
   let cached ← session.declarations.get
-  return names.filter fun name =>
-    !cached.contains name && (session.bundled? name).isNone
+  return names.filter fun name => !cached.contains name
 
 private def describe (session : Session) (name : Name) : CoreM Declaration := do
   if let some declaration := (← session.declarations.get).find? name then
-    return declaration
-  if let some declaration := session.bundled? name then
     return declaration
   let declaration ← prettyPrintDeclaration session.sourcePath name
   session.declarations.modify (·.insert name declaration)

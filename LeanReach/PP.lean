@@ -53,27 +53,16 @@ unsafe def buildPPModules (modules : Array Name) : IO Nat := do
   let env ← importEnvironment (inputs.map fun (module, _, _) => module) (leakEnv := true)
   unsafe buildModules sourcePath env inputs
 
-private def fillBundle (index : Index) (slots : Array (Option Declaration))
-    (declarations : NameMap Declaration) : Array (Option Declaration) := Id.run do
-  let mut slots := slots
-  for (name, declaration) in declarations do
-    if let some id := index.idOf? name then
-      slots := slots.set! id.toNat (some declaration)
-  return slots
-
 /-- Pretty-print every declaration below a root, checkpointing once per defining module. -/
 unsafe def buildPPRoots (roots : Array Name)
     (progress : Name → Nat → Nat → IO Unit := fun _ _ _ => pure ()) : IO Nat := do
   let sourcePath ← prepareEnvironment
+  if ← unsafe Cache.isFullyPP roots then return 0
   let index ← unsafe Cache.loadIndex roots false
-  if ← unsafe Cache.isFullyPP roots then
-    unless (← unsafe Cache.loadPPBundle roots index).isEmpty do return 0
-  let mut slots : Array (Option Declaration) := Array.replicate index.size none
   let mut inputs : Array Input := #[]
   let mut envTask? := none
   for (moduleName, names) in index.declarationsByModule do
     let before ← unsafe Cache.loadPPModule moduleName
-    slots := fillBundle index slots before
     let missing := names.filter fun name => !before.contains name
     unless missing.isEmpty do
       if envTask?.isNone then
@@ -83,16 +72,8 @@ unsafe def buildPPRoots (roots : Array Name)
   unless inputs.isEmpty do
     let some envTask := envTask? | unreachable!
     let env ← IO.ofExcept envTask.get
-    let slotsRef ← IO.mkRef slots
-    count ← unsafe buildModules sourcePath env inputs index.moduleOf? fun moduleName added done => do
-      slotsRef.modify fun slots => fillBundle index slots added
+    count ← unsafe buildModules sourcePath env inputs index.moduleOf? fun moduleName _ done =>
       progress moduleName done inputs.size
-    slots ← slotsRef.get
-  let declarations ← slots.mapIdxM fun id slot =>
-    match slot with
-    | some declaration => pure declaration
-    | none => throw <| IO.userError s!"PP bundle is missing '{(index.nameAt? id).getD .anonymous}'"
-  unsafe Cache.savePPBundle roots declarations
   unsafe Cache.markFullyPP roots
   return count
 

@@ -171,7 +171,7 @@ def main() -> None:
             "tool": tool,
             "latency_ms": f"{latency:.3f}",
             "found": found,
-            "note": "distinct query in a fully precomputed root PP bundle",
+            "note": "distinct query with fully precomputed module PP sidecars",
         }
         for query, tool, latency, found in rows
     ]
