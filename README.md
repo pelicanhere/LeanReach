@@ -123,6 +123,7 @@ The frontend follows Loogle's process boundary: a small Python standard-library 
 one long-lived `--interactive --json` LeanReach worker. Search and dependency requests therefore
 reuse the same index and PP cache without adding a web framework to the Lean executable. Successful
 worker responses are forwarded unchanged instead of being parsed and serialized again in Python.
+The server uses HTTP/1.1 keep-alive so a browser session also reuses its local TCP connection.
 
 From this checkout:
 

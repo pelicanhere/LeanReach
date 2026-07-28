@@ -94,6 +94,8 @@ class Server(ThreadingHTTPServer):
 
 class Handler(BaseHTTPRequestHandler):
     server: Server
+    protocol_version = "HTTP/1.1"
+    disable_nagle_algorithm = True
 
     def respond(self, status: int, content_type: str, body: bytes) -> None:
         self.send_response(status)

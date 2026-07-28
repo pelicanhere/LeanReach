@@ -11,15 +11,15 @@ from pathlib import Path
 
 
 QUERIES = (
-    "nndist_eq_nnnorm_div",
-    "dist_inv",
-    "enorm_sum_le",
-    "enorm_prod_le_of_le",
-    "preimage_mul_sphere",
-    "pow_mem_closedBall",
-    "NormedCommGroup.uniformity_basis_dist",
-    "mem_ball_iff_norm'''",
-    "coe_normGroupNorm",
+    "preimage_mul_closedBall",
+    "preimage_mul_ball",
+    "smul_closedBall''",
+    "mul_mem_ball_mul_iff",
+    "nnnorm_multiset_prod_le",
+    "NormedCommGroup.nhds_basis_norm_lt",
+    "norm_div_pos_iff",
+    "eq_one_or_nnnorm_pos",
+    "hasCompactSupport_norm_iff",
 )
 
 
