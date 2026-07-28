@@ -121,37 +121,36 @@ private def printCached (json : Bool) (modules : Array Name) (count : Nat) : IO 
   else
     IO.println s!"cached {count} declarations"
 
-private def runOne (session : Session) (config : Config) (command : Command)
-    (selected? : Option (Array Name) := none) : CoreM Unit := do
-  match command with
-  | .query name =>
-    printQuery config.json <| ← session.query name config.limits
-  | .search pattern =>
-    let items ← match selected? with
-      | some names => session.describeNames names
-      | none => session.search pattern config.limits.search
-    printSearch config.json pattern items
-  | .cache modules =>
-    let count ← session.cacheModules modules
-    printCached config.json modules count
+private inductive Prepared where
+  | query (names : QueryNames)
+  | search (pattern : String) (names : Array Name)
+  | cache (modules names : Array Name)
 
-private def runTimed (session : Session) (config : Config) (command : Command)
-    (selected? : Option (Array Name) := none) : CoreM Unit := do
+private def Prepared.names : Prepared → Array Name
+  | .query names => names.all
+  | .search _ names | .cache _ names => names
+
+private def prepare (config : Config) (command : Command) (index : Index) :
+    Except String (Prepared × Array Name) := do
+  let result : Prepared ← match command with
+    | .query query => pure <| .query (← index.queryNames query config.limits)
+    | .search pattern => pure <| .search pattern (index.search pattern config.limits.search)
+    | .cache modules => pure <| .cache modules (index.namesInModules modules)
+  return (result, result.names)
+
+private def runPrepared (session : Session) (config : Config) : Prepared → CoreM Unit
+  | .query names => do printQuery config.json (← session.describeQuery names)
+  | .search pattern names => do
+    printSearch config.json pattern (← session.describeNames names)
+  | .cache modules names => do
+    printCached config.json modules (← session.cacheNames names)
+
+private def runTimed (session : Session) (config : Config) (prepared : Prepared) :
+    CoreM Unit := do
   let started ← IO.monoMsNow
-  runOne session config command selected?
+  runPrepared session config prepared
   if config.profile then
     IO.eprintln s!"leanreach: query={(← IO.monoMsNow) - started}ms"
-
-private def commandNames (config : Config) (command : Command) (index : Index) :
-    Except String (Array Name) := do
-  match command with
-  | .query query =>
-    let (target, upstream, downstream) ← index.queryNames query config.limits
-    return #[target] ++ upstream ++ downstream
-  | .search pattern =>
-    return index.search pattern config.limits.search
-  | .cache modules =>
-    return index.namesInModules modules
 
 private def parseLine (line : String) : Command :=
   if let some pattern := line.dropPrefix? "search " then
@@ -165,8 +164,7 @@ private partial def runInteractive (session : Session) (run : SessionRunner)
   if line.isEmpty then return
   let command := parseLine line
   try
-    run (commandNames config command) fun names =>
-      runTimed session config command (some names)
+    run (prepare config command) (runTimed session config)
   catch error =>
     let message := toString error
     if config.json then
@@ -195,12 +193,9 @@ private unsafe def execute (config : Config) (command? : Option Command) : IO UI
             IO.eprintln s!"leanreach: cached modules {done}/{total} ({moduleName})"
       printCached config.json modules count
     else
-      withSessionFor roots (commandNames config (.cache modules)) false fun session =>
-        runTimed session config (.cache modules)
+      withSessionFor roots (prepare config (.cache modules)) false (runTimed · config)
   | some command =>
-    let loadRelations := command matches .query _
-    withSessionFor roots (commandNames config command) loadRelations fun session =>
-      runTimed session config command
+    withSessionFor roots (prepare config command) (command matches .query _) (runTimed · config)
   | none =>
     withLazySession roots fun session run => runInteractive session run config
   if config.profile then

@@ -55,10 +55,10 @@ private unsafe def prepareEnvironment : IO SearchPath := do
   initializeSearchPath sysroot roots
   sourceSearchPath sysroot roots
 
-private def selectNames (index : Index) (select : Index → Except String (Array Name)) :
-    IO (Array Name) :=
+private def selectPlan {α : Type} (index : Index)
+    (select : Index → Except String (α × Array Name)) : IO (α × Array Name) :=
   match select index with
-  | .ok names => pure names
+  | .ok plan => pure plan
   | .error message => throw <| IO.userError message
 
 private unsafe def runSession {α : Type} (index : Index) (session : Session)
@@ -88,30 +88,30 @@ private unsafe def runSession {α : Type} (index : Index) (session : Session)
     catch _ => IO.eprintln "leanreach: could not write pretty-print cache"
   return result
 
-private unsafe def withIndexSession {α : Type} (roots : Array Name)
+private unsafe def withIndexSession {α β : Type} (roots : Array Name)
     (loadRelations : Bool)
-    (select : Index → Except String (Array Name))
+    (select : Index → Except String (α × Array Name))
     (forceRootImport : Bool)
-    (action : Session → CoreM α) : IO α := do
+    (action : Session → α → CoreM β) : IO β := do
   let sourcePath ← prepareEnvironment
   let index ← unsafe Cache.loadIndex roots loadRelations
-  let names ← selectNames index select
+  let (plan, names) ← selectPlan index select
   let session ← Session.create index sourcePath (← unsafe Cache.loadPPBundle roots index)
   unsafe runSession index session names (if forceRootImport then some roots else none) false
-    (action session)
+    (action session plan)
 
 /-- Import only the modules needed to pretty-print the selected declarations. -/
-unsafe def withSessionFor {α : Type} (roots : Array Name)
-    (select : Index → Except String (Array Name)) (loadRelations : Bool)
-    (action : Session → CoreM α) : IO α :=
+unsafe def withSessionFor {α β : Type} (roots : Array Name)
+    (select : Index → Except String (α × Array Name)) (loadRelations : Bool)
+    (action : Session → α → CoreM β) : IO β :=
   withIndexSession roots loadRelations select false action
 
 /-- Import the root modules once and reuse their environment and index for the entire action. -/
 unsafe def withSession {α : Type} (roots : Array Name) (action : Session → CoreM α) : IO α :=
-  withIndexSession roots true (fun _ => pure #[]) true action
+  withIndexSession roots true (fun _ => pure ((), #[])) true fun session _ => action session
 
 abbrev SessionRunner :=
-  (Index → Except String (Array Name)) → (Array Name → CoreM Unit) → IO Unit
+  {α : Type} → (Index → Except String (α × Array Name)) → (α → CoreM Unit) → IO Unit
 
 unsafe def withLazySession {α : Type} (roots : Array Name)
     (action : Session → SessionRunner → IO α) : IO α := do
@@ -119,8 +119,8 @@ unsafe def withLazySession {α : Type} (roots : Array Name)
   let index ← unsafe Cache.loadIndex roots true
   let session ← Session.create index sourcePath (← unsafe Cache.loadPPBundle roots index)
   let run : SessionRunner := fun select query => do
-    let names ← selectNames index select
-    discard <| unsafe runSession index session names none true (query names)
+    let (plan, names) ← selectPlan index select
+    discard <| unsafe runSession index session names none true (query plan)
   action session run
 
 unsafe def detectRoots : IO (Array Name) := do

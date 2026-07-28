@@ -110,6 +110,9 @@ private def describe (session : Session) (name : Name) : CoreM Declaration := do
 
 abbrev QueryNames := Name × Array Name × Array Name
 
+def QueryNames.all (names : QueryNames) : Array Name :=
+  #[names.1] ++ names.2.1 ++ names.2.2
+
 def Index.queryNames (index : Index) (query : String) (limits : Limits := {}) :
     Except String QueryNames := do
   let target ← index.resolve query
@@ -127,15 +130,18 @@ private def liftQuery {α : Type} : Except String α → CoreM α
   | .ok result => pure result
   | .error message => throwError message
 
-def Session.query (session : Session) (query : String) (limits : Limits := {}) :
+def Session.describeQuery (session : Session) (names : QueryNames) :
     CoreM QueryResult := do
-  let (target, upstream, downstream) ←
-    liftQuery (session.index.queryNames query limits)
+  let (target, upstream, downstream) := names
   return {
     target := ← describe session target
     upstream := ← session.describeNames upstream
     downstream := ← session.describeNames downstream
   }
+
+def Session.query (session : Session) (query : String) (limits : Limits := {}) :
+    CoreM QueryResult := do
+  session.describeQuery (← liftQuery (session.index.queryNames query limits))
 
 def Session.search (session : Session) (query : String) (limit : Nat := 20) :
     CoreM (Array Declaration) :=
@@ -146,8 +152,5 @@ def Session.cacheNames (session : Session) (names : Array Name) : CoreM Nat := d
     try discard <| describe session name
     catch error => throwError "failed to cache '{name}': {error.toMessageData}"
   return names.size
-
-def Session.cacheModules (session : Session) (modules : Array Name) : CoreM Nat :=
-  session.cacheNames (session.index.namesInModules modules)
 
 end LeanReach
