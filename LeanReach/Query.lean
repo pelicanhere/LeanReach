@@ -95,10 +95,4 @@ def Session.search (session : Session) (query : String) (limit : Nat := 20) :
     CoreM (Array Declaration) :=
   session.describeNames (session.index.search query limit)
 
-def Session.cacheNames (session : Session) (names : Array Name) : CoreM Nat := do
-  names.forM fun name =>
-    try discard <| describe session name
-    catch error => throwError "failed to cache '{name}': {error.toMessageData}"
-  return names.size
-
 end LeanReach

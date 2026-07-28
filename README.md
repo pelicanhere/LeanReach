@@ -67,10 +67,10 @@ lake exe leanreach Submodule.span_le
 lake exe leanreach Submodule.span_le --json
 
 # Precompute PP for the detected view. This resumes at the next incomplete module if interrupted.
-lake exe leanreach cache
+lake exe leanreach pp
 
 # Or precompute PP only for selected built modules.
-lake exe leanreach cache Mathlib.LinearAlgebra.Span.Defs
+lake exe leanreach pp Mathlib.LinearAlgebra.Span.Defs
 
 # A narrower root imports and indexes much less than all of Mathlib.
 lake exe leanreach --module Mathlib.LinearAlgebra.Span.Defs Submodule.span_le
@@ -164,19 +164,18 @@ supported for projects with custom Lake build or source directories.
 After `lake build`, precompute PP for the complete built root once:
 
 ```console
-/path/to/leanreach cache
+/path/to/leanreach pp
 ```
 
-This pays index construction, environment import, and pretty-printing once. A short-lived worker
-imports the union of at most 32 defining modules, writes one sidecar per module, then exits to bound
-retained Lean environment memory. The parent checkpoints after every batch; an interrupted batch
-still leaves its completed module sidecars reusable on the next run. A root completion marker makes
-repeated cache checks constant-time. On completion, LeanReach packs the module caches into one
-root-level array in catalog order, so later queries avoid opening and merging module maps. The
-per-module caches remain the incremental source and fallback: they are reusable from larger roots
-and are invalidated by the module's build hash. LeanReach never builds missing modules implicitly.
-On the development Windows machine, caching three previously uncached related modules took 10.0
-seconds in one worker versus 30.4 seconds in three independent processes.
+This pays index construction, environment import, and pretty-printing once. LeanReach imports the
+detected roots once, shares the immutable environment across four bounded module tasks, and writes
+one PP sidecar after each completed module. An interruption therefore leaves completed modules
+reusable. The root bundle is filled during the same pass in catalog order, so it does not reread the
+sidecars that were just written and later queries open one array instead of merging module maps.
+Sidecars are reusable from larger roots and invalidated by the defining module's build hash;
+LeanReach never builds missing modules implicitly. On the development Windows machine, the same 64
+modules and 982 declarations took 29.9 seconds in two 32-module import waves, 15.3 seconds with one
+import, and 14.1 seconds with four pretty-print tasks.
 
 ## Dependency semantics
 

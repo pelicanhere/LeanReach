@@ -34,7 +34,7 @@ private unsafe def runSession {α : Type} (index : Index) (session : Session)
   let after ← session.ppCache
   if after.size != before.size then
     try unsafe Cache.savePP before after
-    catch _ => IO.eprintln "leanreach: could not write pretty-print cache"
+    catch _ => IO.eprintln "leanreach: could not write PP sidecar"
   return result
 
 private unsafe def withIndexSession {α β : Type} (roots : Array Name)

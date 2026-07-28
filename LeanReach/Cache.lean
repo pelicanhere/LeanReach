@@ -13,8 +13,8 @@ open Lean
 private def catalogVersion := 1
 private def relationsVersion := 2
 private def fragmentVersion := 3
-private def ppVersion := 2
-private def ppBundleVersion := 1
+private def ppVersion := 3
+private def ppBundleVersion := 2
 
 structure ModuleFragment where
   imports : Array Name
@@ -174,7 +174,7 @@ unsafe def loadIndex (roots : Array Name) (loadRelations := true) : IO Index := 
 unsafe def loadPPModule (moduleName : Name) : IO (NameMap Declaration) := do
   let olean ← findOLean moduleName
   let some depHash ← depHash? olean | return {}
-  let path := olean.withExtension s!"leanreach-render-{ppVersion}"
+  let path := olean.withExtension s!"leanreach-pp-{ppVersion}"
   return (← unsafe loadPart (NameMap Declaration) path depHash).getD {}
 
 private unsafe def ppRootData (roots : Array Name) (suffix : String) :
@@ -182,7 +182,7 @@ private unsafe def ppRootData (roots : Array Name) (suffix : String) :
   let (olean, depHash, root) ← unsafe rootData roots
   let stem := if roots.size == 1 then "root" else "roots"
   return (
-    olean.withExtension s!"leanreach-render-{stem}-{suffix}",
+    olean.withExtension s!"leanreach-pp-{stem}-{suffix}",
     depHash,
     root
   )
@@ -220,7 +220,7 @@ unsafe def savePPModule (moduleName : Name) (declarations : NameMap Declaration)
     IO Unit := do
   let olean ← findOLean moduleName
   let some depHash ← depHash? olean | return
-  let path := olean.withExtension s!"leanreach-render-{ppVersion}"
+  let path := olean.withExtension s!"leanreach-pp-{ppVersion}"
   pickle path (depHash, declarations) (Name.str moduleName "_leanreachPP")
 
 unsafe def savePP (before after : NameMap Declaration) : IO Unit := do

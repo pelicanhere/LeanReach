@@ -9,7 +9,7 @@ open Lean
 inductive Command where
   | query (name : String)
   | search (pattern : String)
-  | cache (modules : Array Name)
+  | pp (modules : Array Name)
 
 structure Config where
   root? : Option Name := none
@@ -63,7 +63,7 @@ LeanReach — Lean declaration search and dependency navigation
 USAGE:
   leanreach [OPTIONS] DECLARATION
   leanreach [OPTIONS] search PATTERN
-  leanreach [OPTIONS] cache [MODULE...]
+  leanreach [OPTIONS] pp [MODULE...]
   leanreach [OPTIONS] --interactive
 
 OPTIONS:
@@ -75,7 +75,7 @@ OPTIONS:
   -h, --help            show this help
 
 Without `--module`, combine built local lean_lib roots with required Mathlib.
-With no modules, `cache` precomputes PP for the detected view and resumes module by module.
+With no modules, `pp` precomputes pretty-printed declarations for the detected view.
 In interactive mode, enter a declaration name or `search PATTERN` on each line.
 "
 
@@ -112,14 +112,14 @@ private def printSearch (json : Bool) (query : String) (items : Array Declaratio
 private def Config.limits (config : Config) : Limits :=
   config.limit?.map Limits.uniform |>.getD {}
 
-private def printCached (json : Bool) (modules : Array Name) (count : Nat) : IO Unit := do
+private def printPP (json : Bool) (modules : Array Name) (count : Nat) : IO Unit := do
   if json then
     IO.println <| (Json.mkObj [
       ("modules", toJson <| modules.map (·.toString)),
       ("declarations", toJson count)
     ]).compress
   else
-    IO.println s!"cached {count} declarations"
+    IO.println s!"pretty-printed {count} declarations"
 
 private inductive Prepared where
   | query (names : QueryNames)
@@ -134,7 +134,7 @@ private def prepare (config : Config) (command : Command) (index : Index) :
   let result : Prepared ← match command with
     | .query query => pure <| .query (← index.queryNames query config.limits)
     | .search pattern => pure <| .search pattern (index.search pattern config.limits.search)
-    | .cache _ => throw "cache is not an interactive query"
+    | .pp _ => throw "pp is not an interactive query"
   return (result, result.names)
 
 private def runPrepared (session : Session) (config : Config) : Prepared → CoreM Unit
@@ -182,15 +182,15 @@ private unsafe def Config.roots (config : Config) : IO (Array Name) :=
 private unsafe def execute (config : Config) (command? : Option Command) : IO UInt32 := do
   let started ← IO.monoMsNow
   match command? with
-  | some (.cache modules) =>
+  | some (.pp modules) =>
     if modules.isEmpty then
       let count ← buildPPRoots (← config.roots) fun moduleName done total =>
         unless config.json do
           if done == total || done % 100 == 0 then
-            IO.eprintln s!"leanreach: cached modules {done}/{total} ({moduleName})"
-      printCached config.json modules count
+            IO.eprintln s!"leanreach: pretty-printed modules {done}/{total} ({moduleName})"
+      printPP config.json modules count
     else
-      printCached config.json modules (← buildPPModules modules)
+      printPP config.json modules (← buildPPModules modules)
   | some command =>
     withSessionFor (← config.roots) (prepare config command)
       (command matches .query _) (runTimed · config)
@@ -215,7 +215,7 @@ private unsafe def cli : CliM UInt32 := do
     else
       match arguments with
       | ["search", pattern] => pure (some (.search pattern))
-      | "cache" :: modules => pure (some (.cache <| modules.toArray.map (·.toName)))
+      | "pp" :: modules => pure (some (.pp <| modules.toArray.map (·.toName)))
       | [name] => pure (some (.query name))
       | arguments => throw <| Lake.CliError.unexpectedArguments arguments
   unsafe execute config command
