@@ -25,3 +25,4 @@ first-query-root-bundle,9978,5,39299,new process immediately after the full PP r
 first-query-module-sidecars,9978,2,25145,new process after removing the root bundle; cold index pages still dominate
 mathlib-marker-hit,9978,375372,15,internal elapsed time; small root marker returns before loading the catalog
 cache-command-marker-hit,9978,375372,5,internal elapsed time after restoring the cache CLI boundary
+compact-catalog-build,9978,375372,25974,reused module fragments; catalog shrank 25.8% from 167387480 to 124277768 bytes

@@ -7,8 +7,8 @@ open Lean
 
 universe u
 
-/-- Searchable names and cached direct dependency postings in both directions. -/
-abbrev CatalogEntry := Name × String × Name × UInt32
+/-- Searchable names and their defining modules. Array positions are declaration IDs. -/
+abbrev CatalogEntry := Name × Name
 abbrev Catalog := Array CatalogEntry × Data.Trie (Array UInt32)
 abbrev Relations := Array (Array UInt32) × Array (Array UInt32)
 
@@ -51,7 +51,7 @@ private def nameAffinity (source : String) (sourceParts : List String)
 private def locality (entries : Array CatalogEntry) (sourceModule : Name)
     (sourceNameParts sourceModuleParts : List Name) (sourceLeaf : String)
     (sourceParts : List String) (candidate : UInt32) : Float :=
-  let (candidateName, _, candidateModule, _) := entries[candidate.toNat]!
+  let (candidateName, candidateModule) := entries[candidate.toNat]!
   (if sourceModule == candidateModule then 8.0 else 0.0) +
     4.0 * (commonPrefixLength sourceNameParts candidateName.components).toFloat +
     (commonPrefixLength sourceModuleParts candidateModule.components).toFloat +
@@ -103,15 +103,16 @@ def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
   let mut ids : NameMap UInt32 := {}
   for (name, moduleName, _) in declarations do
     let id := entries.size.toUInt32
-    entries := entries.push (name, name.toString.toLower, moduleName, id)
+    entries := entries.push (name, moduleName)
     ids := ids.insert name id
   let mut trigramIndex : Data.Trie (Array UInt32) := {}
-  for (_, lower, _, id) in entries do
+  for ((name, _), id) in entries.zipIdx do
     let mut seen : Std.HashSet String := {}
-    for trigram in stringTrigrams lower do
+    for trigram in stringTrigrams name.toString.toLower do
       unless seen.contains trigram do
         seen := seen.insert trigram
-        trigramIndex := trigramIndex.upsert trigram fun ids => (ids.getD #[]).push id
+        trigramIndex := trigramIndex.upsert trigram fun ids =>
+          (ids.getD #[]).push id.toUInt32
   let mut forward := Array.replicate entries.size #[]
   let mut reverse := Array.replicate entries.size #[]
   for (name, _, used) in declarations do
@@ -132,14 +133,21 @@ def Index.relations (index : Index) : Relations :=
 def Index.ofParts (catalog : Catalog) (relations : Relations) : Index :=
   { entries := catalog.1, trigrams := catalog.2, forward := relations.1, reverse := relations.2 }
 
-private def Index.findEntry? (index : Index) (name : Name) : Option CatalogEntry :=
-  index.entries.binSearch (name, "", .anonymous, 0) fun a b => Name.lt a.1 b.1
+private def Index.findId? (index : Index) (name : Name) : Option UInt32 := Id.run do
+  let mut lo := 0
+  let mut hi := index.entries.size
+  while lo < hi do
+    let mid := (lo + hi) / 2
+    let candidate := index.entries[mid]!.1
+    if candidate == name then return some mid.toUInt32
+    if Name.lt candidate name then lo := mid + 1 else hi := mid
+  return none
 
 def Index.size (index : Index) : Nat :=
   index.entries.size
 
 def Index.idOf? (index : Index) (name : Name) : Option UInt32 :=
-  index.findEntry? name |>.map fun (_, _, _, id) => id
+  index.findId? name
 
 private def Index.namesAt (index : Index) (ids : Array UInt32) : Array Name :=
   ids.map fun id => index.entries[id.toNat]!.1
@@ -147,7 +155,7 @@ private def Index.namesAt (index : Index) (ids : Array UInt32) : Array Name :=
 private def Index.rankIds (index : Index) (source : UInt32)
     (ids : Array UInt32) (upstream : Bool) (limit : Nat) : Array UInt32 := Id.run do
   if limit == 0 then return #[]
-  let (sourceName, _, sourceModule, _) := index.entries[source.toNat]!
+  let (sourceName, sourceModule) := index.entries[source.toNat]!
   let sourceNameParts := sourceName.components
   let sourceModuleParts := sourceModule.components
   let sourceLeaf := lastComponent sourceName
@@ -183,7 +191,7 @@ private def Index.rankIds (index : Index) (source : UInt32)
 
 private def Index.candidates (index : Index) (query : String) : Array UInt32 :=
   if query.length < 3 then
-    index.entries.map fun (_, _, _, id) => id
+    index.entries.mapIdx fun id _ => id.toUInt32
   else Id.run do
     let mut best : Option (Array UInt32) := none
     for trigram in stringTrigrams query do
@@ -197,7 +205,8 @@ private def Index.matchBuckets (index : Index) (query : String) (limit : Nat) :
   let suffix := "." ++ query
   let mut buckets : Array (Array Name) := #[#[], #[], #[]]
   for id in index.candidates query do
-    let (name, lower, _, _) := index.entries[id.toNat]!
+    let name := index.entries[id.toNat]!.1
+    let lower := name.toString.toLower
     let score? :=
       if lower == query then some 0
       else if lower.endsWith suffix then some 1
@@ -213,7 +222,7 @@ def Index.search (index : Index) (query : String) (limit : Nat := 20) : Array Na
 
 def Index.resolve (index : Index) (query : String) : Except String Name := do
   let exact := query.toName
-  if index.findEntry? exact |>.isSome then return exact
+  if index.findId? exact |>.isSome then return exact
   let candidates := (index.matchBuckets query 10).find? (not ∘ Array.isEmpty) |>.getD #[]
   if candidates.size == 1 then return candidates[0]!
   if candidates.isEmpty then throw s!"no declaration name contains '{query}'"
@@ -222,8 +231,8 @@ def Index.resolve (index : Index) (query : String) : Except String Name := do
 
 private def Index.related (index : Index) (name : Name) (upstream : Bool)
     (limit : Nat) : Array Name :=
-  match index.findEntry? name with
-  | some (_, _, _, id) =>
+  match index.findId? name with
+  | some id =>
     let ids := if upstream then index.forward[id.toNat]! else index.reverse[id.toNat]!
     index.namesAt (index.rankIds id ids upstream limit)
   | none => #[]
@@ -235,7 +244,7 @@ def Index.downstream (index : Index) (name : Name) (limit : Nat) : Array Name :=
   index.related name false limit
 
 def Index.moduleOf? (index : Index) (name : Name) : Option Name :=
-  index.findEntry? name |>.map fun (_, _, moduleName, _) => moduleName
+  index.findId? name |>.map fun id => index.entries[id.toNat]!.2
 
 def Index.modulesFor (index : Index) (names : Array Name) : Array Name := Id.run do
   let mut seen : NameHashSet := {}
@@ -249,11 +258,11 @@ def Index.modulesFor (index : Index) (names : Array Name) : Array Name := Id.run
 
 def Index.namesInModules (index : Index) (modules : Array Name) : Array Name :=
   let wanted := modules.foldl (init := ({} : NameHashSet)) (·.insert ·)
-  index.entries.filterMap fun (name, _, moduleName, _) =>
+  index.entries.filterMap fun (name, moduleName) =>
     if wanted.contains moduleName then some name else none
 
 def Index.declarationsByModule (index : Index) : NameMap (Array Name) :=
-  index.entries.foldl (init := {}) fun modules (name, _, moduleName, _) =>
+  index.entries.foldl (init := {}) fun modules (name, moduleName) =>
     modules.insert moduleName ((modules.find? moduleName).getD #[] |>.push name)
 
 end LeanReach
