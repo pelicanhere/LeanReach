@@ -10,8 +10,8 @@ namespace LeanReach.Cache
 open Lean
 
 private def catalogVersion := 1
-private def relationsVersion := 1
-private def fragmentVersion := 2
+private def relationsVersion := 2
+private def fragmentVersion := 3
 private def renderVersion := 2
 
 structure ModuleFragment where
@@ -51,6 +51,22 @@ private def sourceNames (olean : System.FilePath) : IO (Std.HashSet String) := d
       if let .const _ name := ident then names := names.insert name
   return names
 
+private def collapseInternal (internal : NameMap NameSet) (dependencies : NameSet) : NameSet :=
+  Id.run do
+    let mut pending : Array Name := #[]
+    for dependency in dependencies do pending := pending.push dependency
+    let mut seen : NameHashSet := {}
+    let mut result : NameSet := {}
+    while let some name := pending.back? do
+      pending := pending.pop
+      unless seen.contains name do
+        seen := seen.insert name
+        match internal.find? name with
+        | some dependencies =>
+          for dependency in dependencies do pending := pending.push dependency
+        | none => result := result.insert name
+    return result
+
 private unsafe def readFragment (moduleName : Name) (olean : System.FilePath) :
     IO (ModuleFragment × Array CompactedRegion) := do
   let mut paths := #[olean]
@@ -61,12 +77,16 @@ private unsafe def readFragment (moduleName : Name) (olean : System.FilePath) :
   let some (data, _) := parts.back? |
     throw <| IO.userError s!"empty module data for '{moduleName}'"
   let source ← sourceNames olean
+  let internal := data.constants.foldl (init := ({} : NameMap NameSet)) fun internal info =>
+    if isBlackListed info.name then
+      internal.insert info.name info.getUsedConstantsAsSet
+    else internal
   return ({
     imports := data.imports.map (·.module)
     declarations := data.constants.filterMap fun info =>
       let name := info.name
       if source.contains name.toString && !isBlackListed name then
-        some (name, info.getUsedConstantsAsSet)
+        some (name, collapseInternal internal info.getUsedConstantsAsSet)
       else none
   }, parts.map (·.2))
 

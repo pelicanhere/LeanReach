@@ -45,6 +45,10 @@ private unsafe def runTests : IO Unit :=
       (usedResult.downstream.any fun declaration =>
         declaration.name == "LeanReachFixture.double_zero_again")
       "proof-only downstream relation is missing"
+    check
+      (usedResult.downstream.any fun declaration =>
+        declaration.name == "LeanReachFixture.double_zero_via_private")
+      "dependency through a private proof helper is missing"
 
     let rankedResult ← session.query "LeanReachFixture.Topic.ranked" 1 1
     check (rankedResult.upstream.size == 1)
