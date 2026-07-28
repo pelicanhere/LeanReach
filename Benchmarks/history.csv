@@ -350,3 +350,30 @@ limit-10-partial-cache,span_eq_span,rg,214.151,1,distinct query
 limit-10-partial-cache,span_insert_zero,rg,198.904,1,distinct query
 limit-10-partial-cache,span_empty,rg,220.219,1,distinct query
 limit-10-partial-cache,span_univ,rg,197.642,1,distinct query
+pp-limits-cleanup,span_int_eq_addSubgroupClosure,leanreach_session,130.894,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,span_int_eq,leanreach_session,4.774,2,distinct query; executables primed without a declaration query
+pp-limits-cleanup,span_iUnion₂,leanreach_session,8.826,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,span_sInf_le,leanreach_session,4.624,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,span_biInter,leanreach_session,6.873,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,coe_iSup_of_chain,leanreach_session,21.749,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,codisjoint_iff_exists_add_eq,leanreach_session,39.763,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,forall_mem_sup,leanreach_session,24791.787,7,distinct query; executables primed without a declaration query
+pp-limits-cleanup,span_range_update_add_smul,leanreach_session,13.364,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,span_int_eq_addSubgroupClosure,leanreach_process,112.497,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,span_int_eq,leanreach_process,115.543,2,distinct query; executables primed without a declaration query
+pp-limits-cleanup,span_iUnion₂,leanreach_process,114.562,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,span_sInf_le,leanreach_process,111.207,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,span_biInter,leanreach_process,106.110,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,coe_iSup_of_chain,leanreach_process,108.471,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,codisjoint_iff_exists_add_eq,leanreach_process,110.794,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,forall_mem_sup,leanreach_process,117.860,7,distinct query; executables primed without a declaration query
+pp-limits-cleanup,span_range_update_add_smul,leanreach_process,107.784,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,span_int_eq_addSubgroupClosure,rg,239.124,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,span_int_eq,rg,191.763,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,span_iUnion₂,rg,242.220,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,span_sInf_le,rg,207.146,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,span_biInter,rg,190.254,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,coe_iSup_of_chain,rg,211.046,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,codisjoint_iff_exists_add_eq,rg,192.119,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,forall_mem_sup,rg,235.136,1,distinct query; executables primed without a declaration query
+pp-limits-cleanup,span_range_update_add_smul,rg,189.470,1,distinct query; executables primed without a declaration query

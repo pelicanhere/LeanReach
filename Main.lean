@@ -75,7 +75,7 @@ OPTIONS:
   -h, --help            show this help
 
 Without `--module`, combine built local lean_lib roots with required Mathlib.
-With no modules, `cache` pre-renders the complete detected view and resumes module by module.
+With no modules, `cache` precomputes PP for the detected view and resumes module by module.
 In interactive mode, enter a declaration name or `search PATTERN` on each line.
 "
 
@@ -91,9 +91,7 @@ private def printRelated (label : String) (items : Array Declaration) : IO Unit 
   IO.println s!"{label} ({items.size})"
   if items.isEmpty then IO.println "  <none>"
   for (declaration, index) in items.zipIdx do
-    let marker := s!"  [{index + 1}] "
-    IO.println <| marker ++ declaration.signature.replace "\n" "\n      "
-    IO.println s!"      {location declaration}"
+    printDeclaration s!"  [{index + 1}] " declaration
 
 private def printQuery (json : Bool) (result : QueryResult) : IO Unit := do
   if json then
@@ -111,11 +109,8 @@ private def printSearch (json : Bool) (query : String) (items : Array Declaratio
     for declaration in items do
       printDeclaration "  " declaration
 
-private def Config.limitOr (config : Config) (default : Nat) : Nat :=
-  config.limit?.getD default
-
-private def Config.queryLimit (config : Config) : Nat :=
-  config.limitOr 10
+private def Config.limits (config : Config) : Limits :=
+  config.limit?.map Limits.uniform |>.getD {}
 
 private def printCached (json : Bool) (modules : Array Name) (count : Nat) : IO Unit := do
   if json then
@@ -130,11 +125,11 @@ private def runOne (session : Session) (config : Config) (command : Command)
     (selected? : Option (Array Name) := none) : CoreM Unit := do
   match command with
   | .query name =>
-    printQuery config.json <| ← session.query name config.queryLimit config.queryLimit
+    printQuery config.json <| ← session.query name config.limits
   | .search pattern =>
     let items ← match selected? with
       | some names => session.describeNames names
-      | none => session.search pattern (config.limitOr 20)
+      | none => session.search pattern config.limits.search
     printSearch config.json pattern items
   | .cache modules =>
     let count ← session.cacheModules modules
@@ -151,11 +146,10 @@ private def commandNames (config : Config) (command : Command) (index : Index) :
     Except String (Array Name) := do
   match command with
   | .query query =>
-    let (target, upstream, downstream) ←
-      index.queryNames query config.queryLimit config.queryLimit
+    let (target, upstream, downstream) ← index.queryNames query config.limits
     return #[target] ++ upstream ++ downstream
   | .search pattern =>
-    return index.search pattern (config.limitOr 20)
+    return index.search pattern config.limits.search
   | .cache modules =>
     return index.namesInModules modules
 

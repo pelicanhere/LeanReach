@@ -11,8 +11,8 @@ artifacts for local libraries:
 - read each built module's `.olean`, `.olean.server`, `.olean.private`, and `.ilean` directly;
 - cache a small dependency fragment per module and materialize separate name and relation indexes;
 - plan the bounded query from the index, then import only result modules for pretty-printing;
-- persist rendered declarations per module, reuse them across roots, and skip imports when cached;
-- pre-render a complete root in short-lived module workers with a root progress checkpoint;
+- persist pretty-printed declarations per module, reuse them across roots, and skip imports when cached;
+- precompute PP for a complete root in short-lived module workers with a progress checkpoint;
 - pack a completed root into one memory-mapped declaration array for constant-time lookup;
 - use Lean's own delaborator and pretty-printer;
 - hide compiler-generated declarations using Loogle/doc-gen-style filtering;
@@ -21,7 +21,7 @@ artifacts for local libraries:
 
 Module fragments and the materialized index are checked against Lake's transitive `depHash`; modules
 without Lake traces use Lake's binary hash of all available `.olean` parts. A local rebuild therefore
-invalidates only the affected fragments, rendered declarations, and root view. Both directions use
+invalidates only the affected fragments, pretty-printed declarations, and root view. Both directions use
 `ConstantInfo.getUsedConstantsAsSet`, which includes the type and the proof or implementation body.
 
 ## Build and test
@@ -64,10 +64,10 @@ lake exe leanreach Submodule.span_le
 # Machine-readable output.
 lake exe leanreach Submodule.span_le --json
 
-# Pre-render the complete detected view. This resumes at the next incomplete module if interrupted.
+# Precompute PP for the detected view. This resumes at the next incomplete module if interrupted.
 lake exe leanreach cache
 
-# Or pre-render only selected built modules.
+# Or precompute PP only for selected built modules.
 lake exe leanreach cache Mathlib.LinearAlgebra.Span.Defs
 
 # A narrower root imports and indexes much less than all of Mathlib.
@@ -111,7 +111,7 @@ import.
 
 On the development Windows machine, a PP-hot chain of nine distinct name searches had a 2.54 ms
 median session latency versus 220 ms for `rg` (1.16%). A separate chain of nine distinct exact
-dependency queries, with every selected declaration pre-rendered and no render writes during the
+dependency queries, with every selected declaration cached and no PP writes during the
 run, had a 5.04 ms median versus 288 ms for `rg` (1.75%). Its complete session, including startup
 and exit, took 254 ms versus 2.63 seconds for nine separate `rg` scans (9.67%). A one-shot
 LeanReach process still costs about 119 ms, so agents should keep the NDJSON session alive.
@@ -135,7 +135,7 @@ is cached under `.lake` and invalidated by the Lake configuration hash.
 discovers the project and dependency build directories plus their source roots. `lake env` remains
 supported for projects with custom Lake build or source directories.
 
-After `lake build`, pre-render the complete built root once:
+After `lake build`, precompute PP for the complete built root once:
 
 ```console
 /path/to/leanreach cache
@@ -193,7 +193,7 @@ with [Lucene's smoothed IDF](https://lucene.apache.org/core/9_4_2/core/org/apach
 LeanReach/Index.lean  names, direct-reference postings, and resolution
 LeanReach/Cache.lean  persistent index serialization and freshness checks
 LeanReach/BlackListed.lean  generated-declaration filtering
-LeanReach/Query.lean  rendering, source locations, and sessions
+LeanReach/Query.lean  pretty-printing, source locations, and sessions
 LeanReach/Project.lean  Lake project and built-module discovery
 LeanReach.lean        environment-loading facade
 Main.lean             Lake ArgsT CLI and interactive transport

@@ -15,7 +15,7 @@ private unsafe def runTests : IO Unit := do
   unless roots.contains `Mathlib do
     throw <| IO.userError "required Mathlib was not detected"
   withSession #[`Tests.Fixture] fun session => do
-    let result ← session.query "LeanReachFixture.double" 100 100
+    let result ← session.query "LeanReachFixture.double" (Limits.uniform 100)
     check result.target.file.isSome
       "local declaration has no source file"
     check (result.target.line == 5)
@@ -31,7 +31,7 @@ private unsafe def runTests : IO Unit := do
         declaration.name == "LeanReachFixture.double_eq_add")
       "downstream relation is missing"
 
-    let theoremResult ← session.query "LeanReachFixture.double_eq_add" 100 100
+    let theoremResult ← session.query "LeanReachFixture.double_eq_add" (Limits.uniform 100)
     check (theoremResult.target.signature.contains "n + n")
       "theorem signature was not pretty-printed with notation"
     check
@@ -39,13 +39,13 @@ private unsafe def runTests : IO Unit := do
         declaration.name == "LeanReachFixture.double")
       "upstream relation is missing"
 
-    let proofResult ← session.query "LeanReachFixture.double_zero_again" 100 100
+    let proofResult ← session.query "LeanReachFixture.double_zero_again" (Limits.uniform 100)
     check
       (proofResult.upstream.any fun declaration =>
         declaration.name == "LeanReachFixture.double_zero")
       "proof-only upstream relation is missing"
 
-    let usedResult ← session.query "LeanReachFixture.double_zero" 100 100
+    let usedResult ← session.query "LeanReachFixture.double_zero" (Limits.uniform 100)
     check
       (usedResult.downstream.any fun declaration =>
         declaration.name == "LeanReachFixture.double_zero_again")
@@ -55,7 +55,7 @@ private unsafe def runTests : IO Unit := do
         declaration.name == "LeanReachFixture.double_zero_via_private")
       "dependency through a private proof helper is missing"
 
-    let rankedResult ← session.query "LeanReachFixture.Topic.ranked" 1 1
+    let rankedResult ← session.query "LeanReachFixture.Topic.ranked" (Limits.uniform 1)
     check (rankedResult.upstream.size == 1)
       "dependency limit was not applied during ranking"
     let some first := rankedResult.upstream[0]? |

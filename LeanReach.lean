@@ -67,10 +67,10 @@ private unsafe def runSession {α : Type} (index : Index) (session : Session)
   let missing ← session.missing names
   if wholeModules then
     for moduleName in index.modulesFor missing do
-      session.merge (← unsafe Cache.loadRenderedModule moduleName)
+      session.merge (← unsafe Cache.loadPPModule moduleName)
   else
-    session.merge (← unsafe Cache.loadRendered index missing)
-  let before ← session.rendered
+    session.merge (← unsafe Cache.loadPP index missing)
+  let before ← session.ppCache
   let modules := modules?.getD <|
     index.modulesFor (← session.missing names)
   let env ←
@@ -82,10 +82,10 @@ private unsafe def runSession {α : Type} (index : Index) (session : Session)
     action
     { fileName := "<leanreach>", fileMap := default }
     { env }
-  let after ← session.rendered
+  let after ← session.ppCache
   if after.size != before.size then
-    try unsafe Cache.saveRendered before after
-    catch _ => IO.eprintln "leanreach: could not write rendered declaration cache"
+    try unsafe Cache.savePP before after
+    catch _ => IO.eprintln "leanreach: could not write pretty-print cache"
   return result
 
 private unsafe def withIndexSession {α : Type} (roots : Array Name)
@@ -96,11 +96,11 @@ private unsafe def withIndexSession {α : Type} (roots : Array Name)
   let sourcePath ← prepareEnvironment
   let index ← unsafe Cache.loadIndex roots loadRelations
   let names ← selectNames index select
-  let session ← Session.create index sourcePath (← unsafe Cache.loadRenderedBundle roots index)
+  let session ← Session.create index sourcePath (← unsafe Cache.loadPPBundle roots index)
   unsafe runSession index session names (if forceRootImport then some roots else none) false
     (action session)
 
-/-- Import only the modules needed to render the selected declarations. -/
+/-- Import only the modules needed to pretty-print the selected declarations. -/
 unsafe def withSessionFor {α : Type} (roots : Array Name)
     (select : Index → Except String (Array Name)) (loadRelations : Bool)
     (action : Session → CoreM α) : IO α :=
@@ -117,7 +117,7 @@ unsafe def withLazySession {α : Type} (roots : Array Name)
     (action : Session → SessionRunner → IO α) : IO α := do
   let sourcePath ← prepareEnvironment
   let index ← unsafe Cache.loadIndex roots true
-  let session ← Session.create index sourcePath (← unsafe Cache.loadRenderedBundle roots index)
+  let session ← Session.create index sourcePath (← unsafe Cache.loadPPBundle roots index)
   let run : SessionRunner := fun select query => do
     let names ← selectNames index select
     discard <| unsafe runSession index session names none true (query names)
@@ -129,16 +129,16 @@ unsafe def detectRoots : IO (Array Name) := do
     throw <| IO.userError "could not detect a built local lean_lib or required Mathlib; use --module"
   return roots
 
-/-- Pre-render every declaration below a root, checkpointing once per defining module. -/
+/-- Pretty-print every declaration below a root, checkpointing once per defining module. -/
 unsafe def cacheRoots (roots : Array Name)
     (progress : Name → Nat → Nat → IO Unit := fun _ _ _ => pure ()) : IO Nat := do
   discard <| prepareEnvironment
   let index ← unsafe Cache.loadIndex roots false
-  if ← unsafe Cache.isFullyRendered roots then
-    if (← unsafe Cache.loadRenderedBundle roots index).isEmpty then
-      unsafe Cache.saveRenderedBundle roots index
+  if ← unsafe Cache.isFullyPP roots then
+    if (← unsafe Cache.loadPPBundle roots index).isEmpty then
+      unsafe Cache.savePPBundle roots index
     return 0
-  let mut completed ← unsafe Cache.loadRenderProgress roots
+  let mut completed ← unsafe Cache.loadPPProgress roots
   let mut pending := #[]
   for (moduleName, names) in index.declarationsByModule do
     unless completed.contains moduleName do
@@ -147,7 +147,7 @@ unsafe def cacheRoots (roots : Array Name)
   unless pending.isEmpty do
     let executable ← IO.appPath
     for ((moduleName, names), done) in pending.zipIdx do
-      let before ← unsafe Cache.loadRenderedModule moduleName
+      let before ← unsafe Cache.loadPPModule moduleName
       unless names.all before.contains do
         let command := #["cache", moduleName.toString, "--json"]
         let args :=
@@ -157,15 +157,15 @@ unsafe def cacheRoots (roots : Array Name)
         let output ← IO.Process.output { cmd := executable.toString, args }
         unless output.exitCode == 0 do
           throw <| IO.userError s!"failed to cache '{moduleName}': {output.stderr.trimAscii.copy}"
-        let after ← unsafe Cache.loadRenderedModule moduleName
+        let after ← unsafe Cache.loadPPModule moduleName
         unless names.all after.contains do
           throw <| IO.userError s!"incomplete cache for '{moduleName}'"
         count := count + after.size - before.size
       completed := completed.insert moduleName
-      unsafe Cache.saveRenderProgress roots completed
+      unsafe Cache.savePPProgress roots completed
       progress moduleName (done + 1) pending.size
-  unsafe Cache.saveRenderedBundle roots index
-  unsafe Cache.markFullyRendered roots
+  unsafe Cache.savePPBundle roots index
+  unsafe Cache.markFullyPP roots
   return count
 
 end LeanReach
