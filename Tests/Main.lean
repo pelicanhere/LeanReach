@@ -9,6 +9,7 @@ private def check (condition : Bool) (message : String) : CoreM Unit :=
   unless condition do throwError message
 
 private unsafe def runTests : IO Unit := do
+  discard <| unsafe prepareEnvironment
   let duplicateIndex := Index.build #[
     (`LeanReachFixture.a, `Tests.Fixture, ({} : NameSet).insert `LeanReachFixture.b),
     (`LeanReachFixture.a, `Tests.Fixture, ({} : NameSet).insert `LeanReachFixture.c),
@@ -40,6 +41,12 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "short query resolved to the wrong declaration"
   let .error _ ← unsafe QueryCache.resolve #[`Tests.Fixture] "duplicateLeaf" |
     throw <| IO.userError "ambiguous short query was not rejected"
+  let some cachedSearch ← unsafe QueryCache.search #[`Tests.Fixture] "duplicateLeaf" 10 |
+    throw <| IO.userError "complete leaf search did not use its shard"
+  unless cachedSearch.map (·.name) == fixtureIndex.search "duplicateLeaf" 10 do
+    throw <| IO.userError "cached leaf search changed search ordering"
+  if (← unsafe QueryCache.search #[`Tests.Fixture] "doubleVia" 10).isSome then
+    throw <| IO.userError "substring search incorrectly used a single name shard"
   withSession #[`Tests.Fixture] fun index session => do
     let fixtureNames ← unsafe Cache.moduleNames `Tests.Fixture
     check (fixtureNames.contains `LeanReachFixture.double)

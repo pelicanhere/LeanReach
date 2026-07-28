@@ -11,15 +11,15 @@ from pathlib import Path
 
 
 QUERIES = (
-    "span_eq_bot",
-    "map_span",
-    "span_image",
-    "span_eq_top",
-    "span_singleton_eq_bot",
-    "span_preimage_le",
-    "finrank_span_eq_finrank_span",
-    "tensorToSpan",
-    "span_range_inclusionSpan",
+    "padicValuation_cast",
+    "surjective_padicValuation",
+    "stationaryPoint_spec",
+    "equiv_zero_of_val_eq_of_equiv_zero",
+    "norm_eq_zpow_neg_valuation",
+    "norm_values_discrete",
+    "eq_padic_norm'",
+    "exi_rat_seq_conv_cauchy",
+    "norm_intCast_lt_one_iff",
 )
 
 

@@ -109,11 +109,10 @@ The process emits one compact JSON value per line and flushes stdout after every
 the dependency index once but does not import Mathlib at startup. Each query loads only its selected
 module PP sidecars into the session; only a missing declaration triggers a bounded module import.
 
-On the development Windows machine, corrected binary-pipe runs of fresh PP-cached name searches
-had 2.85–3.88 ms median session latency versus 203–217 ms for `rg` (1.31–1.91%); selectivity of the
-name fragment accounts for the range. Reusing the session's empty Lean environment reduced a
-steady cached dependency query from 2.42 ms to 1.30 ms. A one-shot LeanReach process still costs
-about 110 ms, so agents should keep the NDJSON session alive.
+On the development Windows machine, nine distinct PP-cached complete-leaf searches had 9.39 ms
+median session latency and 100.87 ms median one-shot latency, versus 204.68 ms for `rg`. The first
+session result was 25.03 ms; the other eight were 1.56–20.22 ms. A one-shot process is dominated by
+Windows loading the Lean runtime DLLs, so agents should keep the NDJSON session alive when possible.
 
 ## Web frontend
 
@@ -176,11 +175,13 @@ took 29.9 seconds in two 32-module import waves, 15.3 seconds with one import, a
 four pretty-print tasks.
 
 The root cache also materializes the current default top ten upstream and downstream results into
-hash-partitioned query shards. Fully qualified names and unique final-component names therefore read
-one small plan shard and only the selected module PP sidecars; ambiguous final components are reported
-from that same shard. Each shard uses a local module dictionary instead of repeating module names in
-every relation. General substring matching and limits above ten deliberately fall back to the complete
-index so they preserve the same matching and ranking semantics.
+hash-partitioned query shards. Dependency queries by fully qualified name or unique final component
+therefore read one small plan shard and only the selected module PP sidecars; ambiguous final
+components are reported from that same shard. Name search also uses one shard for a complete full
+name or final component while preserving exact-before-suffix ordering. Each shard uses a local module
+dictionary instead of repeating module names in every relation. General substring matching, and
+dependency limits above ten, deliberately fall back to the complete index so they preserve the same
+matching and ranking semantics.
 
 ## Dependency semantics
 

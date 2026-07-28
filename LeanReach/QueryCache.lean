@@ -150,4 +150,26 @@ unsafe def resolve (roots : Array Name) (query : String) :
   let options := candidates.take 10 |>.map fun (name, _) => s!"  {name}"
   return .error s!"ambiguous declaration '{query}':\n{String.intercalate "\n" options}"
 
+private def target? (modules : Array Name) (line : String) : Option LocatedName := do
+  let name :: moduleId :: _ := line.splitOn "\t" | none
+  let some moduleName := moduleId.toNat? >>= fun id => modules[id]? | none
+  return { name := name.toName, moduleName }
+
+unsafe def search (roots : Array Name) (query : String)
+    (limit : Nat) : IO (Option (Array LocatedName)) := do
+  let name := query.toName
+  let some (modules, lines) ← unsafe loadShard roots name | return none
+  let wanted := query.toLower
+  let mut exact := #[]
+  let mut suffix := #[]
+  for line in lines do
+    let some target := target? modules line | continue
+    let lower := target.name.toString.toLower
+    if lower == wanted then
+      exact := exact.push target
+    else if name.isAtomic && (leaf target.name).toLower == wanted then
+      suffix := suffix.push target
+  let results := (exact ++ suffix).take limit
+  return if results.isEmpty then none else some results
+
 end LeanReach.QueryCache

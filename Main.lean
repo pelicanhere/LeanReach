@@ -197,9 +197,11 @@ private unsafe def execute (config : Config) (command? : Option Command) : IO UI
     if (← withCachedQueryFor roots query limits fun session names =>
         runTimed session config (.query names)).isNone then
       withSessionFor roots (prepare config (.query query)) true (runTimed · config)
-  | some command =>
-    withSessionFor (← config.roots) (prepare config command)
-      false (runTimed · config)
+  | some (.search pattern) =>
+    let roots ← config.roots
+    if (← withCachedSearchFor roots pattern config.limits.search fun session names =>
+        runTimed session config (.search pattern names)).isNone then
+      withSessionFor roots (prepare config (.search pattern)) false (runTimed · config)
   | none =>
     withLazySession (← config.roots) fun session run => runInteractive session run config
   if config.profile then

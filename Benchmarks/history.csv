@@ -809,3 +809,30 @@ pp-root-bundle,span_preimage_le,rg,232.848,1,distinct query in a fully precomput
 pp-root-bundle,finrank_span_eq_finrank_span,rg,183.734,1,distinct query in a fully precomputed root PP bundle
 pp-root-bundle,tensorToSpan,rg,209.096,1,distinct query in a fully precomputed root PP bundle
 pp-root-bundle,span_range_inclusionSpan,rg,189.245,1,distinct query in a fully precomputed root PP bundle
+leaf-shard-search,padicValuation_cast,leanreach_session,25.032,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,surjective_padicValuation,leanreach_session,5.541,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,stationaryPoint_spec,leanreach_session,9.390,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,equiv_zero_of_val_eq_of_equiv_zero,leanreach_session,10.048,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,norm_eq_zpow_neg_valuation,leanreach_session,20.220,3,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,norm_values_discrete,leanreach_session,5.500,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,eq_padic_norm',leanreach_session,1.560,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,exi_rat_seq_conv_cauchy,leanreach_session,6.617,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,norm_intCast_lt_one_iff,leanreach_session,10.854,2,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,padicValuation_cast,leanreach_process,97.340,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,surjective_padicValuation,leanreach_process,101.417,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,stationaryPoint_spec,leanreach_process,97.622,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,equiv_zero_of_val_eq_of_equiv_zero,leanreach_process,102.277,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,norm_eq_zpow_neg_valuation,leanreach_process,106.854,3,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,norm_values_discrete,leanreach_process,100.874,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,eq_padic_norm',leanreach_process,97.909,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,exi_rat_seq_conv_cauchy,leanreach_process,109.975,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,norm_intCast_lt_one_iff,leanreach_process,94.868,2,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,padicValuation_cast,rg,239.534,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,surjective_padicValuation,rg,180.638,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,stationaryPoint_spec,rg,181.768,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,equiv_zero_of_val_eq_of_equiv_zero,rg,214.396,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,norm_eq_zpow_neg_valuation,rg,187.291,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,norm_values_discrete,rg,180.680,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,eq_padic_norm',rg,218.513,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,exi_rat_seq_conv_cauchy,rg,204.679,1,distinct query with fully precomputed module PP sidecars
+leaf-shard-search,norm_intCast_lt_one_iff,rg,235.831,1,distinct query with fully precomputed module PP sidecars

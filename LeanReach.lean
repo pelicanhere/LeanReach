@@ -73,6 +73,17 @@ unsafe def withCachedQueryFor {α : Type} (roots : Array Name) (query : String)
   return some (← unsafe runSession cached.moduleOf? session names.all none false none
     (action session names))
 
+/-- Search complete declaration names from a query shard without loading the catalog. -/
+unsafe def withCachedSearchFor {α : Type} (roots : Array Name) (query : String)
+    (limit : Nat) (action : Session → Array Name → CoreM α) : IO (Option α) := do
+  let sourcePath ← prepareEnvironment
+  let some targets ← unsafe QueryCache.search roots query limit | return none
+  let names := targets.map (·.name)
+  let moduleOf? name := targets.find? (·.name == name) |>.map (·.moduleName)
+  let session ← Session.create sourcePath
+  return some (← unsafe runSession moduleOf? session names none false none
+    (action session names))
+
 /-- Import the root modules once and reuse their environment and index for the entire action. -/
 unsafe def withSession {α : Type} (roots : Array Name)
     (action : Index → Session → CoreM α) : IO α :=
