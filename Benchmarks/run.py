@@ -11,15 +11,15 @@ from pathlib import Path
 
 
 QUERIES = (
-    "dist_eq_norm_inv_mul'",
-    "norm_zpow_isUnit",
-    "norm_mul₄_le'",
-    "norm_le_mul_norm_add'",
-    "norm_div_eq_norm_left",
-    "mem_sphere_iff_norm_inv_mul_eq",
-    "NormedGroup.uniformity_basis_dist",
-    "nnnorm_pow_natAbs",
-    "toReal_coe_nnnorm'",
+    "nndist_one_left",
+    "nnnorm_mul_le'",
+    "nnnorm_le_mul_nnnorm_add'",
+    "nnnorm_div_eq_nnnorm_left",
+    "exists_enorm_lt'",
+    "enorm_mul₄_le'",
+    "enorm_pos'",
+    "SeminormedGroup.disjoint_nhds",
+    "norm_multiset_prod_le",
 )
 
 

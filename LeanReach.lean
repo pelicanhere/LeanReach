@@ -130,6 +130,26 @@ unsafe def detectRoots : IO (Array Name) := do
     throw <| IO.userError "could not detect a built local lean_lib or required Mathlib; use --module"
   return roots
 
+private def cacheWorkerArgs (roots modules : Array Name) : Array String :=
+  let command := #["cache"] ++ modules.map (·.toString) ++ #["--json"]
+  if roots.size == 1 then #["--module", roots[0]!.toString] ++ command else command
+
+private def runCacheWorker (executable : System.FilePath)
+    (roots modules : Array Name) : IO Unit := do
+  let output ← IO.Process.output {
+    cmd := executable.toString
+    args := cacheWorkerArgs roots modules
+  }
+  unless output.exitCode == 0 do
+    throw <| IO.userError s!"failed to cache '{modules}': {output.stderr.trimAscii.copy}"
+
+private unsafe def requirePPModule (moduleName : Name) (names : Array Name) :
+    IO (NameMap Declaration) := do
+  let declarations ← unsafe Cache.loadPPModule moduleName
+  unless names.all declarations.contains do
+    throw <| IO.userError s!"incomplete cache for '{moduleName}'"
+  return declarations
+
 /-- Pretty-print every declaration below a root, checkpointing once per defining module. -/
 unsafe def cacheRoots (roots : Array Name)
     (progress : Name → Nat → Nat → IO Unit := fun _ _ _ => pure ()) : IO Nat := do
@@ -150,17 +170,8 @@ unsafe def cacheRoots (roots : Array Name)
     for ((moduleName, names), done) in pending.zipIdx do
       let before ← unsafe Cache.loadPPModule moduleName
       unless names.all before.contains do
-        let command := #["cache", moduleName.toString, "--json"]
-        let args :=
-          if roots.size == 1 then
-            #["--module", roots[0]!.toString] ++ command
-          else command
-        let output ← IO.Process.output { cmd := executable.toString, args }
-        unless output.exitCode == 0 do
-          throw <| IO.userError s!"failed to cache '{moduleName}': {output.stderr.trimAscii.copy}"
-        let after ← unsafe Cache.loadPPModule moduleName
-        unless names.all after.contains do
-          throw <| IO.userError s!"incomplete cache for '{moduleName}'"
+        runCacheWorker executable roots #[moduleName]
+        let after ← unsafe requirePPModule moduleName names
         count := count + after.size - before.size
       completed := completed.insert moduleName
       unsafe Cache.savePPProgress roots completed
