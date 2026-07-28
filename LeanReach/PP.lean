@@ -6,35 +6,51 @@ namespace LeanReach
 
 open Lean
 
-private unsafe def buildModule (sourcePath : SearchPath) (env : Environment)
-    (moduleName : Name) (names : Array Name) (before : NameMap Declaration) : IO Nat := do
-  let added ← unsafe runCore env (prettyPrintModule sourcePath moduleName names)
+private abbrev Input := Name × Array Name × NameMap Declaration
+
+private def parallelism : IO Nat := do
+  let some value ← IO.getEnv "LEANREACH_PP_JOBS" | return 4
+  let some workers := value.toNat? | return 4
+  return max 1 (min workers 32)
+
+private unsafe def saveModule (moduleName : Name) (before added : NameMap Declaration) :
+    IO Nat := do
   let mut after := before
   for (name, declaration) in added do
     after := after.insert name declaration
   unsafe Cache.savePPModule moduleName after
   return added.size
 
+private unsafe def buildModules (sourcePath : SearchPath) (env : Environment)
+    (inputs : Array Input) (progress : Name → Nat → IO Unit := fun _ _ => pure ()) : IO Nat := do
+  let workers ← parallelism
+  let mut count := 0
+  let mut offset := 0
+  while offset < inputs.size do
+    let stop := min inputs.size (offset + workers)
+    let batch := inputs.extract offset stop
+    let tasks ← batch.mapM fun (moduleName, names, _) =>
+      IO.asTask (unsafe runCore env (prettyPrintModule sourcePath moduleName names))
+    for (((moduleName, _, before), task), done) in (batch.zip tasks).zipIdx do
+      count := count + (← unsafe saveModule moduleName before (← IO.ofExcept task.get))
+      progress moduleName (offset + done + 1)
+    offset := stop
+  return count
+
 unsafe def buildPPModules (modules : Array Name) : IO Nat := do
   let sourcePath ← prepareEnvironment
-  let mut active := #[]
-  let mut inputs : NameMap (Array Name × NameMap Declaration) := {}
+  let mut inputs : Array Input := #[]
   for moduleName in modules do
     let names ← unsafe Cache.moduleNames moduleName
     let before ← unsafe Cache.loadPPModule moduleName
     let missing := names.filter fun name => !before.contains name
     unless missing.isEmpty do
-      active := active.push moduleName
-      inputs := inputs.insert moduleName (missing, before)
-  if active.isEmpty then return 0
+      inputs := inputs.push (moduleName, missing, before)
+  if inputs.isEmpty then return 0
   let env ← do
     Lean.enableInitializersExecution
-    importModules (loadExts := true) (active.map fun module => { module }) {}
-  let mut count := 0
-  for moduleName in active do
-    let (names, before) := (inputs.find? moduleName).getD (#[], {})
-    count := count + (← unsafe buildModule sourcePath env moduleName names before)
-  return count
+    importModules (loadExts := true) (inputs.map fun (module, _, _) => { module }) {}
+  unsafe buildModules sourcePath env inputs
 
 /-- Pretty-print every declaration below a root, checkpointing once per defining module. -/
 unsafe def buildPPRoots (roots : Array Name)
@@ -52,27 +68,24 @@ unsafe def buildPPRoots (roots : Array Name)
       pending := pending.push (moduleName, names)
   let mut count := 0
   unless pending.isEmpty do
-    let mut inputs : NameMap (Array Name × NameMap Declaration) := {}
+    let mut inputs : Array Input := #[]
     for (moduleName, names) in pending do
       let before ← unsafe Cache.loadPPModule moduleName
       let missing := names.filter fun name => !before.contains name
-      unless missing.isEmpty do
-        inputs := inputs.insert moduleName (missing, before)
-    let env? ←
-      if inputs.isEmpty then pure none
+      if missing.isEmpty then
+        completed := completed.insert moduleName
       else
-        Lean.enableInitializersExecution
-        pure <| some (← importModules (loadExts := true)
-          (roots.map fun module => { module }) {})
-    for ((moduleName, _), done) in pending.zipIdx do
-      if let some (names, before) := inputs.find? moduleName then
-        let some env := env? |
-          throw <| IO.userError "missing PP environment"
-        count := count + (← unsafe buildModule sourcePath env moduleName names before)
-      completed := completed.insert moduleName
-      progress moduleName (done + 1) pending.size
-      if done % 32 == 31 || done + 1 == pending.size then
-        unsafe Cache.savePPProgress roots completed
+        inputs := inputs.push (moduleName, missing, before)
+    unsafe Cache.savePPProgress roots completed
+    unless inputs.isEmpty do
+      Lean.enableInitializersExecution
+      let env ← importModules (loadExts := true) (roots.map fun module => { module }) {}
+      let completedRef ← IO.mkRef completed
+      count ← unsafe buildModules sourcePath env inputs fun moduleName done => do
+        completedRef.modify (·.insert moduleName)
+        progress moduleName done inputs.size
+        if done % 32 == 0 || done == inputs.size then
+          unsafe Cache.savePPProgress roots (← completedRef.get)
   unsafe Cache.savePPBundle roots index
   unsafe Cache.markFullyPP roots
   return count

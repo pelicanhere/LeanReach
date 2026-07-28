@@ -3,3 +3,7 @@ session-path,12,958,17450,shared import; declarations routed through Session and
 module-path,12,958,16326,shared import; direct module pretty printing
 two-import-waves,64,982,29881,two 32-module processes and imports
 single-import-wave,64,982,15278,one process and import for the same modules
+pp-jobs-1,64,982,15295,single import; one pretty-print task
+pp-jobs-2,64,982,14799,single import; two pretty-print tasks
+pp-jobs-4,64,982,14100,single import; four pretty-print tasks
+pp-jobs-8,64,982,14009,single import; eight pretty-print tasks
