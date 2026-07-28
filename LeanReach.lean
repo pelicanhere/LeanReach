@@ -13,18 +13,22 @@ private def selectPlan {α : Type} (index : Index)
   | .ok plan => pure plan
   | .error message => throw <| IO.userError message
 
-private unsafe def runSession {α : Type} (index : Index) (session : Session)
+private def modulesFor (moduleOf? : Name → Option Name) (names : Array Name) :
+    Array Name :=
+  (names.toList.filterMap moduleOf?).eraseDups.toArray
+
+private unsafe def runSession {α : Type} (moduleOf? : Name → Option Name) (session : Session)
     (names : Array Name) (modules? : Option (Array Name)) (wholeModules : Bool)
     (emptyEnv? : Option Environment) (action : CoreM α) : IO α := do
   let missing ← session.missing names
   if wholeModules then
-    for moduleName in index.modulesFor missing do
+    for moduleName in modulesFor moduleOf? missing do
       session.merge (← unsafe Cache.loadPPModule moduleName)
   else
-    session.merge (← unsafe Cache.loadPP index missing)
+    session.merge (← unsafe Cache.loadPP moduleOf? missing)
   let before ← session.ppCache
   let modules := modules?.getD <|
-    index.modulesFor (← session.missing names)
+    modulesFor moduleOf? (← session.missing names)
   let env ←
     if modules.isEmpty then emptyEnv?.getDM mkEmptyEnvironment
     else importEnvironment modules (leakEnv := emptyEnv?.isNone)
@@ -39,23 +43,25 @@ private unsafe def withIndexSession {α β : Type} (roots : Array Name)
     (loadRelations : Bool)
     (select : Index → Except String (α × Array Name))
     (forceRootImport : Bool)
-    (action : Session → α → CoreM β) : IO β := do
+    (action : Index → Session → α → CoreM β) : IO β := do
   let sourcePath ← prepareEnvironment
   let index ← unsafe Cache.loadIndex roots loadRelations
   let (plan, names) ← selectPlan index select
-  let session ← Session.create index sourcePath
-  unsafe runSession index session names (if forceRootImport then some roots else none) false none
-    (action session plan)
+  let session ← Session.create sourcePath
+  unsafe runSession index.moduleOf? session names (if forceRootImport then some roots else none) false none
+    (action index session plan)
 
 /-- Import only the modules needed to pretty-print the selected declarations. -/
 unsafe def withSessionFor {α β : Type} (roots : Array Name)
     (select : Index → Except String (α × Array Name)) (loadRelations : Bool)
     (action : Session → α → CoreM β) : IO β :=
-  withIndexSession roots loadRelations select false action
+  withIndexSession roots loadRelations select false fun _ => action
 
 /-- Import the root modules once and reuse their environment and index for the entire action. -/
-unsafe def withSession {α : Type} (roots : Array Name) (action : Session → CoreM α) : IO α :=
-  withIndexSession roots true (fun _ => pure ((), #[])) true fun session _ => action session
+unsafe def withSession {α : Type} (roots : Array Name)
+    (action : Index → Session → CoreM α) : IO α :=
+  withIndexSession roots true (fun _ => pure ((), #[])) true fun index session _ =>
+    action index session
 
 abbrev SessionRunner :=
   {α : Type} → (Index → Except String (α × Array Name)) → (α → CoreM Unit) → IO Unit
@@ -64,11 +70,11 @@ unsafe def withLazySession {α : Type} (roots : Array Name)
     (action : Session → SessionRunner → IO α) : IO α := do
   let sourcePath ← prepareEnvironment
   let index ← unsafe Cache.loadIndex roots true
-  let session ← Session.create index sourcePath
+  let session ← Session.create sourcePath
   let emptyEnv ← mkEmptyEnvironment
   let run : SessionRunner := fun select query => do
     let (plan, names) ← selectPlan index select
-    discard <| unsafe runSession index session names none true (some emptyEnv) (query plan)
+    discard <| unsafe runSession index.moduleOf? session names none true (some emptyEnv) (query plan)
   action session run
 
 end LeanReach

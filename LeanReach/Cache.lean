@@ -266,10 +266,11 @@ unsafe def isFullyPP (roots : Array Name) : IO Bool := do
   let (path, depHash, _) ← unsafe ppRootData roots (toString ppVersion)
   return (← unsafe loadPart Bool path depHash).getD false
 
-unsafe def loadPP (index : Index) (names : Array Name) : IO (NameMap Declaration) := do
+unsafe def loadPP (moduleOf? : Name → Option Name)
+    (names : Array Name) : IO (NameMap Declaration) := do
   let mut byModule : NameMap (Array Name) := {}
   for name in names do
-    if let some moduleName := index.moduleOf? name then
+    if let some moduleName := moduleOf? name then
       byModule := byModule.insert moduleName
         ((byModule.find? moduleName).getD #[] |>.push name)
   let mut declarations := {}

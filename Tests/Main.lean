@@ -23,7 +23,7 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "built local modules were not detected"
   unless roots.contains `Mathlib do
     throw <| IO.userError "required Mathlib was not detected"
-  withSession #[`Tests.Fixture] fun session => do
+  withSession #[`Tests.Fixture] fun index session => do
     let fixtureNames ← unsafe Cache.moduleNames `Tests.Fixture
     check (fixtureNames.contains `LeanReachFixture.double)
       "module fragment is missing a source declaration"
@@ -31,7 +31,7 @@ private unsafe def runTests : IO Unit := do
       "module fragment contains a generated declaration"
     check (!fixtureNames.any isPrivateName)
       "module fragment contains a private declaration"
-    let result ← session.query "LeanReachFixture.double" (Limits.uniform 100)
+    let result ← session.query index "LeanReachFixture.double" (Limits.uniform 100)
     check result.target.file.isSome
       "local declaration has no source file"
     check (result.target.line == 5)
@@ -47,11 +47,11 @@ private unsafe def runTests : IO Unit := do
         declaration.name == "LeanReachFixture.double_eq_add")
       "downstream relation is missing"
 
-    let privateBodyResult ← session.query "LeanReachFixture.doubleViaPrivate"
+    let privateBodyResult ← session.query index "LeanReachFixture.doubleViaPrivate"
     check (privateBodyResult.target.signature.contains "hiddenDouble")
       "definition body through a private constant was not pretty-printed"
 
-    let theoremResult ← session.query "LeanReachFixture.double_eq_add" (Limits.uniform 100)
+    let theoremResult ← session.query index "LeanReachFixture.double_eq_add" (Limits.uniform 100)
     check (theoremResult.target.signature.contains "n + n")
       "theorem signature was not pretty-printed with notation"
     check
@@ -59,13 +59,13 @@ private unsafe def runTests : IO Unit := do
         declaration.name == "LeanReachFixture.double")
       "upstream relation is missing"
 
-    let proofResult ← session.query "LeanReachFixture.double_zero_again" (Limits.uniform 100)
+    let proofResult ← session.query index "LeanReachFixture.double_zero_again" (Limits.uniform 100)
     check
       (proofResult.upstream.any fun declaration =>
         declaration.name == "LeanReachFixture.double_zero")
       "proof-only upstream relation is missing"
 
-    let usedResult ← session.query "LeanReachFixture.double_zero" (Limits.uniform 100)
+    let usedResult ← session.query index "LeanReachFixture.double_zero" (Limits.uniform 100)
     check
       (usedResult.downstream.any fun declaration =>
         declaration.name == "LeanReachFixture.double_zero_again")
@@ -75,7 +75,7 @@ private unsafe def runTests : IO Unit := do
         declaration.name == "LeanReachFixture.double_zero_via_private")
       "dependency through a private proof helper is missing"
 
-    let rankedResult ← session.query "LeanReachFixture.Topic.ranked" (Limits.uniform 1)
+    let rankedResult ← session.query index "LeanReachFixture.Topic.ranked" (Limits.uniform 1)
     check (rankedResult.upstream.size == 1)
       "dependency limit was not applied during ranking"
     let some first := rankedResult.upstream[0]? |
@@ -83,22 +83,22 @@ private unsafe def runTests : IO Unit := do
     check (first.name == "LeanReachFixture.Topic.nearby")
       "nearby dependency was not ranked first"
 
-    let classResult ← session.query "Add"
+    let classResult ← session.query index "Add"
     check (classResult.target.signature.contains "fields:")
       "class fields are missing"
     check (classResult.target.signature.contains "Add.add")
       "class field signature is missing"
 
-    let searchResult ← session.search "double_eq" 10
+    let searchResult ← session.search index "double_eq" 10
     check
       (searchResult.any fun item =>
         item.name == "LeanReachFixture.double_eq_add")
       "local name search is missing"
 
-    check (← session.search "LeanReachFixture.Color.noConfusion" 10).isEmpty
+    check (← session.search index "LeanReachFixture.Color.noConfusion" 10).isEmpty
       "generated declaration was not blacklisted"
     check
-      ((← session.search "LeanReachFixture.Box.value" 10).any fun item =>
+      ((← session.search index "LeanReachFixture.Box.value" 10).any fun item =>
         item.name == "LeanReachFixture.Box.value")
       "structure projection was blacklisted"
 

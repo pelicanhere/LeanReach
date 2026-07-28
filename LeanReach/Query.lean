@@ -20,12 +20,11 @@ def Limits.uniform (limit : Nat) : Limits :=
   { upstream := limit, downstream := limit, search := limit }
 
 structure Session where
-  private index : Index
   private sourcePath : SearchPath
   private declarations : IO.Ref (NameMap Declaration)
 
-def Session.create (index : Index) (sourcePath : SearchPath) : IO Session :=
-  return { index, sourcePath, declarations := ← IO.mkRef {} }
+def Session.create (sourcePath : SearchPath) : IO Session :=
+  return { sourcePath, declarations := ← IO.mkRef {} }
 
 def Session.ppCache (session : Session) : IO (NameMap Declaration) :=
   session.declarations.get
@@ -79,12 +78,14 @@ def Session.describeQuery (session : Session) (names : QueryNames) :
     downstream := ← session.describeNames downstream
   }
 
-def Session.query (session : Session) (query : String) (limits : Limits := {}) :
+def Session.query (session : Session) (index : Index) (query : String)
+    (limits : Limits := {}) :
     CoreM QueryResult := do
-  session.describeQuery (← liftQuery (session.index.queryNames query limits))
+  session.describeQuery (← liftQuery (index.queryNames query limits))
 
-def Session.search (session : Session) (query : String) (limit : Nat := 20) :
+def Session.search (session : Session) (index : Index) (query : String)
+    (limit : Nat := 20) :
     CoreM (Array Declaration) :=
-  session.describeNames (session.index.search query limit)
+  session.describeNames (index.search query limit)
 
 end LeanReach
