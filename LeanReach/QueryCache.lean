@@ -4,7 +4,7 @@ namespace LeanReach.QueryCache
 
 open Lean
 
-private def version := 5
+private def version := 6
 private def shardCount := 1024
 
 private def leaf : Name → String
@@ -27,39 +27,55 @@ private def ready (olean : System.FilePath) (depHash : String) : IO Bool := do
   try return (← IO.FS.readFile path) == depHash
   catch _ => return false
 
-private def locatedFields (items : Array LocatedName) : List String :=
-  items.toList.flatMap fun item => [item.name.toString, item.moduleName.toString]
+private def allLocated (query : CachedQuery) : Array LocatedName :=
+  #[query.target] ++ query.upstream ++ query.downstream
 
-private def encode (query : CachedQuery) : String :=
-  String.intercalate "\t" <|
-    [query.target.name.toString, query.target.moduleName.toString] ++
-    locatedFields query.upstream ++ ["|"] ++ locatedFields query.downstream
+private def encodeShard (queries : Array CachedQuery) : String := Id.run do
+  let mut ids : NameMap Nat := {}
+  let mut modules := #[]
+  for query in queries do
+    for item in allLocated query do
+      unless ids.contains item.moduleName do
+        ids := ids.insert item.moduleName modules.size
+        modules := modules.push item.moduleName
+  let locatedFields (items : Array LocatedName) :=
+    items.toList.flatMap fun item =>
+      [item.name.toString, toString (ids.find? item.moduleName).get!]
+  let encode (query : CachedQuery) :=
+    String.intercalate "\t" <|
+      [query.target.name.toString, toString (ids.find? query.target.moduleName).get!] ++
+      locatedFields query.upstream ++ ["|"] ++ locatedFields query.downstream
+  return String.intercalate "\n" <|
+    modules.toList.map toString ++ ["|"] ++ queries.toList.map encode
 
-private def decodeLocated (fields : List String) : Option (Array LocatedName) :=
+private def decodeLocated (modules : Array Name) (fields : List String) :
+    Option (Array LocatedName) :=
   go fields #[]
 where
   go : List String → Array LocatedName → Option (Array LocatedName)
     | [], items => some items
-    | name :: moduleName :: rest, items =>
-      go rest (items.push { name := name.toName, moduleName := moduleName.toName })
+    | name :: moduleId :: rest, items => do
+      let some moduleName := moduleId.toNat? >>= fun id => modules[id]? | none
+      go rest (items.push { name := name.toName, moduleName })
     | _, _ => none
 
-private def decode (line : String) : Option CachedQuery := do
-  let name :: moduleName :: fields := line.splitOn "\t" | none
+private def decode (modules : Array Name) (line : String) : Option CachedQuery := do
+  let name :: moduleId :: fields := line.splitOn "\t" | none
+  let some moduleName := moduleId.toNat? >>= fun id => modules[id]? | none
   let (upstream, downstream) := fields.span (· != "|")
   let _ :: downstream := downstream | none
   return {
-    target := { name := name.toName, moduleName := moduleName.toName }
-    upstream := ← decodeLocated upstream
-    downstream := ← decodeLocated downstream
+    target := { name := name.toName, moduleName }
+    upstream := ← decodeLocated modules upstream
+    downstream := ← decodeLocated modules downstream
   }
 
 private def buildShards (index : Index) (start stop : Nat) :
-    Array (Array String) := Id.run do
-  let mut shards : Array (Array String) := Array.replicate shardCount #[]
+    Array (Array CachedQuery) := Id.run do
+  let mut shards : Array (Array CachedQuery) := Array.replicate shardCount #[]
   for id in [start:stop] do
     let query := index.cachedQueryAt! id
-    shards := shards.modify (shard query.target.name) (·.push (encode query))
+    shards := shards.modify (shard query.target.name) (·.push query)
   return shards
 
 unsafe def isBuilt (roots : Array Name) : IO Bool := do
@@ -69,7 +85,7 @@ unsafe def isBuilt (roots : Array Name) : IO Bool := do
 unsafe def build (roots : Array Name) (index : Index) : IO Nat := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
   if ← ready olean depHash then return 0
-  let mut shards : Array (Array String) := Array.replicate shardCount #[]
+  let mut shards : Array (Array CachedQuery) := Array.replicate shardCount #[]
   let chunk := (index.size + 3) / 4
   let mut jobs := #[]
   for worker in [0:4] do
@@ -87,37 +103,41 @@ unsafe def build (roots : Array Name) (index : Index) : IO Nat := do
     let stop := min shardCount (offset + 16)
     let tasks ← (Array.range (stop - offset)).mapM fun delta =>
       let id := offset + delta
-      IO.asTask <| IO.FS.writeFile (shardPath olean id)
-        (String.intercalate "\n" shards[id]!.toList)
+      IO.asTask do
+        let content ← IO.lazyPure fun _ => encodeShard shards[id]!
+        IO.FS.writeFile (shardPath olean id) content
     tasks.forM fun task => IO.ofExcept task.get
     offset := stop
   IO.FS.writeFile (markerPath olean) depHash
   return index.size
 
-private def findExact (lines : List String) (name : Name) : Option CachedQuery := do
+private def findExact (modules : Array Name) (lines : List String)
+    (name : Name) : Option CachedQuery := do
   let needle := name.toString ++ "\t"
   for line in lines do
-    if line.startsWith needle then return (← decode line)
+    if line.startsWith needle then return (← decode modules line)
   none
 
-private unsafe def loadLines (roots : Array Name) (name : Name) :
-    IO (Option (List String)) := do
+private unsafe def loadShard (roots : Array Name) (name : Name) :
+    IO (Option (Array Name × List String)) := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
   unless ← ready olean depHash do return none
   let path := shardPath olean (shard name)
   unless ← path.pathExists do return none
   let content ← IO.FS.readFile path
-  return some (content.splitOn "\n")
+  let (modules, queries) := content.splitOn "\n" |>.span (· != "|")
+  let _ :: queries := queries | return none
+  return some (modules.toArray.map (·.toName), queries)
 
 unsafe def load (roots : Array Name) (name : Name) : IO (Option CachedQuery) := do
-  let some lines ← unsafe loadLines roots name | return none
-  return findExact lines name
+  let some (modules, lines) ← unsafe loadShard roots name | return none
+  return findExact modules lines name
 
 unsafe def resolve (roots : Array Name) (query : String) :
     IO (Except String (Option CachedQuery)) := do
   let name := query.toName
-  let some lines ← unsafe loadLines roots name | return .ok none
-  if let some cached := findExact lines name then return .ok (some cached)
+  let some (modules, lines) ← unsafe loadShard roots name | return .ok none
+  if let some cached := findExact modules lines name then return .ok (some cached)
   unless name.isAtomic do return .ok none
   let wanted := query.toLower
   let candidates := lines.filterMap fun line =>
@@ -125,7 +145,7 @@ unsafe def resolve (roots : Array Name) (query : String) :
     | candidate :: _ =>
       if (leaf candidate.toName).toLower == wanted then some (candidate, line) else none
     | _ => none
-  if let [(_, line)] := candidates then return .ok (decode line)
+  if let [(_, line)] := candidates then return .ok (decode modules line)
   if candidates.isEmpty then return .ok none
   let options := candidates.take 10 |>.map fun (name, _) => s!"  {name}"
   return .error s!"ambiguous declaration '{query}':\n{String.intercalate "\n" options}"

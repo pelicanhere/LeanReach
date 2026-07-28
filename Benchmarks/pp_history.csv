@@ -34,3 +34,5 @@ leaf-query-shards-build,9978,375372,34663,wall time; 1024 shards keyed by declar
 unique-short-query,9978,5,117,median packaged-process wall time; unique leaf resolves without the catalog
 ambiguous-short-query,9978,0,117,median packaged-process wall time; ambiguity is reported from one shard
 trivial-relation-fast-path,9978,375372,28851,wall time; skip ranking context for empty and singleton relations
+query-module-dictionary,9978,375372,28290,wall time; per-shard module IDs reduced query cache size by 36.9%
+dictionary-query-hit,9978,5,113,median packaged-process wall time; 10ms median internal across three queries

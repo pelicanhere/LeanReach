@@ -178,8 +178,9 @@ four pretty-print tasks.
 The root cache also materializes the current default top ten upstream and downstream results into
 hash-partitioned query shards. Fully qualified names and unique final-component names therefore read
 one small plan shard and only the selected module PP sidecars; ambiguous final components are reported
-from that same shard. General substring matching and limits above ten deliberately fall back to the
-complete index so they preserve the same matching and ranking semantics.
+from that same shard. Each shard uses a local module dictionary instead of repeating module names in
+every relation. General substring matching and limits above ten deliberately fall back to the complete
+index so they preserve the same matching and ranking semantics.
 
 ## Dependency semantics
 
