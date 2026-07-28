@@ -105,36 +105,37 @@ unsafe def detectRoots : IO (Array Name) := do
 /-- Pre-render every declaration below a root, checkpointing once per defining module. -/
 unsafe def cacheRoots (roots : Array Name)
     (progress : Name → Nat → Nat → IO Unit := fun _ _ _ => pure ()) : IO Nat := do
-  let sourcePath ← prepareEnvironment
+  discard <| prepareEnvironment
   if ← unsafe Cache.isFullyRendered roots then return 0
   let index ← unsafe Cache.loadIndex roots false
+  let mut completed ← unsafe Cache.loadRenderProgress roots
   let mut pending := #[]
   for (moduleName, names) in index.declarationsByModule do
-    let rendered ← unsafe Cache.loadRenderedModule moduleName
-    if names.any fun name => !rendered.contains name then
+    unless completed.contains moduleName do
       pending := pending.push (moduleName, names)
   if pending.isEmpty then
     unsafe Cache.markFullyRendered roots
     return 0
+  let executable ← IO.appPath
   let mut count := 0
-  for start in [0:pending.size:128] do
-    let batch := pending.extract start (min pending.size (start + 128))
-    let env ← importModules (batch.map fun (moduleName, _) => { module := moduleName }) {}
-    for ((moduleName, names), offset) in batch.zipIdx do
-      let before ← unsafe Cache.loadRenderedModule moduleName
-      let render := fun (env : Environment) => do
-        let session ← Session.create index sourcePath before
-        Core.CoreM.toIO'
-          (discard <| session.cacheNames names)
-          { fileName := "<leanreach-cache>", fileMap := default }
-          { env }
-        session.rendered
-      let after ←
-        try render env
-        catch _ => render (← importModules #[{ module := moduleName }] {})
+  for ((moduleName, names), done) in pending.zipIdx do
+    let before ← unsafe Cache.loadRenderedModule moduleName
+    unless names.all before.contains do
+      let command := #["cache", moduleName.toString, "--json"]
+      let args :=
+        if roots.size == 1 then
+          #["--module", roots[0]!.toString] ++ command
+        else command
+      let output ← IO.Process.output { cmd := executable.toString, args }
+      unless output.exitCode == 0 do
+        throw <| IO.userError s!"failed to cache '{moduleName}': {output.stderr.trimAscii.copy}"
+      let after ← unsafe Cache.loadRenderedModule moduleName
+      unless names.all after.contains do
+        throw <| IO.userError s!"incomplete cache for '{moduleName}'"
       count := count + after.size - before.size
-      unsafe Cache.saveRenderedModule moduleName after
-      progress moduleName (start + offset + 1) pending.size
+    completed := completed.insert moduleName
+    unsafe Cache.saveRenderProgress roots completed
+    progress moduleName (done + 1) pending.size
   unsafe Cache.markFullyRendered roots
   return count
 

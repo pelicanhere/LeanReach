@@ -47,7 +47,9 @@ private def renderDeclaration (name : Name) (info : ConstantInfo) : MetaM String
   let signature ← renderSignature name
   if info.isTheorem || (← isProp info.type) then return signature
   if let some value := info.value? (allowOpaque := true) then
-    let body := (← PrettyPrinter.ppExpr value).pretty (width := 100)
+    let body ←
+      try pure <| (← PrettyPrinter.ppExpr value).pretty (width := 100)
+      catch _ => pure (toString value)
     return s!"{signature} :=\n  {body.replace "\n" "\n  "}"
   let .inductInfo inductiveInfo := info | return signature
   let env ← getEnv

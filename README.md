@@ -12,7 +12,7 @@ artifacts for local libraries:
 - cache a small dependency fragment per module and materialize separate name and relation indexes;
 - plan the bounded query from the index, then import only result modules for pretty-printing;
 - persist rendered declarations per module, reuse them across roots, and skip imports when cached;
-- pre-render a complete root in bounded module batches with module-level checkpoints;
+- pre-render a complete root in short-lived module workers with a root progress checkpoint;
 - keep a root `Environment` alive only in interactive mode;
 - use Lean's own delaborator and pretty-printer;
 - hide compiler-generated declarations using Loogle/doc-gen-style filtering;
@@ -138,8 +138,9 @@ After `lake build`, pre-render the complete built root once:
 ```
 
 This pays index construction, environment import, and pretty-printing once. Work is saved after each
-module, and a root completion marker makes repeated cache checks constant-time. The resulting
-per-module caches are reusable from larger roots and are invalidated by the module's build hash.
+module; each worker exits before the next module, bounding retained Lean environment memory. A root
+completion marker makes repeated cache checks constant-time. The resulting per-module caches are
+reusable from larger roots and are invalidated by the module's build hash.
 LeanReach never builds missing modules implicitly.
 
 ## Dependency semantics

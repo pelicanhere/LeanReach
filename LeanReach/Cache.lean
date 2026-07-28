@@ -179,6 +179,18 @@ unsafe def isFullyRendered (roots : Array Name) : IO Bool := do
   let path := olean.withExtension s!"leanreach-render-{stem}-{renderVersion}"
   return (← unsafe loadPart Bool path depHash).getD false
 
+unsafe def loadRenderProgress (roots : Array Name) : IO NameSet := do
+  let (olean, depHash, _) ← unsafe rootData roots
+  let stem := if roots.size == 1 then "root" else "roots"
+  let path := olean.withExtension s!"leanreach-render-{stem}-progress-{renderVersion}"
+  return (← unsafe loadPart NameSet path depHash).getD {}
+
+unsafe def saveRenderProgress (roots : Array Name) (modules : NameSet) : IO Unit := do
+  let (olean, depHash, root) ← unsafe rootData roots
+  let stem := if roots.size == 1 then "root" else "roots"
+  let path := olean.withExtension s!"leanreach-render-{stem}-progress-{renderVersion}"
+  pickle path (Name.str root "_leanreachRenderProgress") (depHash, modules)
+
 unsafe def loadRendered (index : Index) (names : Array Name) : IO (NameMap Declaration) := do
   let mut byModule : NameMap (Array Name) := {}
   for name in names do

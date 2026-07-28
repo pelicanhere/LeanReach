@@ -166,13 +166,14 @@ def main() -> None:
         for tool in ("leanreach_session", "leanreach_process", "rg")
         if any(row_tool == tool for _, row_tool, _, _ in rows)
     }
-    rg_total = sum(by_tool["rg"])
+    rg_median = statistics.median(by_tool["rg"])
     for tool, samples in by_tool.items():
         total = sum(samples)
-        ratio = total / rg_total
+        median = statistics.median(samples)
+        ratio = median / rg_median
         print(
             f"{tool:18} total={total:9.3f}ms "
-            f"mean={statistics.mean(samples):8.3f}ms ratio={ratio:7.3%}"
+            f"median={median:8.3f}ms ratio={ratio:7.3%}"
         )
 
 
