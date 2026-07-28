@@ -1,5 +1,5 @@
+import Batteries.Util.Pickle
 import Lake.Build.Trace
-import Lean.Environment
 import Lean.Server.References
 import Lean.Util.Path
 import LeanReach.BlackListed
@@ -20,14 +20,6 @@ structure ModuleFragment where
   declarations : Array (Name × NameSet)
 
 /-- Save a compacted Lean object. Adapted from Loogle's `Pickle` module. -/
-private def pickle {α : Type} (path : System.FilePath) (key : Name) (value : α) : IO Unit :=
-  saveModuleData path key (unsafe unsafeCast value)
-
-/-- Load a compacted Lean object and its region handle. -/
-private unsafe def unpickle (α : Type) (path : System.FilePath) : IO (α × CompactedRegion) := do
-  let (value, region) ← readModuleData path
-  return (unsafeCast value, region)
-
 private unsafe def loadPart (α : Type) (path : System.FilePath) (depHash : String) :
     IO (Option α) := do
   unless ← path.pathExists do return none
@@ -101,7 +93,7 @@ private unsafe def writeFragment (moduleName : Name) (olean path : System.FilePa
     (hash : String) : IO Unit := do
   let regions ← show IO (Array CompactedRegion) from do
     let (fragment, regions) ← readFragment moduleName olean
-    pickle path moduleName (hash, fragment)
+    pickle path (hash, fragment) moduleName
     return regions
   regions.forM CompactedRegion.free
 
@@ -161,8 +153,8 @@ unsafe def loadIndex (roots : Array Name) (loadRelations := true) : IO Index := 
       return Index.ofParts catalog relations
   let index ← buildIndex roots
   try
-    pickle catalogPath (Name.str root "_leanreachCatalog") (depHash, index.catalog)
-    pickle relationsPath (Name.str root "_leanreachRelations") (depHash, index.relations)
+    pickle catalogPath (depHash, index.catalog) (Name.str root "_leanreachCatalog")
+    pickle relationsPath (depHash, index.relations) (Name.str root "_leanreachRelations")
   catch _ => IO.eprintln "leanreach: could not write root index cache"
   if loadRelations then return index
   return Index.ofParts index.catalog (#[], #[])
@@ -189,7 +181,7 @@ unsafe def saveRenderProgress (roots : Array Name) (modules : NameSet) : IO Unit
   let (olean, depHash, root) ← unsafe rootData roots
   let stem := if roots.size == 1 then "root" else "roots"
   let path := olean.withExtension s!"leanreach-render-{stem}-progress-{renderVersion}"
-  pickle path (Name.str root "_leanreachRenderProgress") (depHash, modules)
+  pickle path (depHash, modules) (Name.str root "_leanreachRenderProgress")
 
 unsafe def loadRendered (index : Index) (names : Array Name) : IO (NameMap Declaration) := do
   let mut byModule : NameMap (Array Name) := {}
@@ -210,7 +202,7 @@ unsafe def saveRenderedModule (moduleName : Name) (declarations : NameMap Declar
   let olean ← findOLean moduleName
   let some depHash ← depHash? olean | return
   let path := olean.withExtension s!"leanreach-render-{renderVersion}"
-  pickle path (Name.str moduleName "_leanreachRender") (depHash, declarations)
+  pickle path (depHash, declarations) (Name.str moduleName "_leanreachRender")
 
 unsafe def saveRendered (before after : NameMap Declaration) : IO Unit := do
   let mut additions : NameMap (NameMap Declaration) := {}
@@ -229,6 +221,6 @@ unsafe def markFullyRendered (roots : Array Name) : IO Unit := do
   let (olean, depHash, root) ← unsafe rootData roots
   let stem := if roots.size == 1 then "root" else "roots"
   let path := olean.withExtension s!"leanreach-render-{stem}-{renderVersion}"
-  pickle path (Name.str root "_leanreachRenderRoot") (depHash, true)
+  pickle path (depHash, true) (Name.str root "_leanreachRenderRoot")
 
 end LeanReach.Cache
