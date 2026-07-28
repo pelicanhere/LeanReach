@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import queue
 import statistics
 import subprocess
 import threading
@@ -12,15 +11,15 @@ from pathlib import Path
 
 
 QUERIES = (
-    "closure_le_toAddSubmonoid_span",
-    "span_span_coe_preimage",
-    "span_setOf_mem_eq_top",
-    "span_nat_eq_addSubmonoidClosure",
-    "span_eq_closure",
-    "submodule_eq_sSup_le_nonzero_spans",
-    "mem_span_finite_of_mem_span",
-    "subset_span_finite_of_subset_span",
-    "span_range_update_sub_smul",
+    "abs_norm_sub_norm_le_norm_inv_mul",
+    "nndist_nnnorm_nnnorm_le_nnnorm_inv_mul",
+    "nontrivialTopology_iff_exists_nnnorm_ne_zero'",
+    "indiscreteTopology_iff_forall_nnnorm_eq_zero'",
+    "nnnorm_le_nnnorm_add_nnnorm_div'",
+    "norm_mul_sub_norm_div_le_two_mul_min",
+    "mem_closedBall_iff_norm_inv_mul_le'",
+    "NormedGroup.nhds_one_basis_norm_lt",
+    "enorm_multisetProd_le",
 )
 
 
@@ -64,32 +63,38 @@ def measure_session(
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        bufsize=1,
+        bufsize=0,
     )
     assert process.stdin and process.stdout
-    output: queue.Queue[str] = queue.Queue()
+    timed_out = threading.Event()
 
-    def read_output() -> None:
-        for line in process.stdout:
-            output.put(line)
+    def stop() -> None:
+        timed_out.set()
+        process.kill()
 
-    threading.Thread(target=read_output, daemon=True).start()
+    watchdog = threading.Timer(timeout, stop)
+    watchdog.daemon = True
+    watchdog.start()
     samples = []
     try:
         for query in queries:
             started = time.perf_counter()
-            process.stdin.write(f"search {query}\n")
+            process.stdin.write(f"search {query}\n".encode())
             process.stdin.flush()
-            line = output.get(timeout=timeout)
+            line = process.stdout.readline()
+            if not line:
+                if timed_out.is_set():
+                    raise TimeoutError("LeanReach session timed out")
+                raise RuntimeError(
+                    f"LeanReach session stopped with exit code {process.poll()}"
+                )
             data = json.loads(line)
             samples.append((elapsed_ms(started), len(data["items"])))
-        process.stdin.write("\n")
+        process.stdin.write(b"\n")
         process.stdin.flush()
         process.wait(timeout=timeout)
     finally:
+        watchdog.cancel()
         if process.poll() is None:
             process.kill()
     return samples
@@ -114,6 +119,17 @@ def main() -> None:
         raise SystemExit("Run 'pwsh scripts/package.ps1' first.")
 
     measure_process([executable, "--help"], args.timeout)
+    measure_process(
+        [
+            executable,
+            "--module",
+            "Mathlib",
+            "search",
+            "__leanreach_benchmark_ready__",
+            "--json",
+        ],
+        args.timeout,
+    )
     measure_process(["rg", "--version"], args.timeout)
     rows = []
     if not args.skip_session:
@@ -150,7 +166,7 @@ def main() -> None:
             "tool": tool,
             "latency_ms": f"{latency:.3f}",
             "found": found,
-            "note": "distinct query; executables primed without a declaration query",
+            "note": "distinct query; executable and catalog primed without PP",
         }
         for query, tool, latency, found in rows
     ]

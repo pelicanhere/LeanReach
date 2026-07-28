@@ -31,8 +31,10 @@ lake build
 lake exe leanreach_tests
 ```
 
-The Mathlib benchmark runs a chain of distinct declaration searches exactly once. It compares a
-long-lived LeanReach session, one LeanReach process per query, and one `rg` process per query:
+The Mathlib benchmark runs a chain of distinct declaration searches exactly once. Its session uses
+an unbuffered binary pipe and synchronous reads so Python thread scheduling is not counted as query
+latency. It primes the executable and catalog without pretty-printing a declaration, then compares
+a long-lived LeanReach session, one LeanReach process per query, and one `rg` process per query:
 
 ```console
 python Benchmarks/run.py --stage baseline --append-history
