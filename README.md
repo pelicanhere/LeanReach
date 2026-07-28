@@ -12,7 +12,7 @@ artifacts for local libraries:
 - cache a small dependency fragment per module and materialize separate name and relation indexes;
 - plan the bounded query from the index, then import only result modules for pretty-printing;
 - persist pretty-printed declarations per module, reuse them across roots, and skip imports when cached;
-- precompute PP for a complete root in short-lived module workers with a progress checkpoint;
+- precompute PP for a complete root in short-lived batched workers with progress checkpoints;
 - pack a completed root into one memory-mapped declaration array for constant-time lookup;
 - use Lean's own delaborator and pretty-printer;
 - hide compiler-generated declarations using Loogle/doc-gen-style filtering;
@@ -165,13 +165,16 @@ After `lake build`, precompute PP for the complete built root once:
 /path/to/leanreach cache
 ```
 
-This pays index construction, environment import, and pretty-printing once. Work is saved after each
-module; each worker exits before the next module, bounding retained Lean environment memory. A root
-completion marker makes repeated cache checks constant-time. On completion, LeanReach packs the
-module caches into one root-level array in catalog order, so later queries avoid opening and merging
-module maps. The per-module caches remain the incremental source and fallback: they are reusable
-from larger roots and are invalidated by the module's build hash. LeanReach never builds missing
-modules implicitly.
+This pays index construction, environment import, and pretty-printing once. A short-lived worker
+imports the union of at most 32 defining modules, writes one sidecar per module, then exits to bound
+retained Lean environment memory. The parent checkpoints after every batch; an interrupted batch
+still leaves its completed module sidecars reusable on the next run. A root completion marker makes
+repeated cache checks constant-time. On completion, LeanReach packs the module caches into one
+root-level array in catalog order, so later queries avoid opening and merging module maps. The
+per-module caches remain the incremental source and fallback: they are reusable from larger roots
+and are invalidated by the module's build hash. LeanReach never builds missing modules implicitly.
+On the development Windows machine, caching three previously uncached related modules took 10.0
+seconds in one worker versus 30.4 seconds in three independent processes.
 
 ## Dependency semantics
 

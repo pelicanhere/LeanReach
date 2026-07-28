@@ -118,6 +118,9 @@ private unsafe def loadFragment (moduleName : Name) : IO ModuleFragment := do
     catch _ => pure ()
   return (← readFragment moduleName olean).1
 
+unsafe def moduleNames (moduleName : Name) : IO (Array Name) :=
+  return (← unsafe loadFragment moduleName).declarations.map (·.1)
+
 private unsafe def buildIndex (roots : Array Name) : IO Index := do
   let mut pending := roots
   let mut seen : NameHashSet := {}

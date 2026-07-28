@@ -15,6 +15,11 @@ private unsafe def runTests : IO Unit := do
   unless roots.contains `Mathlib do
     throw <| IO.userError "required Mathlib was not detected"
   withSession #[`Tests.Fixture] fun session => do
+    let fixtureNames ← unsafe Cache.moduleNames `Tests.Fixture
+    check (fixtureNames.contains `LeanReachFixture.double)
+      "module fragment is missing a source declaration"
+    check (!fixtureNames.any (·.toString.contains "noConfusion"))
+      "module fragment contains a generated declaration"
     let result ← session.query "LeanReachFixture.double" (Limits.uniform 100)
     check result.target.file.isSome
       "local declaration has no source file"

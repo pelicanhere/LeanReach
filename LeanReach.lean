@@ -61,6 +61,12 @@ private def selectPlan {α : Type} (index : Index)
   | .ok plan => pure plan
   | .error message => throw <| IO.userError message
 
+private unsafe def runCore {α : Type} (env : Environment) (action : CoreM α) : IO α :=
+  Core.CoreM.toIO'
+    action
+    { fileName := "<leanreach>", fileMap := default }
+    { env }
+
 private unsafe def runSession {α : Type} (index : Index) (session : Session)
     (names : Array Name) (modules? : Option (Array Name)) (wholeModules : Bool)
     (emptyEnv? : Option Environment) (action : CoreM α) : IO α := do
@@ -78,10 +84,7 @@ private unsafe def runSession {α : Type} (index : Index) (session : Session)
     else
       Lean.enableInitializersExecution
       importModules (loadExts := true) (modules.map fun moduleName => { module := moduleName }) {}
-  let result ← Core.CoreM.toIO'
-    action
-    { fileName := "<leanreach>", fileMap := default }
-    { env }
+  let result ← unsafe runCore env action
   let after ← session.ppCache
   if after.size != before.size then
     try unsafe Cache.savePP before after
@@ -130,15 +133,39 @@ unsafe def detectRoots : IO (Array Name) := do
     throw <| IO.userError "could not detect a built local lean_lib or required Mathlib; use --module"
   return roots
 
-private def cacheWorkerArgs (roots modules : Array Name) : Array String :=
-  let command := #["cache"] ++ modules.map (·.toString) ++ #["--json"]
-  if roots.size == 1 then #["--module", roots[0]!.toString] ++ command else command
+unsafe def cacheModules (modules : Array Name) : IO Nat := do
+  let sourcePath ← prepareEnvironment
+  let emptyIndex := Index.ofParts (#[], {}) (#[], #[])
+  let mut active := #[]
+  let mut inputs : NameMap (Array Name × NameMap Declaration) := {}
+  for moduleName in modules do
+    let names ← unsafe Cache.moduleNames moduleName
+    let before ← unsafe Cache.loadPPModule moduleName
+    unless names.all before.contains do
+      active := active.push moduleName
+      inputs := inputs.insert moduleName (names, before)
+  if active.isEmpty then return 0
+  let env ← do
+    Lean.enableInitializersExecution
+    importModules (loadExts := true) (active.map fun module => { module }) {}
+  let mut count := 0
+  for moduleName in active do
+    let (names, before) := (inputs.find? moduleName).getD (#[], {})
+    let session ← Session.create emptyIndex sourcePath
+    session.merge before
+    discard <| unsafe runCore env (session.cacheNames names)
+    let after ← session.ppCache
+    unsafe Cache.savePPModule moduleName after
+    count := count + after.size - before.size
+  return count
+
+private def cacheBatchSize := 32
 
 private def runCacheWorker (executable : System.FilePath)
-    (roots modules : Array Name) : IO Unit := do
+    (modules : Array Name) : IO Unit := do
   let output ← IO.Process.output {
     cmd := executable.toString
-    args := cacheWorkerArgs roots modules
+    args := #["cache"] ++ modules.map (·.toString) ++ #["--json"]
   }
   unless output.exitCode == 0 do
     throw <| IO.userError s!"failed to cache '{modules}': {output.stderr.trimAscii.copy}"
@@ -167,15 +194,26 @@ unsafe def cacheRoots (roots : Array Name)
   let mut count := 0
   unless pending.isEmpty do
     let executable ← IO.appPath
-    for ((moduleName, names), done) in pending.zipIdx do
-      let before ← unsafe Cache.loadPPModule moduleName
-      unless names.all before.contains do
-        runCacheWorker executable roots #[moduleName]
-        let after ← unsafe requirePPModule moduleName names
-        count := count + after.size - before.size
-      completed := completed.insert moduleName
+    let mut offset := 0
+    while offset < pending.size do
+      let stop := min pending.size (offset + cacheBatchSize)
+      let batch := pending.extract offset stop
+      let mut active := #[]
+      let mut beforeSizes : NameMap Nat := {}
+      for (moduleName, names) in batch do
+        let before ← unsafe Cache.loadPPModule moduleName
+        unless names.all before.contains do
+          active := active.push moduleName
+          beforeSizes := beforeSizes.insert moduleName before.size
+      unless active.isEmpty do runCacheWorker executable active
+      for ((moduleName, names), done) in batch.zipIdx do
+        if let some beforeSize := beforeSizes.find? moduleName then
+          let after ← unsafe requirePPModule moduleName names
+          count := count + after.size - beforeSize
+        completed := completed.insert moduleName
+        progress moduleName (offset + done + 1) pending.size
       unsafe Cache.savePPProgress roots completed
-      progress moduleName (done + 1) pending.size
+      offset := stop
   unsafe Cache.savePPBundle roots index
   unsafe Cache.markFullyPP roots
   return count

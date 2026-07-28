@@ -124,26 +124,23 @@ private def printCached (json : Bool) (modules : Array Name) (count : Nat) : IO 
 private inductive Prepared where
   | query (names : QueryNames)
   | search (pattern : String) (names : Array Name)
-  | cache (modules names : Array Name)
 
 private def Prepared.names : Prepared → Array Name
   | .query names => names.all
-  | .search _ names | .cache _ names => names
+  | .search _ names => names
 
 private def prepare (config : Config) (command : Command) (index : Index) :
     Except String (Prepared × Array Name) := do
   let result : Prepared ← match command with
     | .query query => pure <| .query (← index.queryNames query config.limits)
     | .search pattern => pure <| .search pattern (index.search pattern config.limits.search)
-    | .cache modules => pure <| .cache modules (index.namesInModules modules)
+    | .cache _ => throw "cache is not an interactive query"
   return (result, result.names)
 
 private def runPrepared (session : Session) (config : Config) : Prepared → CoreM Unit
   | .query names => do printQuery config.json (← session.describeQuery names)
   | .search pattern names => do
     printSearch config.json pattern (← session.describeNames names)
-  | .cache modules names => do
-    printCached config.json modules (← session.cacheNames names)
 
 private def runTimed (session : Session) (config : Config) (prepared : Prepared) :
     CoreM Unit := do
@@ -179,25 +176,26 @@ private def validate (config : Config) : CliMainM Unit := do
     if limit == 0 || limit > 1000 then
       throw <| Lake.CliError.invalidOptArg "--limit" "an integer from 1 to 1000"
 
+private unsafe def Config.roots (config : Config) : IO (Array Name) :=
+  config.root?.map (#[·]) |>.getDM detectRoots
+
 private unsafe def execute (config : Config) (command? : Option Command) : IO UInt32 := do
   let started ← IO.monoMsNow
-  let roots ← match config.root? with
-    | some root => pure #[root]
-    | none => detectRoots
   match command? with
   | some (.cache modules) =>
     if modules.isEmpty then
-      let count ← cacheRoots roots fun moduleName done total =>
+      let count ← cacheRoots (← config.roots) fun moduleName done total =>
         unless config.json do
           if done == total || done % 100 == 0 then
             IO.eprintln s!"leanreach: cached modules {done}/{total} ({moduleName})"
       printCached config.json modules count
     else
-      withSessionFor roots (prepare config (.cache modules)) false (runTimed · config)
+      printCached config.json modules (← cacheModules modules)
   | some command =>
-    withSessionFor roots (prepare config command) (command matches .query _) (runTimed · config)
+    withSessionFor (← config.roots) (prepare config command)
+      (command matches .query _) (runTimed · config)
   | none =>
-    withLazySession roots fun session run => runInteractive session run config
+    withLazySession (← config.roots) fun session run => runInteractive session run config
   if config.profile then
     IO.eprintln s!"leanreach: elapsed={(← IO.monoMsNow) - started}ms"
   return 0
