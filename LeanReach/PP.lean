@@ -70,15 +70,19 @@ unsafe def buildPPRoots (roots : Array Name)
     unless (← unsafe Cache.loadPPBundle roots index).isEmpty do return 0
   let mut slots : Array (Option Declaration) := Array.replicate index.size none
   let mut inputs : Array Input := #[]
+  let mut envTask? := none
   for (moduleName, names) in index.declarationsByModule do
     let before ← unsafe Cache.loadPPModule moduleName
     slots := fillBundle index slots before
     let missing := names.filter fun name => !before.contains name
     unless missing.isEmpty do
+      if envTask?.isNone then
+        envTask? := some (← IO.asTask <| importEnvironment roots (leakEnv := true))
       inputs := inputs.push (moduleName, missing, before)
   let mut count := 0
   unless inputs.isEmpty do
-    let env ← importEnvironment roots (leakEnv := true)
+    let some envTask := envTask? | unreachable!
+    let env ← IO.ofExcept envTask.get
     let slotsRef ← IO.mkRef slots
     count ← unsafe buildModules sourcePath env inputs index.moduleOf? fun moduleName added done => do
       slotsRef.modify fun slots => fillBundle index slots added
