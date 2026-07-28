@@ -13,7 +13,7 @@ artifacts for local libraries:
 - plan the bounded query from the index, then import only result modules for pretty-printing;
 - persist pretty-printed declarations per module, reuse them across roots, and skip imports when cached;
 - precompute PP for a complete root in short-lived batched workers with progress checkpoints;
-- pack a completed root into one memory-mapped declaration array for constant-time lookup;
+- mark a completed root and load only the PP sidecars selected by each query;
 - use Lean's own delaborator and pretty-printer;
 - hide compiler-generated declarations using Loogle/doc-gen-style filtering;
 - index direct constants mentioned by declaration types and values;
@@ -67,10 +67,10 @@ lake exe leanreach Submodule.span_le
 lake exe leanreach Submodule.span_le --json
 
 # Precompute PP for the detected view. This resumes at the next incomplete module if interrupted.
-lake exe leanreach pp
+lake exe leanreach cache
 
 # Or precompute PP only for selected built modules.
-lake exe leanreach pp Mathlib.LinearAlgebra.Span.Defs
+lake exe leanreach cache Mathlib.LinearAlgebra.Span.Defs
 
 # A narrower root imports and indexes much less than all of Mathlib.
 lake exe leanreach --module Mathlib.LinearAlgebra.Span.Defs Submodule.span_le
@@ -106,10 +106,8 @@ Submodule.span_le
 ```
 
 The process emits one compact JSON value per line and flushes stdout after every response. It loads
-the dependency index once but does not import Mathlib at startup. A completely cached root uses one
-memory-mapped declaration array indexed by catalog ID. For a partial cache, the first access to a
-module loads its PP sidecar into the session; only a missing declaration triggers a bounded module
-import.
+the dependency index once but does not import Mathlib at startup. Each query loads only its selected
+module PP sidecars into the session; only a missing declaration triggers a bounded module import.
 
 On the development Windows machine, corrected binary-pipe runs of fresh PP-cached name searches
 had 2.85–3.88 ms median session latency versus 203–217 ms for `rg` (1.31–1.91%); selectivity of the
@@ -164,13 +162,13 @@ supported for projects with custom Lake build or source directories.
 After `lake build`, precompute PP for the complete built root once:
 
 ```console
-/path/to/leanreach pp
+/path/to/leanreach cache
 ```
 
 This pays index construction, environment import, and pretty-printing once. LeanReach imports the
 detected roots once, shares the immutable environment across four bounded module tasks, and writes
 one PP sidecar after each completed module. An interruption therefore leaves completed modules
-reusable. A small root marker makes later `pp` calls return before loading the catalog, while queries
+reusable. A small root marker makes later `cache` calls return before loading the catalog, while queries
 read only the module sidecars containing their selected declarations. Sidecars are reusable from
 larger roots and invalidated by the defining module's build hash; LeanReach never builds missing
 modules implicitly. On the development Windows machine, the same 64 modules and 982 declarations

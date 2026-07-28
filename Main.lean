@@ -9,7 +9,7 @@ open Lean
 inductive Command where
   | query (name : String)
   | search (pattern : String)
-  | pp (modules : Array Name)
+  | cache (modules : Array Name)
 
 structure Config where
   root? : Option Name := none
@@ -63,7 +63,7 @@ LeanReach — Lean declaration search and dependency navigation
 USAGE:
   leanreach [OPTIONS] DECLARATION
   leanreach [OPTIONS] search PATTERN
-  leanreach [OPTIONS] pp [MODULE...]
+  leanreach [OPTIONS] cache [MODULE...]
   leanreach [OPTIONS] --interactive
 
 OPTIONS:
@@ -75,7 +75,7 @@ OPTIONS:
   -h, --help            show this help
 
 Without `--module`, combine built local lean_lib roots with required Mathlib.
-With no modules, `pp` precomputes pretty-printed declarations for the detected view.
+With no modules, `cache` precomputes pretty-printed declarations for the detected view.
 In interactive mode, enter a declaration name or `search PATTERN` on each line.
 "
 
@@ -134,7 +134,7 @@ private def prepare (config : Config) (command : Command) (index : Index) :
   let result : Prepared ← match command with
     | .query query => pure <| .query (← index.queryNames query config.limits)
     | .search pattern => pure <| .search pattern (index.search pattern config.limits.search)
-    | .pp _ => throw "pp is not an interactive query"
+    | .cache _ => throw "cache is not an interactive query"
   return (result, result.names)
 
 private def runPrepared (session : Session) (config : Config) : Prepared → CoreM Unit
@@ -182,7 +182,7 @@ private unsafe def Config.roots (config : Config) : IO (Array Name) :=
 private unsafe def execute (config : Config) (command? : Option Command) : IO UInt32 := do
   let started ← IO.monoMsNow
   match command? with
-  | some (.pp modules) =>
+  | some (.cache modules) =>
     if modules.isEmpty then
       let count ← buildPPRoots (← config.roots) fun moduleName done total =>
         unless config.json do
@@ -215,7 +215,7 @@ private unsafe def cli : CliM UInt32 := do
     else
       match arguments with
       | ["search", pattern] => pure (some (.search pattern))
-      | "pp" :: modules => pure (some (.pp <| modules.toArray.map (·.toName)))
+      | "cache" :: modules => pure (some (.cache <| modules.toArray.map (·.toName)))
       | [name] => pure (some (.query name))
       | arguments => throw <| Lake.CliError.unexpectedArguments arguments
   unsafe execute config command
