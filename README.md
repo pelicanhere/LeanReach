@@ -58,7 +58,7 @@ pwsh scripts/package.ps1
 # Search names. Exact names, final-name matches, then substrings are ranked in that order.
 lake exe leanreach search span_le --limit 10
 
-# Show a declaration with 6 upstream and 10 downstream dependencies.
+# Show a declaration with 10 upstream and 10 downstream dependencies.
 lake exe leanreach Submodule.span_le
 
 # Machine-readable output.

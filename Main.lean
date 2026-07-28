@@ -68,7 +68,7 @@ USAGE:
 
 OPTIONS:
   -m, --module MODULE   override the detected local library or Mathlib root
-  -n, --limit N         override both dependency limits (defaults: 6 upstream, 10 downstream)
+  -n, --limit N         override both dependency limits (default: 10 each)
   -i, --interactive     reuse one environment; read queries from stdin
   -j, --json            emit JSON (NDJSON in interactive mode)
       --profile         print elapsed time to stderr
@@ -114,6 +114,9 @@ private def printSearch (json : Bool) (query : String) (items : Array Declaratio
 private def Config.limitOr (config : Config) (default : Nat) : Nat :=
   config.limit?.getD default
 
+private def Config.queryLimit (config : Config) : Nat :=
+  config.limitOr 10
+
 private def printCached (json : Bool) (modules : Array Name) (count : Nat) : IO Unit := do
   if json then
     IO.println <| (Json.mkObj [
@@ -127,7 +130,7 @@ private def runOne (session : Session) (config : Config) (command : Command)
     (selected? : Option (Array Name) := none) : CoreM Unit := do
   match command with
   | .query name =>
-    printQuery config.json <| ← session.query name (config.limitOr 6) (config.limitOr 10)
+    printQuery config.json <| ← session.query name config.queryLimit config.queryLimit
   | .search pattern =>
     let items ← match selected? with
       | some names => session.describeNames names
@@ -149,7 +152,7 @@ private def commandNames (config : Config) (command : Command) (index : Index) :
   match command with
   | .query query =>
     let (target, upstream, downstream) ←
-      index.queryNames query (config.limitOr 6) (config.limitOr 10)
+      index.queryNames query config.queryLimit config.queryLimit
     return #[target] ++ upstream ++ downstream
   | .search pattern =>
     return index.search pattern (config.limitOr 20)

@@ -323,3 +323,30 @@ batteries-free-fresh,span_singleton_le_iff_mem,rg,194.043,1,distinct query; exec
 batteries-free-fresh,span_singleton_eq_span_singleton,rg,184.774,1,distinct query; executables primed without a declaration query
 batteries-free-fresh,map_subtype_span_singleton,rg,217.545,1,distinct query; executables primed without a declaration query
 batteries-free-fresh,singleton_span_isCompactElement,rg,201.630,1,distinct query; executables primed without a declaration query
+limit-10-partial-cache,mem_span,leanreach_session,44607.152,10,distinct query; partial PP cache
+limit-10-partial-cache,mem_span_of_mem,leanreach_session,18077.122,4,distinct query; partial PP cache
+limit-10-partial-cache,span_monotone,leanreach_session,5.312,1,distinct query; partial PP cache
+limit-10-partial-cache,span_eq_of_le,leanreach_session,8548.754,4,distinct query; partial PP cache
+limit-10-partial-cache,span_eq,leanreach_session,15709.340,10,distinct query; partial PP cache
+limit-10-partial-cache,span_eq_span,leanreach_session,15367.296,9,distinct query; partial PP cache
+limit-10-partial-cache,span_insert_zero,leanreach_session,69.134,3,distinct query; partial PP cache
+limit-10-partial-cache,span_empty,leanreach_session,15214.116,7,distinct query; partial PP cache
+limit-10-partial-cache,span_univ,leanreach_session,16859.981,6,distinct query; partial PP cache
+limit-10-partial-cache,mem_span,leanreach_process,282.322,10,distinct query; populated by preceding session
+limit-10-partial-cache,mem_span_of_mem,leanreach_process,167.445,4,distinct query; populated by preceding session
+limit-10-partial-cache,span_monotone,leanreach_process,178.147,1,distinct query; populated by preceding session
+limit-10-partial-cache,span_eq_of_le,leanreach_process,127.151,4,distinct query; populated by preceding session
+limit-10-partial-cache,span_eq,leanreach_process,129.436,10,distinct query; populated by preceding session
+limit-10-partial-cache,span_eq_span,leanreach_process,127.620,9,distinct query; populated by preceding session
+limit-10-partial-cache,span_insert_zero,leanreach_process,107.027,3,distinct query; populated by preceding session
+limit-10-partial-cache,span_empty,leanreach_process,110.719,7,distinct query; populated by preceding session
+limit-10-partial-cache,span_univ,leanreach_process,110.190,6,distinct query; populated by preceding session
+limit-10-partial-cache,mem_span,rg,4895.615,1,distinct query
+limit-10-partial-cache,mem_span_of_mem,rg,204.789,1,distinct query
+limit-10-partial-cache,span_monotone,rg,217.940,1,distinct query
+limit-10-partial-cache,span_eq_of_le,rg,240.756,1,distinct query
+limit-10-partial-cache,span_eq,rg,231.549,1,distinct query
+limit-10-partial-cache,span_eq_span,rg,214.151,1,distinct query
+limit-10-partial-cache,span_insert_zero,rg,198.904,1,distinct query
+limit-10-partial-cache,span_empty,rg,220.219,1,distinct query
+limit-10-partial-cache,span_univ,rg,197.642,1,distinct query

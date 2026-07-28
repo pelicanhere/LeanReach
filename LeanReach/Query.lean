@@ -102,7 +102,7 @@ private def describe (session : Session) (name : Name) : CoreM Declaration := do
 
 abbrev QueryNames := Name × Array Name × Array Name
 
-def Index.queryNames (index : Index) (query : String) (upstreamLimit : Nat := 6)
+def Index.queryNames (index : Index) (query : String) (upstreamLimit : Nat := 10)
     (downstreamLimit : Nat := 10) : Except String QueryNames := do
   let target ← index.resolve query
   return (
@@ -119,7 +119,7 @@ private def liftQuery {α : Type} : Except String α → CoreM α
   | .ok result => pure result
   | .error message => throwError message
 
-def Session.query (session : Session) (query : String) (upstreamLimit : Nat := 6)
+def Session.query (session : Session) (query : String) (upstreamLimit : Nat := 10)
     (downstreamLimit : Nat := 10) : CoreM QueryResult := do
   let (target, upstream, downstream) ←
     liftQuery (session.index.queryNames query upstreamLimit downstreamLimit)
