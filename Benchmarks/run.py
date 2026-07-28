@@ -52,7 +52,7 @@ def measure_session(
     executable: Path, queries: tuple[str, ...], timeout: float
 ) -> list[tuple[float, int]]:
     process = subprocess.Popen(
-        [executable, "--interactive", "--json"],
+        [executable, "--module", "Mathlib", "--interactive", "--json"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
@@ -112,7 +112,17 @@ def main() -> None:
             rows.append((query, "leanreach_session", latency, found))
     for query in QUERIES:
         latency, output = measure_process(
-            [executable, "search", query, "--limit", "10", "--json"], args.timeout
+            [
+                executable,
+                "--module",
+                "Mathlib",
+                "search",
+                query,
+                "--limit",
+                "10",
+                "--json",
+            ],
+            args.timeout,
         )
         rows.append((query, "leanreach_process", latency, len(json.loads(output)["items"])))
     for query in QUERIES:
