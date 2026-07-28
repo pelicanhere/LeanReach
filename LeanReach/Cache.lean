@@ -10,9 +10,9 @@ namespace LeanReach.Cache
 
 open Lean
 
-private def catalogVersion := 2
-private def relationsVersion := 3
-private def fragmentVersion := 4
+private def catalogVersion := 3
+private def relationsVersion := 4
+private def fragmentVersion := 5
 private def ppVersion := 3
 private def ppBundleVersion := 2
 
@@ -59,6 +59,18 @@ private def sourceNames (olean : System.FilePath) : IO (Std.HashSet String) := d
       if let .const _ name := ident then names := names.insert name
   return names
 
+private unsafe def readParts (olean : System.FilePath) :
+    IO (Array (ModuleData × CompactedRegion) × Nat) := do
+  let mut paths := #[olean]
+  let mut visible := 0
+  let server := OLeanLevel.server.adjustFileName olean
+  if ← server.pathExists then
+    paths := paths.push server
+    visible := paths.size - 1
+  let privatePath := OLeanLevel.private.adjustFileName olean
+  if ← privatePath.pathExists then paths := paths.push privatePath
+  return (← readModuleDataParts paths, visible)
+
 private def collapseInternal (internal : NameMap NameSet) (dependencies : NameSet) : NameSet :=
   Id.run do
     let mut pending : Array Name := #[]
@@ -77,26 +89,43 @@ private def collapseInternal (internal : NameMap NameSet) (dependencies : NameSe
 
 private unsafe def readFragment (moduleName : Name) (olean : System.FilePath) :
     IO (ModuleFragment × Array CompactedRegion) := do
-  let mut paths := #[olean]
-  for level in #[OLeanLevel.server, OLeanLevel.private] do
-    let path := level.adjustFileName olean
-    if ← path.pathExists then paths := paths.push path
-  let parts ← readModuleDataParts paths
-  let some (data, _) := parts.back? |
+  let (parts, visibleIndex) ← unsafe readParts olean
+  let some (all, _) := parts.back? |
     throw <| IO.userError s!"empty module data for '{moduleName}'"
+  let some (visible, _) := parts[visibleIndex]? |
+    throw <| IO.userError s!"missing visible module data for '{moduleName}'"
   let source ← sourceNames olean
-  let internal := data.constants.foldl (init := ({} : NameMap NameSet)) fun internal info =>
-    if isBlackListed info.name then
+  let visibleNames := visible.constants.foldl (init := ({} : NameHashSet))
+    fun names info => names.insert info.name
+  let internal := all.constants.foldl (init := ({} : NameMap NameSet)) fun internal info =>
+    if isBlackListed info.name || !visibleNames.contains info.name then
       internal.insert info.name info.getUsedConstantsAsSet
     else internal
   return ({
-    imports := data.imports.map (·.module)
-    declarations := data.constants.filterMap fun info =>
+    imports := all.imports.map (·.module)
+    declarations := visible.constants.filterMap fun info =>
       let name := info.name
       if source.contains name.toString && !isBlackListed name then
         some (name, collapseInternal internal info.getUsedConstantsAsSet)
       else none
   }, parts.map (·.2))
+
+unsafe def withModulePrivateConstants {α : Type} (env : Environment) (moduleName : Name)
+    (action : Environment → IO α) : IO α := do
+  let (result, regions) ← show IO (α × Array CompactedRegion) from do
+    let (parts, _) ← unsafe readParts (← findOLean moduleName)
+    let some (data, _) := parts.back? |
+      throw <| IO.userError s!"empty module data for '{moduleName}'"
+    let mut env := env
+    for info in data.constants do
+      unless env.contains info.name do
+        let added ← env.addConstAsync info.name (.ofConstantInfo info)
+          (exportedKind? := none) (reportExts := false) (checkMayContain := false)
+        added.commitConst added.asyncEnv (some info)
+        env := added.mainEnv
+    return (← action env, parts.map (·.2))
+  regions.forM CompactedRegion.free
+  return result
 
 private unsafe def writeFragment (moduleName : Name) (olean path : System.FilePath)
     (hash : String) : IO Unit := do

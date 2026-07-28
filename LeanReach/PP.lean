@@ -31,7 +31,8 @@ private unsafe def buildModules (sourcePath : SearchPath) (env : Environment)
     let stop := min inputs.size (offset + workers)
     let batch := inputs.extract offset stop
     let tasks ← batch.mapM fun (moduleName, names, _) =>
-      IO.asTask (unsafe runCore env (prettyPrintModule sourcePath moduleName names))
+      IO.asTask <| unsafe Cache.withModulePrivateConstants env moduleName fun env =>
+        unsafe runCore env (prettyPrintModule sourcePath moduleName names)
     for (((moduleName, _, before), task), done) in (batch.zip tasks).zipIdx do
       let added ← IO.ofExcept task.get
       count := count + (← unsafe saveModule moduleName before added)
@@ -49,8 +50,7 @@ unsafe def buildPPModules (modules : Array Name) : IO Nat := do
     unless missing.isEmpty do
       inputs := inputs.push (moduleName, missing, before)
   if inputs.isEmpty then return 0
-  let env ← importEnvironment (inputs.map fun (module, _, _) => module)
-    (leakEnv := true) (level := .private)
+  let env ← importEnvironment (inputs.map fun (module, _, _) => module) (leakEnv := true)
   unsafe buildModules sourcePath env inputs
 
 private def fillBundle (index : Index) (slots : Array (Option Declaration))
@@ -78,8 +78,7 @@ unsafe def buildPPRoots (roots : Array Name)
       inputs := inputs.push (moduleName, missing, before)
   let mut count := 0
   unless inputs.isEmpty do
-    let env ← importEnvironment (inputs.map fun (module, _, _) => module)
-      (leakEnv := true) (level := .private)
+    let env ← importEnvironment (inputs.map fun (module, _, _) => module) (leakEnv := true)
     let slotsRef ← IO.mkRef slots
     count ← unsafe buildModules sourcePath env inputs fun moduleName added done => do
       slotsRef.modify fun slots => fillBundle index slots added
