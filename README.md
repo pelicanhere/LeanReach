@@ -11,7 +11,7 @@ artifacts for local libraries:
 - read each built module's `.olean`, `.olean.server`, `.olean.private`, and `.ilean` directly;
 - cache a small dependency fragment per module and materialize separate name and relation indexes;
 - plan the bounded query from the index, then import only result modules for pretty-printing;
-- persist rendered declarations and skip imports entirely when every result is cached;
+- persist rendered declarations per module, reuse them across roots, and skip imports when cached;
 - keep a root `Environment` alive only in interactive mode;
 - use Lean's own delaborator and pretty-printer;
 - hide compiler-generated declarations using Loogle/doc-gen-style filtering;
@@ -19,8 +19,9 @@ artifacts for local libraries:
 - perform bounded breadth-first traversal instead of materializing a transitive DAG.
 
 Module fragments and the materialized index are checked against Lake's transitive `depHash`, so a
-local library rebuild invalidates only the affected fragments and root view. Both directions use
-`ConstantInfo.getUsedConstantsAsSet`, which includes the type and the proof or implementation body.
+local library rebuild invalidates only the affected fragments, rendered declarations, and root
+view. Both directions use `ConstantInfo.getUsedConstantsAsSet`, which includes the type and the
+proof or implementation body.
 
 ## Build and test
 

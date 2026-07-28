@@ -12,7 +12,7 @@ open Lean
 private def catalogVersion := 1
 private def relationsVersion := 1
 private def fragmentVersion := 2
-private def renderVersion := 1
+private def renderVersion := 2
 
 structure ModuleFragment where
   imports : Array Name
@@ -127,22 +127,33 @@ unsafe def loadIndex (root : Name) (loadRelations := true) : IO Index := do
   if loadRelations then return index
   return Index.ofParts index.catalog (#[], #[])
 
-unsafe def loadRendered (root : Name) : IO (NameMap Declaration) := do
-  let olean ← findOLean root
+private unsafe def loadRenderedModule (moduleName : Name) : IO (NameMap Declaration) := do
+  let olean ← findOLean moduleName
   let some depHash ← depHash? olean | return {}
   let path := olean.withExtension s!"leanreach-render-{renderVersion}"
-  unless ← path.pathExists do return {}
-  try
-    let ((storedHash, declarations), _) ←
-      unsafe unpickle (String × NameMap Declaration) path
-    if storedHash == depHash then return declarations
-  catch _ => pure ()
-  return {}
+  return (← unsafe loadPart (NameMap Declaration) path depHash).getD {}
 
-unsafe def saveRendered (root : Name) (declarations : NameMap Declaration) : IO Unit := do
-  let olean ← findOLean root
-  let some depHash ← depHash? olean | return
-  let path := olean.withExtension s!"leanreach-render-{renderVersion}"
-  pickle path (Name.str root "_leanreachRender") (depHash, declarations)
+unsafe def loadRendered (modules : Array Name) : IO (NameMap Declaration) := do
+  let mut declarations := {}
+  for moduleName in modules do
+    for (name, declaration) in ← unsafe loadRenderedModule moduleName do
+      declarations := declarations.insert name declaration
+  return declarations
+
+unsafe def saveRendered (before after : NameMap Declaration) : IO Unit := do
+  let mut additions : NameMap (NameMap Declaration) := {}
+  for (name, declaration) in after do
+    unless before.contains name do
+      let moduleName := declaration.moduleName.toName
+      let moduleDeclarations := (additions.find? moduleName).getD {}
+      additions := additions.insert moduleName (moduleDeclarations.insert name declaration)
+  for (moduleName, added) in additions do
+    let olean ← findOLean moduleName
+    let some depHash ← depHash? olean | continue
+    let mut declarations ← unsafe loadRenderedModule moduleName
+    for (name, declaration) in added do
+      declarations := declarations.insert name declaration
+    let path := olean.withExtension s!"leanreach-render-{renderVersion}"
+    pickle path (Name.str moduleName "_leanreachRender") (depHash, declarations)
 
 end LeanReach.Cache
