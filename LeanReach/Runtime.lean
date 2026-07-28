@@ -59,6 +59,10 @@ unsafe def runCore {α : Type} (env : Environment) (action : CoreM α) : IO α :
     { fileName := "<leanreach>", fileMap := default }
     { env }
 
+unsafe def importEnvironment (modules : Array Name) : IO Environment := do
+  Lean.enableInitializersExecution
+  importModules (loadExts := true) (modules.map fun module => { module }) {}
+
 unsafe def detectRoots : IO (Array Name) := do
   let roots ← unsafe Project.detectRoots (← leanSysroot)
   if roots.isEmpty then

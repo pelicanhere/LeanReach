@@ -27,9 +27,7 @@ private unsafe def runSession {α : Type} (index : Index) (session : Session)
     index.modulesFor (← session.missing names)
   let env ←
     if modules.isEmpty then emptyEnv?.getDM mkEmptyEnvironment
-    else
-      Lean.enableInitializersExecution
-      importModules (loadExts := true) (modules.map fun moduleName => { module := moduleName }) {}
+    else importEnvironment modules
   let result ← unsafe runCore env action
   let after ← session.ppCache
   if after.size != before.size then
