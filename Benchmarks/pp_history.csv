@@ -33,3 +33,4 @@ exact-query-shard,9978,5,115,median packaged-process wall time across three dist
 leaf-query-shards-build,9978,375372,34663,wall time; 1024 shards keyed by declaration leaf names
 unique-short-query,9978,5,117,median packaged-process wall time; unique leaf resolves without the catalog
 ambiguous-short-query,9978,0,117,median packaged-process wall time; ambiguity is reported from one shard
+trivial-relation-fast-path,9978,375372,28851,wall time; skip ranking context for empty and singleton relations

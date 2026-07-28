@@ -165,7 +165,8 @@ private def Index.namesAt (index : Index) (ids : Array UInt32) : Array Name :=
 
 private def Index.rankIds (index : Index) (source : UInt32)
     (ids : Array UInt32) (upstream : Bool) (limit : Nat) : Array UInt32 := Id.run do
-  if limit == 0 then return #[]
+  if limit == 0 || ids.isEmpty then return #[]
+  if ids.size == 1 then return ids
   let (sourceName, sourceModule) := index.entries[source.toNat]!
   let sourceNameParts := sourceName.components
   let sourceModuleParts := sourceModule.components
