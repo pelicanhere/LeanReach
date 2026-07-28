@@ -121,11 +121,17 @@ private unsafe def buildIndex (root : Name) : IO Index := do
   let mut pending := #[root]
   let mut seen : NameHashSet := {}
   let mut declarations := #[]
-  while let some moduleName := pending.back? do
-    pending := pending.pop
-    unless seen.contains moduleName do
-      seen := seen.insert moduleName
-      let fragment ← loadFragment moduleName
+  while !pending.isEmpty do
+    let mut batch := #[]
+    while batch.size < 32 do
+      let some moduleName := pending.back? | break
+      pending := pending.pop
+      unless seen.contains moduleName do
+        seen := seen.insert moduleName
+        batch := batch.push moduleName
+    let tasks ← batch.mapM fun moduleName => IO.asTask (unsafe loadFragment moduleName)
+    for (moduleName, task) in batch.zip tasks do
+      let fragment ← IO.ofExcept task.get
       pending := pending ++ fragment.imports
       for (name, dependencies) in fragment.declarations do
         declarations := declarations.push (name, moduleName, dependencies)
