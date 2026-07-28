@@ -27,3 +27,6 @@ mathlib-marker-hit,9978,375372,15,internal elapsed time; small root marker retur
 cache-command-marker-hit,9978,375372,5,internal elapsed time after restoring the cache CLI boundary
 compact-catalog-build,9978,375372,25974,reused module fragments; catalog shrank 25.8% from 167387480 to 124277768 bytes
 session-index-decoupled,9978,2,6,internal cached query elapsed time; Session no longer owns dependency planning
+query-shards-build-sequential,9978,375372,64862,wall time; sequential ranking and 16 text shards
+query-shards-build-parallel,9978,375372,29621,wall time; four ranking tasks and 1024 on-demand shards
+exact-query-shard,9978,5,115,median packaged-process wall time across three distinct exact queries; 22ms median internal

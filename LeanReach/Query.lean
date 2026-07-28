@@ -19,6 +19,9 @@ structure Limits where
 def Limits.uniform (limit : Nat) : Limits :=
   { upstream := limit, downstream := limit, search := limit }
 
+def Limits.usesCachedQuery (limits : Limits) : Bool :=
+  limits.upstream ≤ cachedQueryLimit && limits.downstream ≤ cachedQueryLimit
+
 structure Session where
   private sourcePath : SearchPath
   private declarations : IO.Ref (NameMap Declaration)
@@ -51,6 +54,18 @@ abbrev QueryNames := Name × Array Name × Array Name
 
 def QueryNames.all (names : QueryNames) : Array Name :=
   #[names.1] ++ names.2.1 ++ names.2.2
+
+def CachedQuery.queryNames (query : CachedQuery) (limits : Limits) : QueryNames :=
+  (
+    query.target.name,
+    (query.upstream.take limits.upstream).map (·.name),
+    (query.downstream.take limits.downstream).map (·.name)
+  )
+
+def CachedQuery.moduleOf? (query : CachedQuery) (name : Name) : Option Name :=
+  if query.target.name == name then some query.target.moduleName
+  else
+    (query.upstream ++ query.downstream).find? (·.name == name) |>.map (·.moduleName)
 
 def Index.queryNames (index : Index) (query : String) (limits : Limits := {}) :
     Except String QueryNames := do

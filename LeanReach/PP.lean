@@ -1,5 +1,6 @@
 import LeanReach.Cache
 import LeanReach.PrettyPrint
+import LeanReach.QueryCache
 import LeanReach.Runtime
 
 namespace LeanReach
@@ -57,8 +58,12 @@ unsafe def buildPPModules (modules : Array Name) : IO Nat := do
 unsafe def buildPPRoots (roots : Array Name)
     (progress : Name → Nat → Nat → IO Unit := fun _ _ _ => pure ()) : IO Nat := do
   let sourcePath ← prepareEnvironment
-  if ← unsafe Cache.isFullyPP roots then return 0
-  let index ← unsafe Cache.loadIndex roots false
+  let ppReady ← unsafe Cache.isFullyPP roots
+  let queryReady ← unsafe QueryCache.isBuilt roots
+  if ppReady && queryReady then return 0
+  let index ← unsafe Cache.loadIndex roots (!queryReady)
+  unless queryReady do discard <| unsafe QueryCache.build roots index
+  if ppReady then return 0
   let mut inputs : Array Input := #[]
   let mut envTask? := none
   for (moduleName, names) in index.declarationsByModule do

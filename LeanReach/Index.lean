@@ -12,6 +12,17 @@ abbrev CatalogEntry := Name × Name
 abbrev Catalog := Array CatalogEntry × Data.Trie (Array UInt32)
 abbrev Relations := Array (Array UInt32) × Array (Array UInt32)
 
+structure LocatedName where
+  name : Name
+  moduleName : Name
+
+structure CachedQuery where
+  target : LocatedName
+  upstream : Array LocatedName
+  downstream : Array LocatedName
+
+def cachedQueryLimit := 10
+
 structure Index where
   private entries : Array CatalogEntry
   private trigrams : Data.Trie (Array UInt32)
@@ -189,6 +200,25 @@ private def Index.rankIds (index : Index) (source : UInt32)
         return heap
   return (best.qsort better).map (·.2)
 
+private def Index.relatedIds (index : Index) (source : UInt32)
+    (upstream : Bool) (limit : Nat) : Array UInt32 :=
+  let ids := if upstream then index.forward[source.toNat]! else index.reverse[source.toNat]!
+  index.rankIds source ids upstream limit
+
+private def Index.locatedAt (index : Index) (id : UInt32) : LocatedName :=
+  let (name, moduleName) := index.entries[id.toNat]!
+  { name, moduleName }
+
+private def Index.cachedAt (index : Index) (id : UInt32) : CachedQuery :=
+  {
+    target := index.locatedAt id
+    upstream := (index.relatedIds id true cachedQueryLimit).map index.locatedAt
+    downstream := (index.relatedIds id false cachedQueryLimit).map index.locatedAt
+  }
+
+def Index.cachedQueryAt! (index : Index) (id : Nat) : CachedQuery :=
+  index.cachedAt id.toUInt32
+
 private def Index.candidates (index : Index) (query : String) : Array UInt32 :=
   if query.length < 3 then
     index.entries.mapIdx fun id _ => id.toUInt32
@@ -233,8 +263,7 @@ private def Index.related (index : Index) (name : Name) (upstream : Bool)
     (limit : Nat) : Array Name :=
   match index.findId? name with
   | some id =>
-    let ids := if upstream then index.forward[id.toNat]! else index.reverse[id.toNat]!
-    index.namesAt (index.rankIds id ids upstream limit)
+    index.namesAt (index.relatedIds id upstream limit)
   | none => #[]
 
 def Index.upstream (index : Index) (name : Name) (limit : Nat) : Array Name :=

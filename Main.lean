@@ -191,9 +191,15 @@ private unsafe def execute (config : Config) (command? : Option Command) : IO UI
       printPP config.json modules count
     else
       printPP config.json modules (← buildPPModules modules)
+  | some (.query query) =>
+    let roots ← config.roots
+    let limits := config.limits
+    if (← withCachedQueryFor roots query limits fun session names =>
+        runTimed session config (.query names)).isNone then
+      withSessionFor roots (prepare config (.query query)) true (runTimed · config)
   | some command =>
     withSessionFor (← config.roots) (prepare config command)
-      (command matches .query _) (runTimed · config)
+      false (runTimed · config)
   | none =>
     withLazySession (← config.roots) fun session run => runInteractive session run config
   if config.profile then

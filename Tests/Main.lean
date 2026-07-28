@@ -23,6 +23,16 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "built local modules were not detected"
   unless roots.contains `Mathlib do
     throw <| IO.userError "required Mathlib was not detected"
+  let fixtureIndex ← unsafe Cache.loadIndex #[`Tests.Fixture] true
+  discard <| unsafe QueryCache.build #[`Tests.Fixture] fixtureIndex
+  let some cachedQuery ← unsafe QueryCache.load #[`Tests.Fixture]
+      `LeanReachFixture.Topic.ranked |
+    throw <| IO.userError "exact query cache is missing"
+  let .ok expectedQuery :=
+      fixtureIndex.queryNames "LeanReachFixture.Topic.ranked" {} |
+    throw <| IO.userError "fixture query is missing"
+  unless cachedQuery.queryNames {} == expectedQuery do
+    throw <| IO.userError "cached query does not preserve ranking"
   withSession #[`Tests.Fixture] fun index session => do
     let fixtureNames ← unsafe Cache.moduleNames `Tests.Fixture
     check (fixtureNames.contains `LeanReachFixture.double)

@@ -216,7 +216,7 @@ private unsafe def buildIndex (roots : Array Name) : IO Index := do
         declarations := declarations.push (name, moduleName, dependencies)
   return Index.build declarations
 
-private unsafe def rootData (roots : Array Name) : IO (System.FilePath × String × Name) := do
+unsafe def rootData (roots : Array Name) : IO (System.FilePath × String × Name) := do
   let some root := roots[0]? | throw <| IO.userError "no root modules"
   let olean ← findOLean root
   let some firstHash ← depHash? olean |

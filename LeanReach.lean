@@ -1,6 +1,7 @@
 import LeanReach.Cache
 import LeanReach.PP
 import LeanReach.Query
+import LeanReach.QueryCache
 import LeanReach.Runtime
 
 namespace LeanReach
@@ -56,6 +57,17 @@ unsafe def withSessionFor {α β : Type} (roots : Array Name)
     (select : Index → Except String (α × Array Name)) (loadRelations : Bool)
     (action : Session → α → CoreM β) : IO β :=
   withIndexSession roots loadRelations select false fun _ => action
+
+/-- Use the pre-ranked exact-query shard without loading the complete dependency index. -/
+unsafe def withCachedQueryFor {α : Type} (roots : Array Name) (query : String)
+    (limits : Limits) (action : Session → QueryNames → CoreM α) : IO (Option α) := do
+  unless limits.usesCachedQuery do return none
+  let sourcePath ← prepareEnvironment
+  let some cached ← unsafe QueryCache.load roots query.toName | return none
+  let names := cached.queryNames limits
+  let session ← Session.create sourcePath
+  return some (← unsafe runSession cached.moduleOf? session names.all none false none
+    (action session names))
 
 /-- Import the root modules once and reuse their environment and index for the entire action. -/
 unsafe def withSession {α : Type} (roots : Array Name)

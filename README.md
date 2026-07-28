@@ -175,6 +175,12 @@ modules implicitly. On the development Windows machine, the same 64 modules and 
 took 29.9 seconds in two 32-module import waves, 15.3 seconds with one import, and 14.1 seconds with
 four pretty-print tasks.
 
+The root cache also materializes the current default top ten upstream and downstream results into
+hash-partitioned exact-query shards. A fully qualified declaration query therefore reads one small
+plan shard and only the selected module PP sidecars, without opening the complete catalog or relation
+index. Fuzzy names and limits above ten deliberately fall back to the complete index so they preserve
+the same matching and ranking semantics.
+
 ## Dependency semantics
 
 An edge `A → B` means `ConstantInfo.getUsedConstantsAsSet` for `A` contains `B`, possibly after
