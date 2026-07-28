@@ -16,7 +16,7 @@ artifacts for local libraries:
 - use Lean's own delaborator and pretty-printer;
 - hide compiler-generated declarations using Loogle/doc-gen-style filtering;
 - index direct constants mentioned by declaration types and values;
-- perform bounded breadth-first traversal instead of materializing a transitive DAG.
+- rank only the requested number of direct dependencies instead of materializing a transitive DAG.
 
 Module fragments and the materialized index are checked against Lake's transitive `depHash`, so a
 local library rebuild invalidates only the affected fragments, rendered declarations, and root
@@ -60,12 +60,6 @@ lake exe leanreach search span_le --limit 10
 # Show a declaration and both directions of its direct dependencies.
 lake exe leanreach Submodule.span_le --limit 20
 
-# Traverse two hops in one direction.
-lake exe leanreach Submodule.span_le --upstream --depth 2
-
-# Rank the most informative declarations in a bounded upstream neighborhood.
-lake exe leanreach context Submodule.span_le --depth 2 --limit 20
-
 # Machine-readable output.
 lake exe leanreach Submodule.span_le --json
 
@@ -80,10 +74,7 @@ Important options:
 
 ```text
 -m, --module MODULE   imported root module (default: Mathlib)
--d, --depth N         traversal depth, 0 through 8 (default: 1)
 -n, --limit N         results per list, 1 through 1000 (default: 20)
-    --upstream        only declarations used by the target
-    --downstream      only declarations that use the target
 -i, --interactive     keep the environment alive and read stdin
 -j, --json            JSON, or NDJSON with --interactive
     --profile         report startup and per-query time
@@ -101,12 +92,11 @@ Importing a complete Lean environment is the expensive part. Agents should reuse
 lake exe leanreach --interactive --json --profile
 ```
 
-Each input line is a declaration name, `search PATTERN`, or `context DECLARATION`:
+Each input line is a declaration name or `search PATTERN`:
 
 ```text
 search span_le
 Submodule.span_le
-context Submodule.span_le
 ```
 
 The process emits one compact JSON value per line and flushes stdout after every response. On the
@@ -150,28 +140,31 @@ An edge `A → B` means `ConstantInfo.getUsedConstantsAsSet` for `A` contains `B
 - downstream of `B` contains declarations whose signature or body uses `B`;
 - there is one relation and one output list per direction, without splitting type and body edges.
 
-The bounded traversal remains a lightweight navigation aid rather than a materialized transitive
-DAG or a runtime call graph.
+The direct relation remains a lightweight navigation aid rather than a materialized transitive DAG
+or a runtime call graph.
 
-Direct dependencies are ordered once while building the relation index. Declarations from the same
-module and nearby namespaces come first; ties prefer rarer upstream symbols and more widely reused
-downstream declarations. This keeps generic proof plumbing below definitions and lemmas local to
-the target without maintaining a heavier graph.
+Only the requested top results are selected. A bounded binary heap avoids sorting a declaration's
+entire posting list, which matters for very widely used constants.
 
-## Ranked context
+## Dependency ranking
 
-`context` selects informative upstream declarations without an embedding model or a complete DAG.
-For a declaration used by `df` of the `N` indexed declarations, its score starts with Lucene's
-smoothed IDF:
+Both directions combine mathematical relevance with locality:
+
+- same-module, common namespace, and common module prefixes favor declarations near the target;
+- exact final names and shared underscore-separated words connect wrappers such as
+  `Nat.Prime.dvd_of_dvd_pow` with `Prime.dvd_of_dvd_pow`;
+- upstream uses Lucene's smoothed IDF, favoring specific definitions and lemmas over ubiquitous
+  proof plumbing;
+- downstream uses `log(1 + df)`, favoring declarations that themselves became reusable APIs.
+
+For an upstream declaration used by `df` of the `N` indexed declarations, the frequency component
+is:
 
 ```text
 log(1 + (N - df + 0.5) / (df + 0.5))
 ```
 
-The score is multiplied by `0.5^(distance - 1)`. Direct dependencies are all considered; deeper
-layers expand only the 16 highest-scoring declarations from the previous layer and stop after
-examining 256 edges. The output includes score, distance, and `df` so an agent can explain why a
-declaration was selected. This combines the rarity principle from Lean's
+This combines the rarity principle from Lean's
 [MePo implementation](https://github.com/leanprover/lean4/blob/master/src/Lean/LibrarySuggestions/MePo.lean)
 and the original [Meng–Paulson relevance filter](https://www.cl.cam.ac.uk/~lp15/papers/Automation/filtering-jal.pdf)
 with [Lucene's smoothed IDF](https://lucene.apache.org/core/9_4_2/core/org/apache/lucene/search/similarities/BM25Similarity.html).
@@ -182,8 +175,7 @@ with [Lucene's smoothed IDF](https://lucene.apache.org/core/9_4_2/core/org/apach
 LeanReach/Index.lean  names, direct-reference postings, and resolution
 LeanReach/Cache.lean  persistent index serialization and freshness checks
 LeanReach/BlackListed.lean  generated-declaration filtering
-LeanReach/Rank.lean  bounded expansion and symbol-rarity ranking
-LeanReach/Query.lean  rendering, source locations, traversal, and sessions
+LeanReach/Query.lean  rendering, source locations, and sessions
 LeanReach.lean        environment-loading facade
 Main.lean             Lake ArgsT CLI and interactive transport
 Tests/                local-library fixture and behavior checks

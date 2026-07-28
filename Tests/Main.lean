@@ -19,45 +19,42 @@ private unsafe def runTests : IO Unit :=
       "non-Prop declaration body is missing"
     check (result.target.signature.contains "n + n")
       "definition body was not pretty-printed with notation"
-    check
-      (result.upstream.any fun (_, declaration) => declaration.name == "HAdd.hAdd")
+    check (result.upstream.any fun declaration => declaration.name == "HAdd.hAdd")
       "implementation-only upstream relation is missing"
     check
-      (result.downstream.any fun (_, declaration) =>
+      (result.downstream.any fun declaration =>
         declaration.name == "LeanReachFixture.double_eq_add")
       "downstream relation is missing"
 
-    let theoremResult ← session.query "LeanReachFixture.double_eq_add"
-      (limit := 100) (downstream := false)
+    let theoremResult ← session.query "LeanReachFixture.double_eq_add" 100
     check (theoremResult.target.signature.contains "n + n")
       "theorem signature was not pretty-printed with notation"
     check
-      (theoremResult.upstream.any fun (_, declaration) =>
+      (theoremResult.upstream.any fun declaration =>
         declaration.name == "LeanReachFixture.double")
       "upstream relation is missing"
 
-    let proofResult ← session.query "LeanReachFixture.double_zero_again"
-      (limit := 100) (downstream := false)
+    let proofResult ← session.query "LeanReachFixture.double_zero_again" 100
     check
-      (proofResult.upstream.any fun (_, declaration) =>
+      (proofResult.upstream.any fun declaration =>
         declaration.name == "LeanReachFixture.double_zero")
       "proof-only upstream relation is missing"
 
-    let usedResult ← session.query "LeanReachFixture.double_zero"
-      (limit := 100) (upstream := false)
+    let usedResult ← session.query "LeanReachFixture.double_zero" 100
     check
-      (usedResult.downstream.any fun (_, declaration) =>
+      (usedResult.downstream.any fun declaration =>
         declaration.name == "LeanReachFixture.double_zero_again")
       "proof-only downstream relation is missing"
 
-    let rankedResult ← session.query "LeanReachFixture.Topic.ranked"
-      (limit := 100) (downstream := false)
-    let some (_, first) := rankedResult.upstream[0]? |
+    let rankedResult ← session.query "LeanReachFixture.Topic.ranked" 1
+    check (rankedResult.upstream.size == 1)
+      "dependency limit was not applied during ranking"
+    let some first := rankedResult.upstream[0]? |
       throwError "ranked dependencies are empty"
     check (first.name == "LeanReachFixture.Topic.nearby")
       "nearby dependency was not ranked first"
 
-    let classResult ← session.query "Add" (upstream := false) (downstream := false)
+    let classResult ← session.query "Add"
     check (classResult.target.signature.contains "fields:")
       "class fields are missing"
     check (classResult.target.signature.contains "Add.add")
@@ -75,14 +72,6 @@ private unsafe def runTests : IO Unit :=
       ((← session.search "LeanReachFixture.Box.value" 10).any fun item =>
         item.name == "LeanReachFixture.Box.value")
       "structure projection was blacklisted"
-
-    let (_, context) ← session.context "LeanReachFixture.double_zero_again" 1 20
-    let some first := context[0]? | throwError "ranked context is empty"
-    check (first.declaration.name == "LeanReachFixture.double_zero")
-      "proof dependency was not ranked first"
-    let (_, expanded) ← session.context "LeanReachFixture.double_zero_again" 2 20
-    check (expanded.any fun item => item.distance == 2)
-      "ranked context was not expanded"
 
 unsafe def main : IO UInt32 := do
   try

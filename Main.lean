@@ -9,15 +9,11 @@ open Lean
 inductive Command where
   | query (name : String)
   | search (pattern : String)
-  | context (name : String)
   | cache (modules : Array Name)
 
 structure Config where
   root : Name := `Mathlib
-  depth : Nat := 1
   limit : Nat := 20
-  upstream : Bool := true
-  downstream : Bool := true
   interactive : Bool := false
   json : Bool := false
   profile : Bool := false
@@ -39,7 +35,6 @@ private def takeNat (option : String) : CliM Nat := do
 
 private def shortOption : Char → CliM PUnit
   | 'm' => do modifyThe Config ({ · with root := (← takeArg "-m").toName })
-  | 'd' => do modifyThe Config ({ · with depth := ← takeNat "-d" })
   | 'n' => do modifyThe Config ({ · with limit := ← takeNat "-n" })
   | 'i' => modifyThe Config ({ · with interactive := true })
   | 'j' => modifyThe Config ({ · with json := true })
@@ -48,16 +43,11 @@ private def shortOption : Char → CliM PUnit
 
 private def longOption : String → CliM PUnit
   | "--module" => shortOption 'm'
-  | "--depth" => shortOption 'd'
   | "--limit" => shortOption 'n'
   | "--interactive" => shortOption 'i'
   | "--json" => shortOption 'j'
   | "--help" => shortOption 'h'
   | "--profile" => modifyThe Config ({ · with profile := true })
-  | "--upstream" =>
-    modifyThe Config ({ · with upstream := true, downstream := false })
-  | "--downstream" =>
-    modifyThe Config ({ · with upstream := false, downstream := true })
   | option => throw <| Lake.CliError.unknownLongOption option
 
 private def option :=
@@ -73,16 +63,12 @@ LeanReach — Lean declaration search and dependency navigation
 USAGE:
   leanreach [OPTIONS] DECLARATION
   leanreach [OPTIONS] search PATTERN
-  leanreach [OPTIONS] context DECLARATION
   leanreach [OPTIONS] cache MODULE...
   leanreach [OPTIONS] --interactive
 
 OPTIONS:
   -m, --module MODULE   import root module (default: Mathlib)
-  -d, --depth N         traversal depth (default: 1)
   -n, --limit N         maximum results per list (default: 20)
-      --upstream        only declarations used by the target
-      --downstream      only declarations that use the target
   -i, --interactive     reuse one environment; read queries from stdin
   -j, --json            emit JSON (NDJSON in interactive mode)
       --profile         print elapsed time to stderr
@@ -100,11 +86,11 @@ private def printDeclaration (indent : String) (declaration : Declaration) : IO 
   IO.println <| indent ++ declaration.signature.replace "\n" ("\n" ++ continuation)
   IO.println s!"{indent}  {location declaration}"
 
-private def printRelated (label : String) (items : Array Related) : IO Unit := do
+private def printRelated (label : String) (items : Array Declaration) : IO Unit := do
   IO.println s!"{label} ({items.size})"
   if items.isEmpty then IO.println "  <none>"
-  for (distance, declaration) in items do
-    let marker := s!"  [{distance}] "
+  for (declaration, index) in items.zipIdx do
+    let marker := s!"  [{index + 1}] "
     IO.println <| marker ++ declaration.signature.replace "\n" "\n      "
     IO.println s!"      {location declaration}"
 
@@ -124,28 +110,12 @@ private def printSearch (json : Bool) (query : String) (items : Array Declaratio
     for declaration in items do
       printDeclaration "  " declaration
 
-private def printContext (json : Bool) (target : Declaration)
-    (items : Array RankedDeclaration) : IO Unit := do
-  if json then
-    IO.println (Json.mkObj [("target", toJson target), ("context", toJson items)]).compress
-  else
-    printDeclaration "target  " target
-    IO.println s!"context ({items.size})"
-    if items.isEmpty then IO.println "  <none>"
-    for item in items do
-      IO.println s!"  [score {item.score}, depth {item.distance}, df {item.documentFrequency}]"
-      printDeclaration "    " item.declaration
-
 private def runOne (session : Session) (config : Config) (command : Command) : CoreM Unit := do
   match command with
   | .query name =>
-    printQuery config.json <| ← session.query name config.depth config.limit
-      config.upstream config.downstream
+    printQuery config.json <| ← session.query name config.limit
   | .search pattern =>
     printSearch config.json pattern (← session.search pattern config.limit)
-  | .context name =>
-    let (target, items) ← session.context name config.depth config.limit
-    printContext config.json target items
   | .cache modules =>
     let count ← session.cacheModules modules
     if config.json then
@@ -166,22 +136,16 @@ private def commandNames (config : Config) (command : Command) (index : Index) :
     Except String (Array Name) := do
   match command with
   | .query query =>
-    let (target, upstream, downstream) ← index.queryNames query config.depth config.limit
-      config.upstream config.downstream
-    return #[target] ++ upstream.map (·.2) ++ downstream.map (·.2)
+    let (target, upstream, downstream) ← index.queryNames query config.limit
+    return #[target] ++ upstream ++ downstream
   | .search pattern =>
     return index.search pattern config.limit
-  | .context query =>
-    let (target, context) ← index.contextNames query config.depth config.limit
-    return #[target] ++ context.map (·.2.2)
   | .cache modules =>
     return index.namesInModules modules
 
 private def parseLine (line : String) : Command :=
   if let some pattern := line.dropPrefix? "search " then
     .search pattern.trimAscii.copy
-  else if let some name := line.dropPrefix? "context " then
-    .context name.trimAscii.copy
   else
     .query line
 
@@ -200,8 +164,6 @@ private partial def runInteractive (session : Session) (config : Config) : CoreM
   runInteractive session config
 
 private def validate (config : Config) : CliMainM Unit := do
-  if config.depth > 8 then
-    throw <| Lake.CliError.invalidOptArg "--depth" "an integer from 0 to 8"
   if config.limit == 0 || config.limit > 1000 then
     throw <| Lake.CliError.invalidOptArg "--limit" "an integer from 1 to 1000"
 
@@ -209,7 +171,7 @@ private unsafe def execute (config : Config) (command? : Option Command) : IO UI
   let started ← IO.monoMsNow
   match command? with
   | some command =>
-    let loadRelations := command matches .query _ | .context _
+    let loadRelations := command matches .query _
     withSessionFor config.root (commandNames config command) loadRelations fun session =>
       runTimed session config command
   | none =>
@@ -233,7 +195,6 @@ private unsafe def cli : CliM UInt32 := do
     else
       match arguments with
       | ["search", pattern] => pure (some (.search pattern))
-      | ["context", name] => pure (some (.context name))
       | "cache" :: module :: modules =>
         pure (some (.cache <| (module :: modules).toArray.map (·.toName)))
       | [name] => pure (some (.query name))

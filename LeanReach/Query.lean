@@ -3,36 +3,16 @@ import Lean.PrettyPrinter.Delaborator.Builtins
 import Lean.Structure
 import Lean.Util.Path
 import LeanReach.Declaration
-import LeanReach.Rank
+import LeanReach.Index
 
 namespace LeanReach
 
 open Lean Meta
 
-abbrev Related := Nat × Declaration
-
 structure QueryResult where
   target : Declaration
-  upstream : Array Related
-  downstream : Array Related
-
-private def relatedJson : Related → Json
-  | (distance, declaration) => Json.mkObj [
-      ("distance", toJson distance), ("declaration", toJson declaration)
-    ]
-
-instance : ToJson QueryResult where
-  toJson result := Json.mkObj [
-    ("target", toJson result.target),
-    ("upstream", Json.arr <| result.upstream.map relatedJson),
-    ("downstream", Json.arr <| result.downstream.map relatedJson)
-  ]
-
-structure RankedDeclaration where
-  score : Float
-  distance : Nat
-  documentFrequency : Nat
-  declaration : Declaration
+  upstream : Array Declaration
+  downstream : Array Declaration
   deriving ToJson
 
 structure Session where
@@ -96,54 +76,25 @@ private def describe (session : Session) (name : Name) : CoreM Declaration := do
   session.declarations.modify (·.insert name declaration)
   return declaration
 
-private def traverse (start : Name) (depth limit : Nat)
-    (neighbors : Name → Array Name) : Array (Nat × Name) := Id.run do
-  if depth == 0 || limit == 0 then return #[]
-  let mut visited : NameHashSet := ({} : NameHashSet).insert start
-  let mut frontier := #[start]
-  let mut found := #[]
-  for distance in [1:depth + 1] do
-    let mut next := #[]
-    for name in frontier do
-      for neighbor in neighbors name do
-        unless visited.contains neighbor do
-          visited := visited.insert neighbor
-          next := next.push neighbor
-          found := found.push (distance, neighbor)
-          if found.size == limit then return found
-    frontier := next
-    if frontier.isEmpty then break
-  return found
+abbrev QueryNames := Name × Array Name × Array Name
 
-abbrev QueryNames := Name × Array (Nat × Name) × Array (Nat × Name)
-
-def Index.queryNames (index : Index) (query : String) (depth : Nat := 1)
-    (limit : Nat := 20) (upstream := true) (downstream := true) :
+def Index.queryNames (index : Index) (query : String) (limit : Nat := 20) :
     Except String QueryNames := do
   let target ← index.resolve query
-  return (
-    target,
-    if upstream then
-      traverse target depth limit index.rankedUpstream
-    else #[],
-    if downstream then
-      traverse target depth limit index.rankedDownstream
-    else #[]
-  )
+  return (target, index.upstream target limit, index.downstream target limit)
 
-private def describeRelated (session : Session) (items : Array (Nat × Name)) :
-    CoreM (Array Related) :=
-  items.mapM fun (distance, name) => return (distance, ← describe session name)
+private def describeRelated (session : Session) (items : Array Name) :
+    CoreM (Array Declaration) :=
+  items.mapM (describe session)
 
 private def liftQuery {α : Type} : Except String α → CoreM α
   | .ok result => pure result
   | .error message => throwError message
 
-def Session.query (session : Session) (query : String) (depth : Nat := 1)
-    (limit : Nat := 20) (upstream := true) (downstream := true) :
+def Session.query (session : Session) (query : String) (limit : Nat := 20) :
     CoreM QueryResult := do
   let (target, upstream, downstream) ←
-    liftQuery (session.index.queryNames query depth limit upstream downstream)
+    liftQuery (session.index.queryNames query limit)
   return {
     target := ← describe session target
     upstream := ← describeRelated session upstream
@@ -158,18 +109,5 @@ def Session.cacheModules (session : Session) (modules : Array Name) : CoreM Nat 
   let names := session.index.namesInModules modules
   names.forM fun name => discard <| describe session name
   return names.size
-
-def Session.context (session : Session) (query : String) (depth : Nat := 1)
-    (limit : Nat := 20) : CoreM (Declaration × Array RankedDeclaration) := do
-  let (target, names) ←
-    liftQuery (session.index.contextNames query depth limit)
-  let items ← names.mapM fun (score, distance, name) =>
-    return {
-      score
-      distance
-      documentFrequency := session.index.documentFrequency name
-      declaration := ← describe session name
-    }
-  return (← describe session target, items)
 
 end LeanReach

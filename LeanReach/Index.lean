@@ -1,5 +1,6 @@
 import Lean.Data.Name
 import Lean.Data.Trie
+import Batteries.Data.BinaryHeap.Basic
 
 namespace LeanReach
 
@@ -31,12 +32,29 @@ private def commonPrefixLength : List Name → List Name → Nat
   | a :: as, b :: bs => if a == b then commonPrefixLength as bs + 1 else 0
   | _, _ => 0
 
-private def locality (entries : Array CatalogEntry) (source candidate : UInt32) : Nat :=
-  let (sourceName, _, sourceModule, _) := entries[source.toNat]!
+private def lastComponent : Name → String
+  | .str _ value => value
+  | .num _ value => toString value
+  | .anonymous => ""
+
+private def nameAffinity (source : String) (sourceParts : List String)
+    (candidate : Name) : Float :=
+  let candidate := lastComponent candidate
+  let exact := if source == candidate then 3.5 else 0.0
+  if sourceParts.isEmpty then exact
+  else
+    let candidateParts := candidate.toLower.splitOn "_"
+    let shared := sourceParts.countP candidateParts.contains
+    exact + 1.5 * shared.toFloat
+
+private def locality (entries : Array CatalogEntry) (sourceModule : Name)
+    (sourceNameParts sourceModuleParts : List Name) (sourceLeaf : String)
+    (sourceParts : List String) (candidate : UInt32) : Float :=
   let (candidateName, _, candidateModule, _) := entries[candidate.toNat]!
-  (if sourceModule == candidateModule then 64 else 0) +
-    16 * commonPrefixLength sourceName.components candidateName.components +
-    4 * commonPrefixLength sourceModule.components candidateModule.components
+  (if sourceModule == candidateModule then 8.0 else 0.0) +
+    4.0 * (commonPrefixLength sourceNameParts candidateName.components).toFloat +
+    (commonPrefixLength sourceModuleParts candidateModule.components).toFloat +
+    nameAffinity sourceLeaf sourceParts candidateName
 
 def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
   let declarations := declarations.qsort fun a b => Name.lt a.1 b.1
@@ -80,14 +98,41 @@ private def Index.namesAt (index : Index) (ids : Array UInt32) : Array Name :=
   ids.map fun id => index.entries[id.toNat]!.1
 
 private def Index.rankIds (index : Index) (source : UInt32)
-    (ids : Array UInt32) (upstream : Bool) : Array UInt32 :=
-  (ids.map fun id => (locality index.entries source id, index.reverse[id.toNat]!.size, id))
-    |>.qsort (fun (scoreA, frequencyA, a) (scoreB, frequencyB, b) =>
+    (ids : Array UInt32) (upstream : Bool) (limit : Nat) : Array UInt32 := Id.run do
+  if limit == 0 then return #[]
+  let (sourceName, _, sourceModule, _) := index.entries[source.toNat]!
+  let sourceNameParts := sourceName.components
+  let sourceModuleParts := sourceModule.components
+  let sourceLeaf := lastComponent sourceName
+  let sourceParts :=
+    if sourceLeaf.contains '_' then
+      (sourceLeaf.toLower.splitOn "_").filter (·.length ≥ 3)
+    else []
+  let score (candidate : UInt32) :=
+    let df := index.reverse[candidate.toNat]!.size.toFloat
+    let frequency :=
+      if upstream then
+        let n := index.entries.size.toFloat
+        Float.log (1.0 + (n - df + 0.5) / (df + 0.5))
+      else
+        Float.log (1.0 + df)
+    locality index.entries sourceModule sourceNameParts sourceModuleParts
+      sourceLeaf sourceParts candidate + frequency
+  let better := fun (scoreA, a) (scoreB, b) =>
       if scoreA != scoreB then scoreA > scoreB
-      else if frequencyA != frequencyB then
-        if upstream then frequencyA < frequencyB else frequencyA > frequencyB
-      else Name.lt index.entries[a.toNat]!.1 index.entries[b.toNat]!.1)
-    |>.map (·.2.2)
+      else Name.lt index.entries[a.toNat]!.1 index.entries[b.toNat]!.1
+  let best :=
+    if ids.size ≤ limit then ids.map fun id => (score id, id)
+    else
+      Id.run do
+        let mut heap := Batteries.BinaryHeap.empty better
+        for id in ids do
+          let item := (score id, id)
+          heap :=
+            if heap.size < limit then heap.insert item
+            else (heap.insertExtractMax item).2
+        return heap.arr
+  return (best.qsort better).map (·.2)
 
 private def Index.candidates (index : Index) (query : String) : Array UInt32 :=
   if query.length < 3 then
@@ -128,25 +173,19 @@ def Index.resolve (index : Index) (query : String) : Except String Name := do
   throw s!"ambiguous declaration '{query}':\n{String.intercalate "\n" <|
     candidates.toList.map fun name => s!"  {name}"}"
 
-def Index.upstream (index : Index) (name : Name) : Array Name :=
+private def Index.related (index : Index) (name : Name) (upstream : Bool)
+    (limit : Nat) : Array Name :=
   match index.findEntry? name with
-  | some (_, _, _, id) => index.namesAt index.forward[id.toNat]!
+  | some (_, _, _, id) =>
+    let ids := if upstream then index.forward[id.toNat]! else index.reverse[id.toNat]!
+    index.namesAt (index.rankIds id ids upstream limit)
   | none => #[]
 
-def Index.downstream (index : Index) (name : Name) : Array Name :=
-  match index.findEntry? name with
-  | some (_, _, _, id) => index.namesAt index.reverse[id.toNat]!
-  | none => #[]
+def Index.upstream (index : Index) (name : Name) (limit : Nat) : Array Name :=
+  index.related name true limit
 
-def Index.rankedUpstream (index : Index) (name : Name) : Array Name :=
-  match index.findEntry? name with
-  | some (_, _, _, id) => index.namesAt (index.rankIds id index.forward[id.toNat]! true)
-  | none => #[]
-
-def Index.rankedDownstream (index : Index) (name : Name) : Array Name :=
-  match index.findEntry? name with
-  | some (_, _, _, id) => index.namesAt (index.rankIds id index.reverse[id.toNat]! false)
-  | none => #[]
+def Index.downstream (index : Index) (name : Name) (limit : Nat) : Array Name :=
+  index.related name false limit
 
 def Index.moduleOf? (index : Index) (name : Name) : Option Name :=
   index.findEntry? name |>.map fun (_, _, moduleName, _) => moduleName
@@ -165,13 +204,5 @@ def Index.namesInModules (index : Index) (modules : Array Name) : Array Name :=
   let wanted := modules.foldl (init := ({} : NameHashSet)) (·.insert ·)
   index.entries.filterMap fun (name, _, moduleName, _) =>
     if wanted.contains moduleName then some name else none
-
-def Index.declarationCount (index : Index) : Nat :=
-  index.entries.size
-
-def Index.documentFrequency (index : Index) (name : Name) : Nat :=
-  match index.findEntry? name with
-  | some (_, _, _, id) => index.reverse[id.toNat]!.size
-  | none => 0
 
 end LeanReach
