@@ -782,3 +782,30 @@ pp-module-boundary,LipschitzWith.vsub,rg,200.577,1,distinct query; executable an
 pp-module-boundary,uniformContinuous_vsub,rg,183.512,1,distinct query; executable and catalog primed without PP
 pp-module-boundary,norm_coe_eq_abs_iff,rg,236.064,1,distinct query; executable and catalog primed without PP
 pp-module-boundary,exists_norm_eq_of_isOfFinAddOrder,rg,195.438,1,distinct query; executable and catalog primed without PP
+pp-root-bundle,span_eq_bot,leanreach_session,6.763,5,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,map_span,leanreach_session,10.265,10,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,span_image,leanreach_session,9.900,10,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,span_eq_top,leanreach_session,7.500,10,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,span_singleton_eq_bot,leanreach_session,2.437,2,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,span_preimage_le,leanreach_session,4.099,2,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,finrank_span_eq_finrank_span,leanreach_session,2.243,1,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,tensorToSpan,leanreach_session,4.110,4,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,span_range_inclusionSpan,leanreach_session,2.905,1,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,span_eq_bot,leanreach_process,96.432,5,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,map_span,leanreach_process,100.843,10,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,span_image,leanreach_process,102.609,10,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,span_eq_top,leanreach_process,107.013,10,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,span_singleton_eq_bot,leanreach_process,105.634,2,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,span_preimage_le,leanreach_process,110.105,2,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,finrank_span_eq_finrank_span,leanreach_process,107.427,1,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,tensorToSpan,leanreach_process,104.397,4,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,span_range_inclusionSpan,leanreach_process,98.043,1,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,span_eq_bot,rg,221.869,1,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,map_span,rg,183.806,1,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,span_image,rg,228.095,1,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,span_eq_top,rg,200.405,1,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,span_singleton_eq_bot,rg,182.362,1,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,span_preimage_le,rg,232.848,1,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,finrank_span_eq_finrank_span,rg,183.734,1,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,tensorToSpan,rg,209.096,1,distinct query in a fully precomputed root PP bundle
+pp-root-bundle,span_range_inclusionSpan,rg,189.245,1,distinct query in a fully precomputed root PP bundle

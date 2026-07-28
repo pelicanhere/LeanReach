@@ -11,15 +11,15 @@ from pathlib import Path
 
 
 QUERIES = (
-    "dist_vadd_cancel_right",
-    "nndist_vadd_right",
-    "IsometryEquiv.constVSub",
-    "edist_vsub_vsub_le",
-    "pseudoMetricSpaceOfNormedAddCommGroupOfAddTorsor",
-    "LipschitzWith.vsub",
-    "uniformContinuous_vsub",
-    "norm_coe_eq_abs_iff",
-    "exists_norm_eq_of_isOfFinAddOrder",
+    "span_eq_bot",
+    "map_span",
+    "span_image",
+    "span_eq_top",
+    "span_singleton_eq_bot",
+    "span_preimage_le",
+    "finrank_span_eq_finrank_span",
+    "tensorToSpan",
+    "span_range_inclusionSpan",
 )
 
 
@@ -171,7 +171,7 @@ def main() -> None:
             "tool": tool,
             "latency_ms": f"{latency:.3f}",
             "found": found,
-            "note": "distinct query; executable and catalog primed without PP",
+            "note": "distinct query in a fully precomputed root PP bundle",
         }
         for query, tool, latency, found in rows
     ]
