@@ -184,13 +184,13 @@ private unsafe def execute (config : Config) (command? : Option Command) : IO UI
   match command? with
   | some (.cache modules) =>
     if modules.isEmpty then
-      let count ← cacheRoots (← config.roots) fun moduleName done total =>
+      let count ← buildPPRoots (← config.roots) fun moduleName done total =>
         unless config.json do
           if done == total || done % 100 == 0 then
             IO.eprintln s!"leanreach: cached modules {done}/{total} ({moduleName})"
       printCached config.json modules count
     else
-      printCached config.json modules (← cacheModules modules)
+      printCached config.json modules (← buildPPModules modules)
   | some command =>
     withSessionFor (← config.roots) (prepare config command)
       (command matches .query _) (runTimed · config)

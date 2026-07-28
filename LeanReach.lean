@@ -1,71 +1,17 @@
-import Lean.Util.Path
 import LeanReach.Cache
-import LeanReach.Project
+import LeanReach.PP
 import LeanReach.Query
+import LeanReach.Runtime
 
 namespace LeanReach
 
 open Lean
-
-private def workspaceRoots : IO (List System.FilePath) := do
-  let cwd ← (← Project.findDir?).getDM IO.currentDir
-  let packages := cwd / ".lake" / "packages"
-  let mut roots := [cwd]
-  if ← packages.isDir then
-    for entry in ← packages.readDir do
-      if ← entry.path.isDir then roots := roots.concat entry.path
-  return roots
-
-private def leanSysroot : IO System.FilePath := do
-  if let some root ← IO.getEnv "LEAN_SYSROOT" then
-    return root
-  let hint := (← IO.appDir) / "leanreach.sysroot"
-  if ← hint.pathExists then
-    let root := System.FilePath.mk (← IO.FS.readFile hint).trimAscii.copy
-    if ← (root / "lib" / "lean").isDir then
-      return root
-  findSysroot
-
-private def initializeSearchPath (sysroot : System.FilePath)
-    (roots : List System.FilePath) : IO Unit := do
-  match ← IO.getEnv "LEAN_PATH" with
-  | some path => searchPathRef.set (System.SearchPath.parse path)
-  | none =>
-    let mut paths := []
-    for root in roots do
-      let path := root / ".lake" / "build" / "lib" / "lean"
-      if ← path.isDir then paths := paths.concat path
-    initSearchPath sysroot paths
-
-private def sourceSearchPath (sysroot : System.FilePath)
-    (roots : List System.FilePath) : IO SearchPath := do
-  let mut fallback := []
-  for root in roots do
-    fallback := fallback.concat root
-    let source := root / "src"
-    if ← source.isDir then fallback := fallback.concat source
-  fallback := fallback.concat (sysroot / "src" / "lean")
-  match ← IO.getEnv "LEAN_SRC_PATH" with
-  | some path => return System.SearchPath.parse path ++ fallback
-  | none => return fallback
-
-private unsafe def prepareEnvironment : IO SearchPath := do
-  let roots ← workspaceRoots
-  let sysroot ← leanSysroot
-  initializeSearchPath sysroot roots
-  sourceSearchPath sysroot roots
 
 private def selectPlan {α : Type} (index : Index)
     (select : Index → Except String (α × Array Name)) : IO (α × Array Name) :=
   match select index with
   | .ok plan => pure plan
   | .error message => throw <| IO.userError message
-
-private unsafe def runCore {α : Type} (env : Environment) (action : CoreM α) : IO α :=
-  Core.CoreM.toIO'
-    action
-    { fileName := "<leanreach>", fileMap := default }
-    { env }
 
 private unsafe def runSession {α : Type} (index : Index) (session : Session)
     (names : Array Name) (modules? : Option (Array Name)) (wholeModules : Bool)
@@ -126,96 +72,5 @@ unsafe def withLazySession {α : Type} (roots : Array Name)
     let (plan, names) ← selectPlan index select
     discard <| unsafe runSession index session names none true (some emptyEnv) (query plan)
   action session run
-
-unsafe def detectRoots : IO (Array Name) := do
-  let roots ← unsafe Project.detectRoots (← leanSysroot)
-  if roots.isEmpty then
-    throw <| IO.userError "could not detect a built local lean_lib or required Mathlib; use --module"
-  return roots
-
-unsafe def cacheModules (modules : Array Name) : IO Nat := do
-  let sourcePath ← prepareEnvironment
-  let emptyIndex := Index.ofParts (#[], {}) (#[], #[])
-  let mut active := #[]
-  let mut inputs : NameMap (Array Name × NameMap Declaration) := {}
-  for moduleName in modules do
-    let names ← unsafe Cache.moduleNames moduleName
-    let before ← unsafe Cache.loadPPModule moduleName
-    unless names.all before.contains do
-      active := active.push moduleName
-      inputs := inputs.insert moduleName (names, before)
-  if active.isEmpty then return 0
-  let env ← do
-    Lean.enableInitializersExecution
-    importModules (loadExts := true) (active.map fun module => { module }) {}
-  let mut count := 0
-  for moduleName in active do
-    let (names, before) := (inputs.find? moduleName).getD (#[], {})
-    let session ← Session.create emptyIndex sourcePath
-    session.merge before
-    discard <| unsafe runCore env (session.cacheNames names)
-    let after ← session.ppCache
-    unsafe Cache.savePPModule moduleName after
-    count := count + after.size - before.size
-  return count
-
-private def cacheBatchSize := 32
-
-private def runCacheWorker (executable : System.FilePath)
-    (modules : Array Name) : IO Unit := do
-  let output ← IO.Process.output {
-    cmd := executable.toString
-    args := #["cache"] ++ modules.map (·.toString) ++ #["--json"]
-  }
-  unless output.exitCode == 0 do
-    throw <| IO.userError s!"failed to cache '{modules}': {output.stderr.trimAscii.copy}"
-
-private unsafe def requirePPModule (moduleName : Name) (names : Array Name) :
-    IO (NameMap Declaration) := do
-  let declarations ← unsafe Cache.loadPPModule moduleName
-  unless names.all declarations.contains do
-    throw <| IO.userError s!"incomplete cache for '{moduleName}'"
-  return declarations
-
-/-- Pretty-print every declaration below a root, checkpointing once per defining module. -/
-unsafe def cacheRoots (roots : Array Name)
-    (progress : Name → Nat → Nat → IO Unit := fun _ _ _ => pure ()) : IO Nat := do
-  discard <| prepareEnvironment
-  let index ← unsafe Cache.loadIndex roots false
-  if ← unsafe Cache.isFullyPP roots then
-    if (← unsafe Cache.loadPPBundle roots index).isEmpty then
-      unsafe Cache.savePPBundle roots index
-    return 0
-  let mut completed ← unsafe Cache.loadPPProgress roots
-  let mut pending := #[]
-  for (moduleName, names) in index.declarationsByModule do
-    unless completed.contains moduleName do
-      pending := pending.push (moduleName, names)
-  let mut count := 0
-  unless pending.isEmpty do
-    let executable ← IO.appPath
-    let mut offset := 0
-    while offset < pending.size do
-      let stop := min pending.size (offset + cacheBatchSize)
-      let batch := pending.extract offset stop
-      let mut active := #[]
-      let mut beforeSizes : NameMap Nat := {}
-      for (moduleName, names) in batch do
-        let before ← unsafe Cache.loadPPModule moduleName
-        unless names.all before.contains do
-          active := active.push moduleName
-          beforeSizes := beforeSizes.insert moduleName before.size
-      unless active.isEmpty do runCacheWorker executable active
-      for ((moduleName, names), done) in batch.zipIdx do
-        if let some beforeSize := beforeSizes.find? moduleName then
-          let after ← unsafe requirePPModule moduleName names
-          count := count + after.size - beforeSize
-        completed := completed.insert moduleName
-        progress moduleName (offset + done + 1) pending.size
-      unsafe Cache.savePPProgress roots completed
-      offset := stop
-  unsafe Cache.savePPBundle roots index
-  unsafe Cache.markFullyPP roots
-  return count
 
 end LeanReach

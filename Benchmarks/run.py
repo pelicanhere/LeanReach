@@ -11,15 +11,15 @@ from pathlib import Path
 
 
 QUERIES = (
-    "norm_neg_period",
-    "norm_le_half_period",
-    "coe_real_preimage_closedBall_period_zero",
-    "le_add_order_smul_norm_of_isOfFinAddOrder",
-    "nndist_vadd_cancel_left",
-    "IsometryEquiv.vaddConst",
-    "nndist_vsub_vsub_le",
-    "uniformContinuous_vadd",
-    "metricSpaceOfNormedAddCommGroupOfAddTorsor",
+    "dist_vadd_cancel_right",
+    "nndist_vadd_right",
+    "IsometryEquiv.constVSub",
+    "edist_vsub_vsub_le",
+    "pseudoMetricSpaceOfNormedAddCommGroupOfAddTorsor",
+    "LipschitzWith.vsub",
+    "uniformContinuous_vsub",
+    "norm_coe_eq_abs_iff",
+    "exists_norm_eq_of_isOfFinAddOrder",
 )
 
 
