@@ -140,12 +140,14 @@ private def describeRelated (session : Session) (items : Array (Nat × Name)) :
     CoreM (Array Related) :=
   items.mapM fun (distance, name) => return (distance, ← describe session name)
 
+private def liftQuery {α : Type} : Except String α → CoreM α
+  | .ok result => pure result
+  | .error message => throwError message
+
 def Session.query (session : Session) (query : String) (options : QueryOptions := {}) :
     CoreM QueryResult := do
   let (target, upstream, downstream) ←
-    match session.index.queryNames query options with
-    | .ok result => pure result
-    | .error message => throwError message
+    liftQuery (session.index.queryNames query options)
   return {
     target := ← describe session target
     upstream := ← describeRelated session upstream
@@ -158,11 +160,9 @@ def Session.search (session : Session) (query : String) (limit : Nat := 20) :
 
 def Session.context (session : Session) (query : String) (depth : Nat := 1)
     (limit : Nat := 20) : CoreM (Declaration × Array RankedDeclaration) := do
-  let target ←
-    match session.index.resolve query with
-    | .ok target => pure target
-    | .error message => throwError message
-  let items ← (session.index.context target depth limit).mapM fun (score, distance, name) =>
+  let (target, names) ←
+    liftQuery (session.index.contextNames query depth limit)
+  let items ← names.mapM fun (score, distance, name) =>
     return {
       score
       distance

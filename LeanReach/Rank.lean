@@ -67,4 +67,9 @@ def Index.context (index : Index) (target : Name) (depth limit : Nat) :
     if current.isEmpty || budget == 0 then break
   return (ranked.qsort comesBefore).take limit
 
+def Index.contextNames (index : Index) (query : String) (depth limit : Nat) :
+    Except String (Name × Array RankedName) := do
+  let target ← index.resolve query
+  return (target, index.context target depth limit)
+
 end LeanReach

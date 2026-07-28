@@ -169,8 +169,8 @@ private def commandNames (config : Config) (command : Command) (index : Index) :
   | .search pattern =>
     return index.search pattern config.limit
   | .context query =>
-    let target ← index.resolve query
-    return #[target] ++ (index.context target config.depth config.limit).map (·.2.2)
+    let (target, context) ← index.contextNames query config.depth config.limit
+    return #[target] ++ context.map (·.2.2)
 
 private def parseLine (line : String) : Command :=
   if let some pattern := line.dropPrefix? "search " then
