@@ -28,10 +28,14 @@ def Session.rendered (session : Session) : IO (NameMap Declaration) :=
   session.declarations.get
 
 private def renderSignature (name : Name) : MetaM String := do
-  let expression ← mkConstWithLevelParams name
-  let (stx, _) ← PrettyPrinter.delabCore expression
-    (delab := PrettyPrinter.Delaborator.delabConstWithSignature (universes := false))
-  return (← PrettyPrinter.ppTerm ⟨stx⟩).pretty (width := 10000)
+  try
+    let expression ← mkConstWithLevelParams name
+    let (stx, _) ← PrettyPrinter.delabCore expression
+      (delab := PrettyPrinter.Delaborator.delabConstWithSignature (universes := false))
+    return (← PrettyPrinter.ppTerm ⟨stx⟩).pretty (width := 10000)
+  catch _ =>
+    let info ← getConstInfo name
+    return s!"{name} : {(← PrettyPrinter.ppExpr info.type).pretty (width := 10000)}"
 
 private def renderList (label : String) (names : Array Name) : MetaM String := do
   if names.isEmpty then return ""
@@ -41,7 +45,7 @@ private def renderList (label : String) (names : Array Name) : MetaM String := d
 private def renderDeclaration (name : Name) (info : ConstantInfo) : MetaM String :=
     withCurrHeartbeats do
   let signature ← renderSignature name
-  if ← isProp info.type then return signature
+  if info.isTheorem || (← isProp info.type) then return signature
   if let some value := info.value? (allowOpaque := true) then
     let body := (← PrettyPrinter.ppExpr value).pretty (width := 100)
     return s!"{signature} :=\n  {body.replace "\n" "\n  "}"
@@ -109,9 +113,13 @@ def Session.search (session : Session) (query : String) (limit : Nat := 20) :
     CoreM (Array Declaration) :=
   (session.index.search query limit).mapM (describe session)
 
-def Session.cacheModules (session : Session) (modules : Array Name) : CoreM Nat := do
-  let names := session.index.namesInModules modules
-  names.forM fun name => discard <| describe session name
+def Session.cacheNames (session : Session) (names : Array Name) : CoreM Nat := do
+  names.forM fun name =>
+    try discard <| describe session name
+    catch error => throwError "failed to cache '{name}': {error.toMessageData}"
   return names.size
+
+def Session.cacheModules (session : Session) (modules : Array Name) : CoreM Nat :=
+  session.cacheNames (session.index.namesInModules modules)
 
 end LeanReach

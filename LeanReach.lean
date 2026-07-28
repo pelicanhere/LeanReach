@@ -48,16 +48,19 @@ private def sourceSearchPath (sysroot : System.FilePath)
   | some path => return System.SearchPath.parse path ++ fallback
   | none => return fallback
 
+private unsafe def prepareEnvironment : IO SearchPath := do
+  let roots ← workspaceRoots
+  let sysroot ← leanSysroot
+  initializeSearchPath sysroot roots
+  Lean.enableInitializersExecution
+  sourceSearchPath sysroot roots
+
 private unsafe def withIndexSession {α : Type} (root : Name)
     (loadRelations : Bool)
     (select : Index → Except String (Array Name))
     (forceRootImport : Bool)
     (action : Session → CoreM α) : IO α := do
-  let roots ← workspaceRoots
-  let sysroot ← leanSysroot
-  initializeSearchPath sysroot roots
-  let sourcePath ← sourceSearchPath sysroot roots
-  Lean.enableInitializersExecution
+  let sourcePath ← prepareEnvironment
   let index ← unsafe Cache.loadIndex root loadRelations
   let names ←
     match select index with
@@ -90,5 +93,41 @@ unsafe def withSessionFor {α : Type} (root : Name) (select : Index → Except S
 /-- Import a root module once and reuse its environment and index for the entire action. -/
 unsafe def withSession {α : Type} (root : Name) (action : Session → CoreM α) : IO α :=
   withIndexSession root true (fun _ => pure #[]) true action
+
+/-- Pre-render every declaration below a root, checkpointing once per defining module. -/
+unsafe def cacheRoot (root : Name)
+    (progress : Name → Nat → Nat → IO Unit := fun _ _ _ => pure ()) : IO Nat := do
+  let sourcePath ← prepareEnvironment
+  if ← unsafe Cache.isFullyRendered root then return 0
+  let index ← unsafe Cache.loadIndex root false
+  let mut pending := #[]
+  for (moduleName, names) in index.declarationsByModule do
+    let rendered ← unsafe Cache.loadRendered #[moduleName]
+    if names.any fun name => !rendered.contains name then
+      pending := pending.push (moduleName, names)
+  if pending.isEmpty then
+    unsafe Cache.markFullyRendered root
+    return 0
+  let mut count := 0
+  for start in [0:pending.size:128] do
+    let batch := pending.extract start (min pending.size (start + 128))
+    let env ← importModules (batch.map fun (moduleName, _) => { module := moduleName }) {}
+    for ((moduleName, names), offset) in batch.zipIdx do
+      let before ← unsafe Cache.loadRendered #[moduleName]
+      let render := fun (env : Environment) => do
+        let session ← Session.create index sourcePath before
+        Core.CoreM.toIO'
+          (discard <| session.cacheNames names)
+          { fileName := "<leanreach-cache>", fileMap := default }
+          { env }
+        session.rendered
+      let after ←
+        try render env
+        catch _ => render (← importModules #[{ module := moduleName }] {})
+      count := count + after.size - before.size
+      unsafe Cache.saveRenderedModule moduleName after
+      progress moduleName (start + offset + 1) pending.size
+  unsafe Cache.markFullyRendered root
+  return count
 
 end LeanReach

@@ -205,4 +205,8 @@ def Index.namesInModules (index : Index) (modules : Array Name) : Array Name :=
   index.entries.filterMap fun (name, _, moduleName, _) =>
     if wanted.contains moduleName then some name else none
 
+def Index.declarationsByModule (index : Index) : NameMap (Array Name) :=
+  index.entries.foldl (init := {}) fun modules (name, _, moduleName, _) =>
+    modules.insert moduleName ((modules.find? moduleName).getD #[] |>.push name)
+
 end LeanReach

@@ -1,3 +1,4 @@
+import Lake.Build.Trace
 import Lean.Environment
 import Lean.Server.References
 import Lean.Util.Path
@@ -38,8 +39,14 @@ private unsafe def loadPart (α : Type) (path : System.FilePath) (depHash : Stri
 
 private def depHash? (olean : System.FilePath) : IO (Option String) := do
   let path := olean.withExtension "trace"
-  unless ← path.pathExists do return none
-  return (Json.parse (← IO.FS.readFile path) >>= (·.getObjValAs? String "depHash")).toOption
+  if ← path.pathExists then
+    return (Json.parse (← IO.FS.readFile path) >>= (·.getObjValAs? String "depHash")).toOption
+  let mut hashes := #[]
+  for level in #[OLeanLevel.exported, OLeanLevel.server, OLeanLevel.private] do
+    let path := level.adjustFileName olean
+    if ← path.pathExists then
+      hashes := hashes.push (toString (← Lake.computeFileHash path))
+  return if hashes.isEmpty then none else some (String.intercalate ":" hashes.toList)
 
 private def sourceNames (olean : System.FilePath) : IO (Std.HashSet String) := do
   let path := olean.withExtension "ilean"
@@ -147,12 +154,25 @@ private unsafe def loadRenderedModule (moduleName : Name) : IO (NameMap Declarat
   let path := olean.withExtension s!"leanreach-render-{renderVersion}"
   return (← unsafe loadPart (NameMap Declaration) path depHash).getD {}
 
+unsafe def isFullyRendered (root : Name) : IO Bool := do
+  let olean ← findOLean root
+  let some depHash ← depHash? olean | return false
+  let path := olean.withExtension s!"leanreach-render-root-{renderVersion}"
+  return (← unsafe loadPart Bool path depHash).getD false
+
 unsafe def loadRendered (modules : Array Name) : IO (NameMap Declaration) := do
   let mut declarations := {}
   for moduleName in modules do
     for (name, declaration) in ← unsafe loadRenderedModule moduleName do
       declarations := declarations.insert name declaration
   return declarations
+
+unsafe def saveRenderedModule (moduleName : Name) (declarations : NameMap Declaration) :
+    IO Unit := do
+  let olean ← findOLean moduleName
+  let some depHash ← depHash? olean | return
+  let path := olean.withExtension s!"leanreach-render-{renderVersion}"
+  pickle path (Name.str moduleName "_leanreachRender") (depHash, declarations)
 
 unsafe def saveRendered (before after : NameMap Declaration) : IO Unit := do
   let mut additions : NameMap (NameMap Declaration) := {}
@@ -162,12 +182,15 @@ unsafe def saveRendered (before after : NameMap Declaration) : IO Unit := do
       let moduleDeclarations := (additions.find? moduleName).getD {}
       additions := additions.insert moduleName (moduleDeclarations.insert name declaration)
   for (moduleName, added) in additions do
-    let olean ← findOLean moduleName
-    let some depHash ← depHash? olean | continue
     let mut declarations ← unsafe loadRenderedModule moduleName
     for (name, declaration) in added do
       declarations := declarations.insert name declaration
-    let path := olean.withExtension s!"leanreach-render-{renderVersion}"
-    pickle path (Name.str moduleName "_leanreachRender") (depHash, declarations)
+    unsafe saveRenderedModule moduleName declarations
+
+unsafe def markFullyRendered (root : Name) : IO Unit := do
+  let olean ← findOLean root
+  let some depHash ← depHash? olean | return
+  let path := olean.withExtension s!"leanreach-render-root-{renderVersion}"
+  pickle path (Name.str root "_leanreachRenderRoot") (depHash, true)
 
 end LeanReach.Cache

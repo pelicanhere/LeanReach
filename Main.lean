@@ -63,7 +63,7 @@ LeanReach — Lean declaration search and dependency navigation
 USAGE:
   leanreach [OPTIONS] DECLARATION
   leanreach [OPTIONS] search PATTERN
-  leanreach [OPTIONS] cache MODULE...
+  leanreach [OPTIONS] cache [MODULE...]
   leanreach [OPTIONS] --interactive
 
 OPTIONS:
@@ -75,6 +75,7 @@ OPTIONS:
   -h, --help            show this help
 
 Run through `lake env` with `--module Your.Root` to search a local library.
+With no modules, `cache` pre-renders the complete root and resumes module by module.
 In interactive mode, enter a declaration name or `search PATTERN` on each line.
 "
 
@@ -113,6 +114,15 @@ private def printSearch (json : Bool) (query : String) (items : Array Declaratio
 private def Config.limitOr (config : Config) (default : Nat) : Nat :=
   config.limit?.getD default
 
+private def printCached (json : Bool) (modules : Array Name) (count : Nat) : IO Unit := do
+  if json then
+    IO.println <| (Json.mkObj [
+      ("modules", toJson <| modules.map (·.toString)),
+      ("declarations", toJson count)
+    ]).compress
+  else
+    IO.println s!"cached {count} declarations"
+
 private def runOne (session : Session) (config : Config) (command : Command) : CoreM Unit := do
   match command with
   | .query name =>
@@ -121,13 +131,7 @@ private def runOne (session : Session) (config : Config) (command : Command) : C
     printSearch config.json pattern (← session.search pattern (config.limitOr 20))
   | .cache modules =>
     let count ← session.cacheModules modules
-    if config.json then
-      IO.println <| (Json.mkObj [
-        ("modules", toJson <| modules.map (·.toString)),
-        ("declarations", toJson count)
-      ]).compress
-    else
-      IO.println s!"cached {count} declarations"
+    printCached config.json modules count
 
 private def runTimed (session : Session) (config : Config) (command : Command) : CoreM Unit := do
   let started ← IO.monoMsNow
@@ -175,6 +179,16 @@ private def validate (config : Config) : CliMainM Unit := do
 private unsafe def execute (config : Config) (command? : Option Command) : IO UInt32 := do
   let started ← IO.monoMsNow
   match command? with
+  | some (.cache modules) =>
+    if modules.isEmpty then
+      let count ← cacheRoot config.root fun moduleName done total =>
+        unless config.json do
+          if done == total || done % 100 == 0 then
+            IO.eprintln s!"leanreach: cached modules {done}/{total} ({moduleName})"
+      printCached config.json modules count
+    else
+      withSessionFor config.root (commandNames config (.cache modules)) false fun session =>
+        runTimed session config (.cache modules)
   | some command =>
     let loadRelations := command matches .query _
     withSessionFor config.root (commandNames config command) loadRelations fun session =>
@@ -200,8 +214,7 @@ private unsafe def cli : CliM UInt32 := do
     else
       match arguments with
       | ["search", pattern] => pure (some (.search pattern))
-      | "cache" :: module :: modules =>
-        pure (some (.cache <| (module :: modules).toArray.map (·.toName)))
+      | "cache" :: modules => pure (some (.cache <| modules.toArray.map (·.toName)))
       | [name] => pure (some (.query name))
       | arguments => throw <| Lake.CliError.unexpectedArguments arguments
   unsafe execute config command

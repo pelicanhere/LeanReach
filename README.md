@@ -12,16 +12,17 @@ artifacts for local libraries:
 - cache a small dependency fragment per module and materialize separate name and relation indexes;
 - plan the bounded query from the index, then import only result modules for pretty-printing;
 - persist rendered declarations per module, reuse them across roots, and skip imports when cached;
+- pre-render a complete root in bounded module batches with module-level checkpoints;
 - keep a root `Environment` alive only in interactive mode;
 - use Lean's own delaborator and pretty-printer;
 - hide compiler-generated declarations using Loogle/doc-gen-style filtering;
 - index direct constants mentioned by declaration types and values;
 - rank only the requested number of direct dependencies instead of materializing a transitive DAG.
 
-Module fragments and the materialized index are checked against Lake's transitive `depHash`, so a
-local library rebuild invalidates only the affected fragments, rendered declarations, and root
-view. Both directions use `ConstantInfo.getUsedConstantsAsSet`, which includes the type and the
-proof or implementation body.
+Module fragments and the materialized index are checked against Lake's transitive `depHash`; modules
+without Lake traces use Lake's binary hash of all available `.olean` parts. A local rebuild therefore
+invalidates only the affected fragments, rendered declarations, and root view. Both directions use
+`ConstantInfo.getUsedConstantsAsSet`, which includes the type and the proof or implementation body.
 
 ## Build and test
 
@@ -63,7 +64,10 @@ lake exe leanreach Submodule.span_le
 # Machine-readable output.
 lake exe leanreach Submodule.span_le --json
 
-# Pre-render one or more built modules so their first query does not import Lean modules.
+# Pre-render the complete root. This resumes at the next incomplete module if interrupted.
+lake exe leanreach cache
+
+# Or pre-render only selected built modules.
 lake exe leanreach cache Mathlib.LinearAlgebra.Span.Defs
 
 # A narrower root imports and indexes much less than all of Mathlib.
@@ -122,19 +126,21 @@ Without `LEAN_PATH`, LeanReach discovers the current project's default `.lake/bu
 dependency build directories under `.lake/packages`, package roots, and common `src` directories.
 `lake env` remains supported for projects with custom Lake build or source directories.
 
-After `lake build`, pre-render any modules an agent is likely to inspect:
+After `lake build`, pre-render the complete built root once:
 
 ```console
-/path/to/leanreach --module MyProject cache MyProject.Core MyProject.Algebra
+/path/to/leanreach --module MyProject cache
 ```
 
-This pays Lean's environment import and pretty-printing cost once. The resulting per-module caches
-are reusable from larger roots and are invalidated by each module's Lake `depHash`. LeanReach never
-builds missing modules implicitly.
+This pays index construction, environment import, and pretty-printing once. Work is saved after each
+module, and a root completion marker makes repeated cache checks constant-time. The resulting
+per-module caches are reusable from larger roots and are invalidated by the module's build hash.
+LeanReach never builds missing modules implicitly.
 
 ## Dependency semantics
 
-An edge `A → B` means `ConstantInfo.getUsedConstantsAsSet` for `A` contains `B`. Consequently:
+An edge `A → B` means `ConstantInfo.getUsedConstantsAsSet` for `A` contains `B`, possibly after
+collapsing compiler-generated private helpers back into the public declaration. Consequently:
 
 - upstream of `A` contains constants used by its signature and proof or implementation;
 - downstream of `B` contains declarations whose signature or body uses `B`;
