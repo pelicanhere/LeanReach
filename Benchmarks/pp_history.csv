@@ -7,3 +7,5 @@ pp-jobs-1,64,982,15295,single import; one pretty-print task
 pp-jobs-2,64,982,14799,single import; two pretty-print tasks
 pp-jobs-4,64,982,14100,single import; four pretty-print tasks
 pp-jobs-8,64,982,14009,single import; eight pretty-print tasks
+root-reread-bundle,1,13,24482,Fixture root; rebuild bundle by rereading every module sidecar
+root-single-pass,1,13,9210,Fixture root; fill bundle during the PP pass

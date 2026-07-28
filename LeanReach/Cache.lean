@@ -194,33 +194,13 @@ unsafe def loadPPBundle (roots : Array Name) (index : Index) :
     (← unsafe loadPart (Array Declaration) path depHash).getD #[]
   return if declarations.size == index.size then declarations else #[]
 
-unsafe def savePPBundle (roots : Array Name) (index : Index) : IO Unit := do
-  let mut slots : Array (Option Declaration) := Array.replicate index.size none
-  for (moduleName, names) in index.declarationsByModule do
-    let declarations ← unsafe loadPPModule moduleName
-    for name in names do
-      let some id := index.idOf? name |
-        throw <| IO.userError s!"declaration '{name}' is missing from the catalog"
-      let some declaration := declarations.find? name |
-        throw <| IO.userError s!"declaration '{name}' has not been pretty-printed"
-      slots := slots.set! id.toNat (some declaration)
-  let declarations ← slots.mapM fun
-    | some declaration => pure declaration
-    | none => throw <| IO.userError "pretty-print bundle is incomplete"
+unsafe def savePPBundle (roots : Array Name) (declarations : Array Declaration) : IO Unit := do
   let (path, depHash, root) ← unsafe ppRootData roots s!"bundle-{ppBundleVersion}"
   pickle path (depHash, declarations) (Name.str root "_leanreachPPBundle")
 
 unsafe def isFullyPP (roots : Array Name) : IO Bool := do
   let (path, depHash, _) ← unsafe ppRootData roots (toString ppVersion)
   return (← unsafe loadPart Bool path depHash).getD false
-
-unsafe def loadPPProgress (roots : Array Name) : IO NameSet := do
-  let (path, depHash, _) ← unsafe ppRootData roots s!"progress-{ppVersion}"
-  return (← unsafe loadPart NameSet path depHash).getD {}
-
-unsafe def savePPProgress (roots : Array Name) (modules : NameSet) : IO Unit := do
-  let (path, depHash, root) ← unsafe ppRootData roots s!"progress-{ppVersion}"
-  pickle path (depHash, modules) (Name.str root "_leanreachPPProgress")
 
 unsafe def loadPP (index : Index) (names : Array Name) : IO (NameMap Declaration) := do
   let mut byModule : NameMap (Array Name) := {}
