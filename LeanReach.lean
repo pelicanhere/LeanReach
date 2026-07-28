@@ -64,8 +64,7 @@ private def selectNames (index : Index) (select : Index → Except String (Array
 private unsafe def runSession {α : Type} (index : Index) (session : Session)
     (names : Array Name) (modules? : Option (Array Name)) (wholeModules : Bool)
     (action : CoreM α) : IO α := do
-  let current ← session.rendered
-  let missing := names.filter fun name => !current.contains name
+  let missing ← session.missing names
   if wholeModules then
     for moduleName in index.modulesFor missing do
       session.merge (← unsafe Cache.loadRenderedModule moduleName)
@@ -73,7 +72,7 @@ private unsafe def runSession {α : Type} (index : Index) (session : Session)
     session.merge (← unsafe Cache.loadRendered index missing)
   let before ← session.rendered
   let modules := modules?.getD <|
-    index.modulesFor (names.filter fun name => !before.contains name)
+    index.modulesFor (← session.missing names)
   let env ←
     if modules.isEmpty then mkEmptyEnvironment
     else
@@ -97,7 +96,7 @@ private unsafe def withIndexSession {α : Type} (roots : Array Name)
   let sourcePath ← prepareEnvironment
   let index ← unsafe Cache.loadIndex roots loadRelations
   let names ← selectNames index select
-  let session ← Session.create index sourcePath
+  let session ← Session.create index sourcePath (← unsafe Cache.loadRenderedBundle roots index)
   unsafe runSession index session names (if forceRootImport then some roots else none) false
     (action session)
 
@@ -118,7 +117,7 @@ unsafe def withLazySession {α : Type} (roots : Array Name)
     (action : Session → SessionRunner → IO α) : IO α := do
   let sourcePath ← prepareEnvironment
   let index ← unsafe Cache.loadIndex roots true
-  let session ← Session.create index sourcePath
+  let session ← Session.create index sourcePath (← unsafe Cache.loadRenderedBundle roots index)
   let run : SessionRunner := fun select query => do
     let names ← selectNames index select
     discard <| unsafe runSession index session names none true (query names)
@@ -134,36 +133,38 @@ unsafe def detectRoots : IO (Array Name) := do
 unsafe def cacheRoots (roots : Array Name)
     (progress : Name → Nat → Nat → IO Unit := fun _ _ _ => pure ()) : IO Nat := do
   discard <| prepareEnvironment
-  if ← unsafe Cache.isFullyRendered roots then return 0
   let index ← unsafe Cache.loadIndex roots false
+  if ← unsafe Cache.isFullyRendered roots then
+    if (← unsafe Cache.loadRenderedBundle roots index).isEmpty then
+      unsafe Cache.saveRenderedBundle roots index
+    return 0
   let mut completed ← unsafe Cache.loadRenderProgress roots
   let mut pending := #[]
   for (moduleName, names) in index.declarationsByModule do
     unless completed.contains moduleName do
       pending := pending.push (moduleName, names)
-  if pending.isEmpty then
-    unsafe Cache.markFullyRendered roots
-    return 0
-  let executable ← IO.appPath
   let mut count := 0
-  for ((moduleName, names), done) in pending.zipIdx do
-    let before ← unsafe Cache.loadRenderedModule moduleName
-    unless names.all before.contains do
-      let command := #["cache", moduleName.toString, "--json"]
-      let args :=
-        if roots.size == 1 then
-          #["--module", roots[0]!.toString] ++ command
-        else command
-      let output ← IO.Process.output { cmd := executable.toString, args }
-      unless output.exitCode == 0 do
-        throw <| IO.userError s!"failed to cache '{moduleName}': {output.stderr.trimAscii.copy}"
-      let after ← unsafe Cache.loadRenderedModule moduleName
-      unless names.all after.contains do
-        throw <| IO.userError s!"incomplete cache for '{moduleName}'"
-      count := count + after.size - before.size
-    completed := completed.insert moduleName
-    unsafe Cache.saveRenderProgress roots completed
-    progress moduleName (done + 1) pending.size
+  unless pending.isEmpty do
+    let executable ← IO.appPath
+    for ((moduleName, names), done) in pending.zipIdx do
+      let before ← unsafe Cache.loadRenderedModule moduleName
+      unless names.all before.contains do
+        let command := #["cache", moduleName.toString, "--json"]
+        let args :=
+          if roots.size == 1 then
+            #["--module", roots[0]!.toString] ++ command
+          else command
+        let output ← IO.Process.output { cmd := executable.toString, args }
+        unless output.exitCode == 0 do
+          throw <| IO.userError s!"failed to cache '{moduleName}': {output.stderr.trimAscii.copy}"
+        let after ← unsafe Cache.loadRenderedModule moduleName
+        unless names.all after.contains do
+          throw <| IO.userError s!"incomplete cache for '{moduleName}'"
+        count := count + after.size - before.size
+      completed := completed.insert moduleName
+      unsafe Cache.saveRenderProgress roots completed
+      progress moduleName (done + 1) pending.size
+  unsafe Cache.saveRenderedBundle roots index
   unsafe Cache.markFullyRendered roots
   return count
 

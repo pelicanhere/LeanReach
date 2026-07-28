@@ -94,6 +94,12 @@ def Index.ofParts (catalog : Catalog) (relations : Relations) : Index :=
 private def Index.findEntry? (index : Index) (name : Name) : Option CatalogEntry :=
   index.entries.binSearch (name, "", .anonymous, 0) fun a b => Name.lt a.1 b.1
 
+def Index.size (index : Index) : Nat :=
+  index.entries.size
+
+def Index.idOf? (index : Index) (name : Name) : Option UInt32 :=
+  index.findEntry? name |>.map fun (_, _, _, id) => id
+
 private def Index.namesAt (index : Index) (ids : Array UInt32) : Array Name :=
   ids.map fun id => index.entries[id.toNat]!.1
 

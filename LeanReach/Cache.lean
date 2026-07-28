@@ -14,6 +14,7 @@ private def catalogVersion := 1
 private def relationsVersion := 2
 private def fragmentVersion := 3
 private def renderVersion := 2
+private def renderBundleVersion := 1
 
 structure ModuleFragment where
   imports : Array Name
@@ -164,6 +165,39 @@ unsafe def loadRenderedModule (moduleName : Name) : IO (NameMap Declaration) := 
   let some depHash ← depHash? olean | return {}
   let path := olean.withExtension s!"leanreach-render-{renderVersion}"
   return (← unsafe loadPart (NameMap Declaration) path depHash).getD {}
+
+private unsafe def renderBundleData (roots : Array Name) :
+    IO (System.FilePath × String × Name) := do
+  let (olean, depHash, root) ← unsafe rootData roots
+  let stem := if roots.size == 1 then "root" else "roots"
+  return (
+    olean.withExtension s!"leanreach-render-{stem}-bundle-{renderBundleVersion}",
+    depHash,
+    Name.str root "_leanreachRenderBundle"
+  )
+
+unsafe def loadRenderedBundle (roots : Array Name) (index : Index) :
+    IO (Array Declaration) := do
+  let (path, depHash, _) ← unsafe renderBundleData roots
+  let declarations :=
+    (← unsafe loadPart (Array Declaration) path depHash).getD #[]
+  return if declarations.size == index.size then declarations else #[]
+
+unsafe def saveRenderedBundle (roots : Array Name) (index : Index) : IO Unit := do
+  let mut slots : Array (Option Declaration) := Array.replicate index.size none
+  for (moduleName, names) in index.declarationsByModule do
+    let declarations ← unsafe loadRenderedModule moduleName
+    for name in names do
+      let some id := index.idOf? name |
+        throw <| IO.userError s!"declaration '{name}' is missing from the catalog"
+      let some declaration := declarations.find? name |
+        throw <| IO.userError s!"declaration '{name}' has not been rendered"
+      slots := slots.set! id.toNat (some declaration)
+  let declarations ← slots.mapM fun
+    | some declaration => pure declaration
+    | none => throw <| IO.userError "render bundle is incomplete"
+  let (path, depHash, key) ← unsafe renderBundleData roots
+  pickle path (depHash, declarations) key
 
 unsafe def isFullyRendered (roots : Array Name) : IO Bool := do
   let (olean, depHash, _) ← unsafe rootData roots

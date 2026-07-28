@@ -251,3 +251,48 @@ batteries-pickle,span_sup,rg,196.752,1,distinct query; executables primed withou
 batteries-pickle,span_eq_iSup_of_singleton_spans,rg,234.080,1,distinct query; executables primed without a declaration query
 batteries-pickle,span_range_eq_iSup,rg,207.477,1,distinct query; executables primed without a declaration query
 batteries-pickle,span_attach_biUnion,rg,219.112,1,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_iUnion,leanreach_session,108.838,7,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_sSup,leanreach_session,2.536,2,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_sSup',leanreach_session,1.150,1,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_biUnion,leanreach_session,1.587,1,distinct query; executables primed without a declaration query
+root-bundle-fallback,sup_span,leanreach_session,7.007,9,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_sup,leanreach_session,5.207,10,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_eq_iSup_of_singleton_spans,leanreach_session,3.511,1,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_range_eq_iSup,leanreach_session,2.491,2,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_attach_biUnion,leanreach_session,1.120,1,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_iUnion,leanreach_process,111.755,7,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_sSup,leanreach_process,112.659,2,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_sSup',leanreach_process,118.126,1,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_biUnion,leanreach_process,114.391,1,distinct query; executables primed without a declaration query
+root-bundle-fallback,sup_span,leanreach_process,123.178,9,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_sup,leanreach_process,120.763,10,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_eq_iSup_of_singleton_spans,leanreach_process,120.921,1,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_range_eq_iSup,leanreach_process,118.946,2,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_attach_biUnion,leanreach_process,118.721,1,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_iUnion,rg,232.667,1,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_sSup,rg,230.085,1,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_sSup',rg,229.346,1,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_biUnion,rg,216.220,1,distinct query; executables primed without a declaration query
+root-bundle-fallback,sup_span,rg,213.482,1,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_sup,rg,219.568,1,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_eq_iSup_of_singleton_spans,rg,238.552,1,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_range_eq_iSup,rg,207.045,1,distinct query; executables primed without a declaration query
+root-bundle-fallback,span_attach_biUnion,rg,219.414,1,distinct query; executables primed without a declaration query
+exact-pp-hot,Submodule.mem_span_singleton_self,leanreach_session,113.672,1,distinct exact query; complete selected PP cache; zero render writes
+exact-pp-hot,Submodule.nontrivial_span_singleton,leanreach_session,2.721,1,distinct exact query; complete selected PP cache; zero render writes
+exact-pp-hot,Submodule.mem_span_singleton,leanreach_session,5.923,1,distinct exact query; complete selected PP cache; zero render writes
+exact-pp-hot,Submodule.le_span_singleton_iff,leanreach_session,2.753,1,distinct exact query; complete selected PP cache; zero render writes
+exact-pp-hot,Submodule.eq_span_singleton_of_surjective,leanreach_session,2.585,1,distinct exact query; complete selected PP cache; zero render writes
+exact-pp-hot,Submodule.span_singleton_eq_top_iff,leanreach_session,5.522,1,distinct exact query; complete selected PP cache; zero render writes
+exact-pp-hot,Submodule.span_zero_singleton,leanreach_session,7.740,1,distinct exact query; complete selected PP cache; zero render writes
+exact-pp-hot,Submodule.span_singleton_eq_range,leanreach_session,2.918,1,distinct exact query; complete selected PP cache; zero render writes
+exact-pp-hot,Submodule.span_singleton_smul_eq,leanreach_session,5.040,1,distinct exact query; complete selected PP cache; zero render writes
+exact-pp-hot,Submodule.mem_span_singleton_self,rg,349.958,1,distinct exact query
+exact-pp-hot,Submodule.nontrivial_span_singleton,rg,272.990,1,distinct exact query
+exact-pp-hot,Submodule.mem_span_singleton,rg,289.403,1,distinct exact query
+exact-pp-hot,Submodule.le_span_singleton_iff,rg,279.687,1,distinct exact query
+exact-pp-hot,Submodule.eq_span_singleton_of_surjective,rg,318.684,1,distinct exact query
+exact-pp-hot,Submodule.span_singleton_eq_top_iff,rg,288.106,1,distinct exact query
+exact-pp-hot,Submodule.span_zero_singleton,rg,288.119,1,distinct exact query
+exact-pp-hot,Submodule.span_singleton_eq_range,rg,280.127,1,distinct exact query
+exact-pp-hot,Submodule.span_singleton_smul_eq,rg,258.621,1,distinct exact query

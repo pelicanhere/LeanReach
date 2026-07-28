@@ -18,18 +18,30 @@ structure QueryResult where
 structure Session where
   private index : Index
   private sourcePath : SearchPath
+  private bundle : Array Declaration
   private declarations : IO.Ref (NameMap Declaration)
 
 def Session.create (index : Index) (sourcePath : SearchPath)
-    (declarations : NameMap Declaration := {}) : IO Session :=
-  return { index, sourcePath, declarations := ← IO.mkRef declarations }
+    (bundle : Array Declaration := #[]) : IO Session :=
+  return { index, sourcePath, bundle, declarations := ← IO.mkRef {} }
 
 def Session.rendered (session : Session) : IO (NameMap Declaration) :=
   session.declarations.get
 
 def Session.merge (session : Session) (declarations : NameMap Declaration) : IO Unit := do
-  for (name, declaration) in declarations do
-    session.declarations.modify (·.insert name declaration)
+  session.declarations.modify fun current => Id.run do
+    let mut current := current
+    for (name, declaration) in declarations do
+      current := current.insert name declaration
+    return current
+
+private def Session.bundled? (session : Session) (name : Name) : Option Declaration :=
+  (session.index.idOf? name).bind (session.bundle[·.toNat]?)
+
+def Session.missing (session : Session) (names : Array Name) : IO (Array Name) := do
+  let rendered ← session.declarations.get
+  return names.filter fun name =>
+    !rendered.contains name && (session.bundled? name).isNone
 
 private def renderSignature (name : Name) : MetaM String := do
   try
@@ -68,6 +80,8 @@ private def renderDeclaration (name : Name) (info : ConstantInfo) : MetaM String
 
 private def describe (session : Session) (name : Name) : CoreM Declaration := do
   if let some declaration := (← session.declarations.get).find? name then
+    return declaration
+  if let some declaration := session.bundled? name then
     return declaration
   let env ← getEnv
   let some info := env.find? name | throwError "unknown declaration '{name}'"

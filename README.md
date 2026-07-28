@@ -13,7 +13,7 @@ artifacts for local libraries:
 - plan the bounded query from the index, then import only result modules for pretty-printing;
 - persist rendered declarations per module, reuse them across roots, and skip imports when cached;
 - pre-render a complete root in short-lived module workers with a root progress checkpoint;
-- keep a root `Environment` alive only in interactive mode;
+- pack a completed root into one memory-mapped declaration array for constant-time lookup;
 - use Lean's own delaborator and pretty-printer;
 - hide compiler-generated declarations using Loogle/doc-gen-style filtering;
 - index direct constants mentioned by declaration types and values;
@@ -104,13 +104,17 @@ Submodule.span_le
 ```
 
 The process emits one compact JSON value per line and flushes stdout after every response. It loads
-the dependency index once but does not import Mathlib at startup. The first access to a module loads
-its PP sidecar into the session; only a missing declaration triggers a bounded module import.
+the dependency index once but does not import Mathlib at startup. A completely cached root uses one
+memory-mapped declaration array indexed by catalog ID. For a partial cache, the first access to a
+module loads its PP sidecar into the session; only a missing declaration triggers a bounded module
+import.
 
-On the development Windows machine, a PP-hot chain of nine distinct theorem searches had a 3.34 ms
-median session latency versus 197 ms for `rg` (1.69%). The complete session, including its first
-process startup, took 111 ms versus 1.87 seconds for nine separate `rg` scans. A one-shot LeanReach
-process still costs about 103 ms, so agents should keep the NDJSON session alive.
+On the development Windows machine, a PP-hot chain of nine distinct name searches had a 2.54 ms
+median session latency versus 220 ms for `rg` (1.16%). A separate chain of nine distinct exact
+dependency queries, with every selected declaration pre-rendered and no render writes during the
+run, had a 5.04 ms median versus 288 ms for `rg` (1.75%). Its complete session, including startup
+and exit, took 254 ms versus 2.63 seconds for nine separate `rg` scans (9.67%). A one-shot
+LeanReach process still costs about 119 ms, so agents should keep the NDJSON session alive.
 
 ## Searching another local Lake library
 
@@ -139,9 +143,11 @@ After `lake build`, pre-render the complete built root once:
 
 This pays index construction, environment import, and pretty-printing once. Work is saved after each
 module; each worker exits before the next module, bounding retained Lean environment memory. A root
-completion marker makes repeated cache checks constant-time. The resulting per-module caches are
-reusable from larger roots and are invalidated by the module's build hash.
-LeanReach never builds missing modules implicitly.
+completion marker makes repeated cache checks constant-time. On completion, LeanReach packs the
+module caches into one root-level array in catalog order, so later queries avoid opening and merging
+module maps. The per-module caches remain the incremental source and fallback: they are reusable
+from larger roots and are invalidated by the module's build hash. LeanReach never builds missing
+modules implicitly.
 
 ## Dependency semantics
 
