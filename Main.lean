@@ -13,7 +13,7 @@ inductive Command where
 
 structure Config where
   root : Name := `Mathlib
-  limit : Nat := 20
+  limit? : Option Nat := none
   interactive : Bool := false
   json : Bool := false
   profile : Bool := false
@@ -35,7 +35,7 @@ private def takeNat (option : String) : CliM Nat := do
 
 private def shortOption : Char → CliM PUnit
   | 'm' => do modifyThe Config ({ · with root := (← takeArg "-m").toName })
-  | 'n' => do modifyThe Config ({ · with limit := ← takeNat "-n" })
+  | 'n' => do modifyThe Config ({ · with limit? := some (← takeNat "-n") })
   | 'i' => modifyThe Config ({ · with interactive := true })
   | 'j' => modifyThe Config ({ · with json := true })
   | 'h' => modifyThe Config ({ · with help := true })
@@ -68,7 +68,7 @@ USAGE:
 
 OPTIONS:
   -m, --module MODULE   import root module (default: Mathlib)
-  -n, --limit N         maximum results per list (default: 20)
+  -n, --limit N         override both dependency limits (defaults: 6 upstream, 10 downstream)
   -i, --interactive     reuse one environment; read queries from stdin
   -j, --json            emit JSON (NDJSON in interactive mode)
       --profile         print elapsed time to stderr
@@ -110,12 +110,15 @@ private def printSearch (json : Bool) (query : String) (items : Array Declaratio
     for declaration in items do
       printDeclaration "  " declaration
 
+private def Config.limitOr (config : Config) (default : Nat) : Nat :=
+  config.limit?.getD default
+
 private def runOne (session : Session) (config : Config) (command : Command) : CoreM Unit := do
   match command with
   | .query name =>
-    printQuery config.json <| ← session.query name config.limit
+    printQuery config.json <| ← session.query name (config.limitOr 6) (config.limitOr 10)
   | .search pattern =>
-    printSearch config.json pattern (← session.search pattern config.limit)
+    printSearch config.json pattern (← session.search pattern (config.limitOr 20))
   | .cache modules =>
     let count ← session.cacheModules modules
     if config.json then
@@ -136,10 +139,11 @@ private def commandNames (config : Config) (command : Command) (index : Index) :
     Except String (Array Name) := do
   match command with
   | .query query =>
-    let (target, upstream, downstream) ← index.queryNames query config.limit
+    let (target, upstream, downstream) ←
+      index.queryNames query (config.limitOr 6) (config.limitOr 10)
     return #[target] ++ upstream ++ downstream
   | .search pattern =>
-    return index.search pattern config.limit
+    return index.search pattern (config.limitOr 20)
   | .cache modules =>
     return index.namesInModules modules
 
@@ -164,8 +168,9 @@ private partial def runInteractive (session : Session) (config : Config) : CoreM
   runInteractive session config
 
 private def validate (config : Config) : CliMainM Unit := do
-  if config.limit == 0 || config.limit > 1000 then
-    throw <| Lake.CliError.invalidOptArg "--limit" "an integer from 1 to 1000"
+  if let some limit := config.limit? then
+    if limit == 0 || limit > 1000 then
+      throw <| Lake.CliError.invalidOptArg "--limit" "an integer from 1 to 1000"
 
 private unsafe def execute (config : Config) (command? : Option Command) : IO UInt32 := do
   let started ← IO.monoMsNow

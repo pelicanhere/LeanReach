@@ -57,8 +57,8 @@ pwsh scripts/package.ps1
 # Search names. Exact names, final-name matches, then substrings are ranked in that order.
 lake exe leanreach search span_le --limit 10
 
-# Show a declaration and both directions of its direct dependencies.
-lake exe leanreach Submodule.span_le --limit 20
+# Show a declaration with 6 upstream and 10 downstream dependencies.
+lake exe leanreach Submodule.span_le
 
 # Machine-readable output.
 lake exe leanreach Submodule.span_le --json
@@ -74,7 +74,7 @@ Important options:
 
 ```text
 -m, --module MODULE   imported root module (default: Mathlib)
--n, --limit N         results per list, 1 through 1000 (default: 20)
+-n, --limit N         override both dependency limits, 1 through 1000
 -i, --interactive     keep the environment alive and read stdin
 -j, --json            JSON, or NDJSON with --interactive
     --profile         report startup and per-query time

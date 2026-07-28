@@ -78,10 +78,14 @@ private def describe (session : Session) (name : Name) : CoreM Declaration := do
 
 abbrev QueryNames := Name × Array Name × Array Name
 
-def Index.queryNames (index : Index) (query : String) (limit : Nat := 20) :
-    Except String QueryNames := do
+def Index.queryNames (index : Index) (query : String) (upstreamLimit : Nat := 6)
+    (downstreamLimit : Nat := 10) : Except String QueryNames := do
   let target ← index.resolve query
-  return (target, index.upstream target limit, index.downstream target limit)
+  return (
+    target,
+    index.upstream target upstreamLimit,
+    index.downstream target downstreamLimit
+  )
 
 private def describeRelated (session : Session) (items : Array Name) :
     CoreM (Array Declaration) :=
@@ -91,10 +95,10 @@ private def liftQuery {α : Type} : Except String α → CoreM α
   | .ok result => pure result
   | .error message => throwError message
 
-def Session.query (session : Session) (query : String) (limit : Nat := 20) :
-    CoreM QueryResult := do
+def Session.query (session : Session) (query : String) (upstreamLimit : Nat := 6)
+    (downstreamLimit : Nat := 10) : CoreM QueryResult := do
   let (target, upstream, downstream) ←
-    liftQuery (session.index.queryNames query limit)
+    liftQuery (session.index.queryNames query upstreamLimit downstreamLimit)
   return {
     target := ← describe session target
     upstream := ← describeRelated session upstream
