@@ -10,6 +10,7 @@ inductive Command where
   | query (name : String)
   | search (pattern : String)
   | context (name : String)
+  | cache (modules : Array Name)
 
 structure Config where
   root : Name := `Mathlib
@@ -73,6 +74,7 @@ USAGE:
   leanreach [OPTIONS] DECLARATION
   leanreach [OPTIONS] search PATTERN
   leanreach [OPTIONS] context DECLARATION
+  leanreach [OPTIONS] cache MODULE...
   leanreach [OPTIONS] --interactive
 
 OPTIONS:
@@ -148,6 +150,15 @@ private def runOne (session : Session) (config : Config) (command : Command) : C
   | .context name =>
     let (target, items) ← session.context name config.depth config.limit
     printContext config.json target items
+  | .cache modules =>
+    let count ← session.cacheModules modules
+    if config.json then
+      IO.println <| (Json.mkObj [
+        ("modules", toJson <| modules.map (·.toString)),
+        ("declarations", toJson count)
+      ]).compress
+    else
+      IO.println s!"cached {count} declarations"
 
 private def runTimed (session : Session) (config : Config) (command : Command) : CoreM Unit := do
   let started ← IO.monoMsNow
@@ -171,6 +182,8 @@ private def commandNames (config : Config) (command : Command) (index : Index) :
   | .context query =>
     let (target, context) ← index.contextNames query config.depth config.limit
     return #[target] ++ context.map (·.2.2)
+  | .cache modules =>
+    return index.namesInModules modules
 
 private def parseLine (line : String) : Command :=
   if let some pattern := line.dropPrefix? "search " then
@@ -204,7 +217,7 @@ private unsafe def execute (config : Config) (command? : Option Command) : IO UI
   let started ← IO.monoMsNow
   match command? with
   | some command =>
-    let loadRelations := !command matches .search _
+    let loadRelations := command matches .query _ | .context _
     withSessionFor config.root (commandNames config command) loadRelations fun session =>
       runTimed session config command
   | none =>
@@ -229,6 +242,8 @@ private unsafe def cli : CliM UInt32 := do
       match arguments with
       | ["search", pattern] => pure (some (.search pattern))
       | ["context", name] => pure (some (.context name))
+      | "cache" :: module :: modules =>
+        pure (some (.cache <| (module :: modules).toArray.map (·.toName)))
       | [name] => pure (some (.query name))
       | arguments => throw <| Lake.CliError.unexpectedArguments arguments
   unsafe execute config command

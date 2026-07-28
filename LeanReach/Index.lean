@@ -161,6 +161,11 @@ def Index.modulesFor (index : Index) (names : Array Name) : Array Name := Id.run
         modules := modules.push moduleName
   return modules
 
+def Index.namesInModules (index : Index) (modules : Array Name) : Array Name :=
+  let wanted := modules.foldl (init := ({} : NameHashSet)) (·.insert ·)
+  index.entries.filterMap fun (name, _, moduleName, _) =>
+    if wanted.contains moduleName then some name else none
+
 def Index.declarationCount (index : Index) : Nat :=
   index.entries.size
 

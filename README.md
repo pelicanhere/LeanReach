@@ -69,6 +69,9 @@ lake exe leanreach context Submodule.span_le --depth 2 --limit 20
 # Machine-readable output.
 lake exe leanreach Submodule.span_le --json
 
+# Pre-render one or more built modules so their first query does not import Lean modules.
+lake exe leanreach cache Mathlib.LinearAlgebra.Span.Defs
+
 # A narrower root imports and indexes much less than all of Mathlib.
 lake exe leanreach --module Mathlib.LinearAlgebra.Span.Defs Submodule.span_le
 ```
@@ -128,6 +131,16 @@ directory, invoke the packaged binary and name an aggregate/root module:
 Without `LEAN_PATH`, LeanReach discovers the current project's default `.lake/build/lib/lean`,
 dependency build directories under `.lake/packages`, package roots, and common `src` directories.
 `lake env` remains supported for projects with custom Lake build or source directories.
+
+After `lake build`, pre-render any modules an agent is likely to inspect:
+
+```console
+/path/to/leanreach --module MyProject cache MyProject.Core MyProject.Algebra
+```
+
+This pays Lean's environment import and pretty-printing cost once. The resulting per-module caches
+are reusable from larger roots and are invalidated by each module's Lake `depHash`. LeanReach never
+builds missing modules implicitly.
 
 ## Dependency semantics
 

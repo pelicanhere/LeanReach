@@ -158,6 +158,11 @@ def Session.search (session : Session) (query : String) (limit : Nat := 20) :
     CoreM (Array Declaration) :=
   (session.index.search query limit).mapM (describe session)
 
+def Session.cacheModules (session : Session) (modules : Array Name) : CoreM Nat := do
+  let names := session.index.namesInModules modules
+  names.forM fun name => discard <| describe session name
+  return names.size
+
 def Session.context (session : Session) (query : String) (depth : Nat := 1)
     (limit : Nat := 20) : CoreM (Declaration × Array RankedDeclaration) := do
   let (target, names) ←
