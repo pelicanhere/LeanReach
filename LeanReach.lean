@@ -53,7 +53,6 @@ private unsafe def prepareEnvironment : IO SearchPath := do
   let roots ← workspaceRoots
   let sysroot ← leanSysroot
   initializeSearchPath sysroot roots
-  Lean.enableInitializersExecution
   sourceSearchPath sysroot roots
 
 private def selectNames (index : Index) (select : Index → Except String (Array Name)) :
@@ -77,7 +76,9 @@ private unsafe def runSession {α : Type} (index : Index) (session : Session)
     index.modulesFor (names.filter fun name => !before.contains name)
   let env ←
     if modules.isEmpty then mkEmptyEnvironment
-    else importModules (loadExts := true) (modules.map fun moduleName => { module := moduleName }) {}
+    else
+      Lean.enableInitializersExecution
+      importModules (loadExts := true) (modules.map fun moduleName => { module := moduleName }) {}
   let result ← Core.CoreM.toIO'
     action
     { fileName := "<leanreach>", fileMap := default }
