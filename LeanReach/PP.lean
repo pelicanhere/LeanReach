@@ -1,5 +1,5 @@
 import LeanReach.Cache
-import LeanReach.Query
+import LeanReach.PrettyPrint
 import LeanReach.Runtime
 
 namespace LeanReach
@@ -8,15 +8,15 @@ open Lean
 
 unsafe def buildPPModules (modules : Array Name) : IO Nat := do
   let sourcePath ← prepareEnvironment
-  let emptyIndex := Index.ofParts (#[], {}) (#[], #[])
   let mut active := #[]
   let mut inputs : NameMap (Array Name × NameMap Declaration) := {}
   for moduleName in modules do
     let names ← unsafe Cache.moduleNames moduleName
     let before ← unsafe Cache.loadPPModule moduleName
-    unless names.all before.contains do
+    let missing := names.filter fun name => !before.contains name
+    unless missing.isEmpty do
       active := active.push moduleName
-      inputs := inputs.insert moduleName (names, before)
+      inputs := inputs.insert moduleName (missing, before)
   if active.isEmpty then return 0
   let env ← do
     Lean.enableInitializersExecution
@@ -24,12 +24,14 @@ unsafe def buildPPModules (modules : Array Name) : IO Nat := do
   let mut count := 0
   for moduleName in active do
     let (names, before) := (inputs.find? moduleName).getD (#[], {})
-    let session ← Session.create emptyIndex sourcePath
-    session.merge before
-    discard <| unsafe runCore env (session.cacheNames names)
-    let after ← session.ppCache
+    let added ← unsafe runCore env (prettyPrintModule sourcePath moduleName names)
+    let after := Id.run do
+      let mut after := before
+      for (name, declaration) in added do
+        after := after.insert name declaration
+      return after
     unsafe Cache.savePPModule moduleName after
-    count := count + after.size - before.size
+    count := count + added.size
   return count
 
 private def batchSize := 32

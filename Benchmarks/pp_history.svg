@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400">
+<rect width="100%" height="100%" fill="white"/>
+<text x="70" y="28" font-size="18" font-family="sans-serif">Cold PP cache build: 12 modules / 958 declarations</text>
+<line x1="70" y1="330" x2="570" y2="330" stroke="#444"/>
+<rect x="140" y="70.0" width="72" height="260.0" fill="#16a34a"><title>shared import; declarations routed through Session and IO.Ref: 17450 ms</title></rect><rect x="310" y="86.7" width="72" height="243.3" fill="#16a34a"><title>shared import; direct module pretty printing: 16326 ms</title></rect><text x="176" y="63.0" text-anchor="middle" font-size="12">17.45s</text><text x="176" y="350" text-anchor="middle" font-size="12">session-path</text><text x="346" y="79.7" text-anchor="middle" font-size="12">16.33s</text><text x="346" y="350" text-anchor="middle" font-size="12">module-path</text>
+</svg>

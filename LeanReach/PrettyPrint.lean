@@ -43,21 +43,33 @@ private def prettyPrintConstant (name : Name) (info : ConstantInfo) : MetaM Stri
     (← prettyPrintList "fields" fields) ++
     (← prettyPrintList "constructors" inductiveInfo.ctors.toArray)
 
-def prettyPrintDeclaration (sourcePath : SearchPath) (name : Name) :
-    CoreM Declaration := do
+private def prettyPrintKnownDeclaration (moduleName : Name) (file : Option String)
+    (name : Name) : CoreM Declaration := do
   let env ← getEnv
   let some info := env.find? name | throwError "unknown declaration '{name}'"
-  let moduleName? ← findModuleOf? name
-  let file? ← moduleName?.mapM fun moduleName =>
-    return (← sourcePath.findModuleWithExt "lean" moduleName).map (·.toString)
   let range? := (← findDeclarationRanges? name).map (·.selectionRange)
   return {
     name := name.toString
     signature := ← MetaM.run' (prettyPrintConstant name info)
-    moduleName := moduleName?.map (·.toString) |>.getD ""
-    file := file?.getD none
+    moduleName := moduleName.toString
+    file
     line := range?.map (·.pos.line) |>.getD 0
     column := range?.map (·.pos.column + 1) |>.getD 0
   }
+
+def prettyPrintDeclaration (sourcePath : SearchPath) (name : Name) :
+    CoreM Declaration := do
+  let some moduleName ← findModuleOf? name | throwError "unknown module for '{name}'"
+  let file := (← sourcePath.findModuleWithExt "lean" moduleName).map (·.toString)
+  prettyPrintKnownDeclaration moduleName file name
+
+def prettyPrintModule (sourcePath : SearchPath) (moduleName : Name)
+    (names : Array Name) : CoreM (NameMap Declaration) := do
+  let file := (← sourcePath.findModuleWithExt "lean" moduleName).map (·.toString)
+  let mut declarations := {}
+  for name in names do
+    declarations := declarations.insert name
+      (← prettyPrintKnownDeclaration moduleName file name)
+  return declarations
 
 end LeanReach
