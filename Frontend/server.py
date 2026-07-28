@@ -35,7 +35,7 @@ class Worker:
         self.command = command
         self.cwd = cwd
         self.lock = threading.Lock()
-        self.process: subprocess.Popen[str] | None = None
+        self.process: subprocess.Popen[bytes] | None = None
 
     def start(self) -> None:
         self.close()
@@ -44,12 +44,8 @@ class Worker:
             cwd=self.cwd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
+            bufsize=0,
         )
-        self._exchange("search __leanreach_frontend_ready__")
 
     def close(self) -> None:
         if self.process is None:
@@ -57,7 +53,7 @@ class Worker:
         if self.process.poll() is None:
             assert self.process.stdin
             try:
-                self.process.stdin.write("\n")
+                self.process.stdin.write(b"\n")
                 self.process.stdin.flush()
                 self.process.wait(timeout=2)
             except (BrokenPipeError, subprocess.TimeoutExpired):
@@ -65,23 +61,23 @@ class Worker:
                 self.process.wait()
         self.process = None
 
-    def _exchange(self, command: str) -> dict:
+    def _exchange(self, command: str) -> bytes:
         assert self.process and self.process.stdin and self.process.stdout
-        self.process.stdin.write(command + "\n")
+        self.process.stdin.write((command + "\n").encode())
         self.process.stdin.flush()
         line = self.process.stdout.readline()
         if not line:
             raise RuntimeError("LeanReach worker stopped")
-        return json.loads(line)
+        return line
 
-    def query(self, command: str) -> dict:
+    def query(self, command: str) -> bytes:
         with self.lock:
             for attempt in range(2):
                 try:
                     if self.process is None or self.process.poll() is not None:
                         self.start()
                     return self._exchange(command)
-                except (BrokenPipeError, json.JSONDecodeError, RuntimeError):
+                except (BrokenPipeError, RuntimeError):
                     self.close()
                     if attempt:
                         raise
@@ -135,7 +131,8 @@ class Handler(BaseHTTPRequestHandler):
             self.json(400, {"error": "query is too long"})
             return
         try:
-            self.json(200, self.server.worker.query(command))
+            body = self.server.worker.query(command)
+            self.respond(200, "application/json; charset=utf-8", body)
         except Exception as error:
             self.json(503, {"error": str(error)})
 

@@ -121,7 +121,8 @@ about 110 ms, so agents should keep the NDJSON session alive.
 
 The frontend follows Loogle's process boundary: a small Python standard-library HTTP server owns
 one long-lived `--interactive --json` LeanReach worker. Search and dependency requests therefore
-reuse the same index and PP cache without adding a web framework to the Lean executable.
+reuse the same index and PP cache without adding a web framework to the Lean executable. Successful
+worker responses are forwarded unchanged instead of being parsed and serialized again in Python.
 
 From this checkout:
 
