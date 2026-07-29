@@ -34,9 +34,11 @@ private unsafe def addConstant (env : Environment) (privateNames : NameHashSet)
   return (added.mainEnv, if isPrivate then privateNames.insert userName else privateNames)
 
 unsafe def withPrivateOverlay {α : Type} (env : Environment) (moduleName : Name)
-    (names : Array Name) (moduleOf? : Name → Option Name)
-    (action : Environment → IO α) : IO α := do
-  let (result, regions) ← show IO (α × Array CompactedRegion) from do
+    (signatureNames bodyNames : Array Name) (moduleOf? : Name → Option Name)
+    (action : Environment → IO α) : IO (α × Nat) := do
+  let started ← IO.monoNanosNow
+  let ((result, overlayNanos), regions) ←
+      show IO ((α × Nat) × Array CompactedRegion) from do
     let (parts, _) ← unsafe readParts (← findOLean moduleName)
     let some (data, _) := parts.back? |
       throw <| IO.userError s!"empty module data for '{moduleName}'"
@@ -45,9 +47,9 @@ unsafe def withPrivateOverlay {α : Type} (env : Environment) (moduleName : Name
     modules := modules.insert moduleName data
     let mut env := env
     let mut privateNames : NameHashSet := {}
-    for info in data.constants do
-      (env, privateNames) ← unsafe addConstant env privateNames info
-    let mut pending := names.map (·, moduleName, true)
+    let mut pending :=
+      signatureNames.map (·, moduleName, false) ++
+      bodyNames.map (·, moduleName, true)
     let mut seen : NameHashSet := {}
     while let some (name, owner, scanValue) := pending.back? do
       pending := pending.pop
@@ -77,8 +79,9 @@ unsafe def withPrivateOverlay {α : Type} (env : Environment) (moduleName : Name
                   env.header.moduleNames[index.toNat]?) <|>
                 moduleOf? dependency
           if let some owner := owner? then pending := pending.push (dependency, owner, false)
-    return (← action env, regions)
+    let overlayNanos := (← IO.monoNanosNow) - started
+    return ((← action env, overlayNanos), regions)
   regions.forM CompactedRegion.free
-  return result
+  return (result, overlayNanos)
 
 end LeanReach.ModuleData

@@ -9,7 +9,7 @@ private def check (condition : Bool) (message : String) : CoreM Unit :=
   unless condition do throwError message
 
 private unsafe def runTests : IO Unit := do
-  discard <| unsafe prepareEnvironment
+  let sourcePath ← unsafe prepareEnvironment
   let duplicateIndex := Index.build #[
     (`LeanReachFixture.a, `Tests.Fixture, ({} : NameSet).insert `LeanReachFixture.b),
     (`LeanReachFixture.a, `Tests.Fixture, ({} : NameSet).insert `LeanReachFixture.c),
@@ -43,6 +43,18 @@ private unsafe def runTests : IO Unit := do
     unless pidRank.contains expected do
       throw <| IO.userError s!"PID proof dependency '{expected}' is poorly ranked"
   let fixtureIndex ← unsafe Cache.loadIndex #[`Tests.Fixture] true
+  let fixtureNames ← unsafe Cache.moduleNames `Tests.Fixture
+  let fixtureEnv ← importEnvironment #[`Tests.Fixture]
+  let (planned, _) ← unsafe prettyPrintModuleIO sourcePath fixtureEnv
+    `Tests.Fixture fixtureNames fixtureIndex.moduleOf?
+  let (monolithic, _) ← unsafe ModuleData.withPrivateOverlay fixtureEnv
+      `Tests.Fixture #[] fixtureNames fixtureIndex.moduleOf? fun env =>
+    unsafe runCore env (prettyPrintModule sourcePath `Tests.Fixture fixtureNames)
+  unless fixtureNames.all fun name =>
+      match planned.find? name, monolithic.find? name with
+      | some left, some right => (toJson left).compress == (toJson right).compress
+      | _, _ => false do
+    throw <| IO.userError "planned PP changed declaration output"
   discard <| unsafe QueryCache.build #[`Tests.Fixture]
   let some cachedQuery ← unsafe QueryCache.load #[`Tests.Fixture]
       `LeanReachFixture.Topic.ranked |

@@ -185,13 +185,24 @@ reusable from larger roots and invalidated by the defining module's build hash; 
 builds missing modules implicitly. PP imports the public `exported` olean layer; declaration
 positions come from the matching `.ilean`, including generated projections recorded as definition
 references. This avoids loading the larger server layer without changing cached signatures or
-source locations.
+source locations. Theorems and other Prop-valued declarations pretty-print only their signatures:
+their proof values are never traversed for PP. Non-Prop definitions retain complete bodies. A
+minimal private overlay is built only for body dependencies or private constants required by a
+public signature, structure field, or constructor. Declarations are still printed in original
+module order through one signature memo, keeping meta-level generated names deterministic.
+`cache --profile` reports import, private-overlay, signature-PP, body-PP, and sidecar-write time
+separately; worker-stage values are accumulated and therefore overlap in wall time.
 
 When a detected view combines local roots with Mathlib, a valid completed Mathlib view is reused
 without reopening all of its module sidecars, and only modules with missing PP are imported. On the
 development Windows machine, an isolated full Mathlib cache including the dependency, query, and PP
 artifacts took 15 minutes 57.7 seconds with the root import overlapped, versus an approximately
-19-minute sequential warm-cache baseline. Rebuilding a combined root marker while reusing the
+19-minute sequential warm-cache baseline. With dependency and search indexes already present, a
+full refresh of all 8090 Mathlib-owned PP sidecars now took 10 minutes 41.3 seconds, including
+180.9 seconds of root import. On deterministic uniformly sampled workloads, the PP-only phase took
+13.58 seconds instead of 14.04 seconds for 100 modules and 71.86 instead of 77.89 seconds for 500
+modules. The same 4159 declarations in the 100-module sample were byte-for-byte identical before
+and after the fast path. Rebuilding a combined root marker while reusing the
 completed Mathlib view took 1.69 seconds. In the current implementation, refreshing 78 declarations
 across ten changed local modules took 7.93 seconds internally without importing the separate
 Mathlib root, and the following `cache` command took 79 ms. The same 64 modules and 982 declarations

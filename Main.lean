@@ -71,7 +71,7 @@ OPTIONS:
   -n, --limit N         override both dependency limits (default: 10 each)
   -i, --interactive     reuse one environment; read queries from stdin
   -j, --json            emit JSON (NDJSON in interactive mode)
-      --profile         print elapsed time to stderr
+      --profile         print elapsed and cache-stage time to stderr
   -h, --help            show this help
 
 Without `--module`, combine built local lean_lib roots with required Mathlib.
@@ -112,14 +112,17 @@ private def printSearch (json : Bool) (query : String) (items : Array Declaratio
 private def Config.limits (config : Config) : Limits :=
   config.limit?.map Limits.uniform |>.getD {}
 
-private def printPP (json : Bool) (modules : Array Name) (count : Nat) : IO Unit := do
-  if json then
+private def printPP (config : Config) (modules : Array Name)
+    (result : Nat × PPTiming) : IO Unit := do
+  let (count, timing) := result
+  if config.json then
     IO.println <| (Json.mkObj [
       ("modules", toJson <| modules.map (·.toString)),
       ("declarations", toJson count)
     ]).compress
   else
     IO.println s!"pretty-printed {count} declarations"
+  if config.profile then IO.eprintln s!"leanreach: pp {timing.profile}"
 
 private inductive Prepared where
   | query (names : QueryNames)
@@ -188,13 +191,13 @@ private unsafe def execute (config : Config) (command? : Option Command) : IO UI
   match command? with
   | some (.cache modules) =>
     if modules.isEmpty then
-      let count ← buildPPRoots (← config.roots true) fun moduleName done total =>
+      let result ← buildPPRoots (← config.roots true) fun moduleName done total =>
         unless config.json do
           if done == total || done % 100 == 0 then
             IO.eprintln s!"leanreach: pretty-printed modules {done}/{total} ({moduleName})"
-      printPP config.json modules count
+      printPP config modules result
     else
-      printPP config.json modules (← buildPPModules modules)
+      printPP config modules (← buildPPModules modules)
   | some (.query query) =>
     let roots ← config.roots
     let limits := config.limits

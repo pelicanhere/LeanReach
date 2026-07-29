@@ -71,3 +71,8 @@ target-module-chain-partial,1,2,8592,new-process second theorem after the first 
 target-module-chain-complete,1,134,108,new-process second theorem after the first query completed the target module
 post-build-overlay-fallback,16,2597,35372,first query after a local rebuild without cache loaded the complete combined index
 post-build-overlay-recovery,16,2597,130,first query after a local rebuild rebuilt only the local overlay and reused Mathlib
+signature-only-baseline-100,100,4159,14037,pre-change in-memory PP phase on a uniform Mathlib module sample
+signature-only-final-100,100,4159,13580,signature-only value traversal with original module order; byte-identical output
+signature-only-baseline-500,500,20326,77890,pre-change in-memory PP phase on a uniform Mathlib module sample
+signature-only-final-500,500,20326,71858,signature-only value traversal with minimal private overlays
+mathlib-pp-signature-only-final,8090,292496,641284,full Mathlib-owned PP sidecar refresh over existing dependency and search indexes

@@ -40,7 +40,7 @@ private unsafe def completeTargetModule (moduleOf? : Name → Option Name)
   let missing := names.filter fun name => !cached.contains name
   if missing.isEmpty then return
   try
-    let declarations ← unsafe prettyPrintModuleWithConstants
+    let (declarations, _) ← unsafe prettyPrintModuleIO
       session.sourcePath env moduleName missing moduleOf?
     session.merge declarations
   catch _ => pure ()
