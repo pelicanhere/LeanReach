@@ -1,12 +1,11 @@
 import Lean.Data.Name
 import Lean.Data.Trie
 import LeanReach.NameSearch
+import LeanReach.Rank
 
 namespace LeanReach
 
 open Lean
-
-universe u
 
 /-- Searchable names and their defining modules. Array positions are declaration IDs. -/
 abbrev CatalogEntry := Name × Name
@@ -17,11 +16,6 @@ structure Relations where
   reverse : Array (Array UInt32)
   upstreamPrior : Array Float
   downstreamPrior : Array Float
-  deriving Inhabited
-
-structure LocatedName where
-  name : Name
-  moduleName : Name
   deriving Inhabited
 
 structure CachedQuery where
@@ -41,107 +35,6 @@ structure Index where
   deriving Inhabited
 
 abbrev IndexedDeclaration := Name × Name × NameSet
-
-private def commonPrefixLength : List Name → List Name → Nat
-  | a :: as, b :: bs => if a == b then commonPrefixLength as bs + 1 else 0
-  | _, _ => 0
-
-private def diceScore (left right shared : Nat) : Float :=
-  let total := left + right
-  if total == 0 then 0.0 else 2.0 * shared.toFloat / total.toFloat
-
-private def prefixSimilarity (left right : List Name) : Float :=
-  diceScore left.length right.length (commonPrefixLength left right)
-
-private def significantParts (name : Name) : List String :=
-  let leaf := (NameSearch.leaf name).toLower
-  (leaf.splitOn "_").filter (·.length ≥ 3)
-
-private def tokenSimilarity (left right : List String) : Float :=
-  diceScore left.length right.length (left.countP right.contains)
-
-private def localityScore (sourceModule : Name)
-    (sourceNameParts sourceModuleParts : List Name)
-    (sourceParts : List String) (candidate : LocatedName) : Float :=
-  let { name := candidateName, moduleName := candidateModule } := candidate
-  (if sourceModule == candidateModule then 3.0 else 0.0) +
-    3.0 * prefixSimilarity sourceNameParts candidateName.components +
-    2.0 * prefixSimilarity sourceModuleParts candidateModule.components +
-    4.0 * tokenSimilarity sourceParts (significantParts candidateName)
-
-private def heapifyDown {α : Type u} [Inhabited α] (lt : α → α → Bool)
-    (items : Array α) : Array α := Id.run do
-  let mut items := items
-  let mut parent : Nat := 0
-  while 2 * parent + 1 < items.size do
-    let left := 2 * parent + 1
-    let right := left + 1
-    let child : Nat :=
-      if right < items.size && lt items[left]! items[right]! then right else left
-    if lt items[parent]! items[child]! then
-      items := items.swapIfInBounds parent child
-      parent := child
-    else break
-  return items
-
-private def heapInsert {α : Type u} [Inhabited α] (lt : α → α → Bool)
-    (items : Array α) (item : α) : Array α := Id.run do
-  let mut items := items.push item
-  let mut child : Nat := items.size - 1
-  while child > 0 do
-    let parent := (child - 1) / 2
-    if lt items[parent]! items[child]! then
-      items := items.swapIfInBounds parent child
-      child := parent
-    else break
-  return items
-
-private def heapKeepBest {α : Type u} [Inhabited α] (lt : α → α → Bool)
-    (items : Array α) (item : α) : Array α :=
-  match items[0]? with
-  | some worst => if lt item worst then heapifyDown lt (items.set! 0 item) else items
-  | none => items
-
-private def rankPositions (size limit : Nat) (score : Nat → Float)
-    (name : Nat → Name) : Array Nat := Id.run do
-  if limit == 0 || size == 0 then return #[]
-  if size == 1 then return #[0]
-  let better := fun (scoreA, a) (scoreB, b) =>
-    if scoreA != scoreB then scoreA > scoreB else Name.lt (name a) (name b)
-  let best :=
-    if size ≤ limit then
-      (Array.range size).map fun id => (score id, id)
-    else
-      Id.run do
-        let mut heap := #[]
-        for id in [0:size] do
-          let item := (score id, id)
-          heap :=
-            if heap.size < limit then heapInsert better heap item
-            else heapKeepBest better heap item
-        return heap
-  return (best.qsort better).map (·.2)
-
-private def relationPrior (total reverseCount forwardCount : Nat) (upstream : Bool) : Float :=
-  let df := reverseCount.toFloat
-  let specificity :=
-    Float.log (1.0 + (total.toFloat - df + 0.5) / (df + 0.5))
-  let support := df / (df + 0.5)
-  let out := forwardCount.toFloat
-  let substance := 4.0 * out / (out + df + 8.0)
-  if upstream then specificity * support + substance
-  else Float.log (1.0 + df) + substance
-
-private def relationPriors (forward reverse : Array (Array UInt32))
-    (upstream : Bool) : Array Float :=
-  forward.mapIdx fun id outgoing =>
-    relationPrior forward.size reverse[id]!.size outgoing.size upstream
-
-private def relationScore (prior : Float) (source : LocatedName)
-    (sourceNameParts sourceModuleParts : List Name)
-    (sourceParts : List String) (candidate : LocatedName) : Float :=
-  prior * (1.0 + localityScore source.moduleName sourceNameParts
-    sourceModuleParts sourceParts candidate / 8.0)
 
 def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
   let mut byName : NameMap (Name × NameSet) := {}
@@ -180,8 +73,8 @@ def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
     trigrams := trigramIndex
     forward
     reverse
-    upstreamPrior := relationPriors forward reverse true
-    downstreamPrior := relationPriors forward reverse false
+    upstreamPrior := Rank.priors forward reverse true
+    downstreamPrior := Rank.priors forward reverse false
   }
 
 def Index.catalog (index : Index) : Catalog :=
@@ -222,22 +115,17 @@ private def Index.namesAt (index : Index) (ids : Array UInt32) : Array Name :=
   ids.map fun id => index.entries[id.toNat]!.1
 
 private def Index.rankIds (index : Index) (source : UInt32)
-    (ids : Array UInt32) (upstream : Bool) (limit : Nat) : Array UInt32 := Id.run do
+    (ids : Array UInt32) (upstream : Bool) (limit : Nat) : Array UInt32 :=
   let (sourceName, sourceModule) := index.entries[source.toNat]!
   let source : LocatedName := { name := sourceName, moduleName := sourceModule }
-  let sourceNameParts := sourceName.components
-  let sourceModuleParts := sourceModule.components
-  let sourceParts := significantParts sourceName
-  let positions := rankPositions ids.size limit
-    (fun position =>
-      let candidate := ids[position]!
+  Rank.select source ids
+    (fun candidate =>
       let (name, moduleName) := index.entries[candidate.toNat]!
-      let prior :=
-        if upstream then index.upstreamPrior[candidate.toNat]!
-        else index.downstreamPrior[candidate.toNat]!
-      relationScore prior source sourceNameParts sourceModuleParts sourceParts { name, moduleName })
-    (fun position => index.entries[ids[position]!.toNat]!.1)
-  return positions.map fun position => ids[position]!
+      { name, moduleName })
+    (fun candidate =>
+      if upstream then index.upstreamPrior[candidate.toNat]!
+      else index.downstreamPrior[candidate.toNat]!)
+    limit
 
 private def Index.relatedIds (index : Index) (source : UInt32)
     (upstream : Bool) (limit : Nat) : Array UInt32 :=
@@ -247,21 +135,6 @@ private def Index.relatedIds (index : Index) (source : UInt32)
 private def Index.locatedAt (index : Index) (id : UInt32) : LocatedName :=
   let (name, moduleName) := index.entries[id.toNat]!
   { name, moduleName }
-
-def rankLocated (source : LocatedName) (candidates : Array LocatedName)
-    (total : Nat) (reverseCount forwardCount : Name → Nat) (upstream : Bool)
-    (limit : Nat) : Array LocatedName := Id.run do
-  let sourceNameParts := source.name.components
-  let sourceModuleParts := source.moduleName.components
-  let sourceParts := significantParts source.name
-  let positions := rankPositions candidates.size limit
-    (fun position =>
-      let candidate := candidates[position]!
-      relationScore (relationPrior total (reverseCount candidate.name)
-        (forwardCount candidate.name) upstream) source sourceNameParts
-        sourceModuleParts sourceParts candidate)
-    (fun position => candidates[position]!.name)
-  return positions.map fun position => candidates[position]!
 
 def Index.located? (index : Index) (name : Name) : Option LocatedName :=
   index.findId? name |>.map index.locatedAt
