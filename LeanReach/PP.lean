@@ -22,6 +22,12 @@ private unsafe def saveModule (moduleName : Name) (before added : NameMap Declar
   unsafe Cache.savePPModule moduleName after
   return added.size
 
+private unsafe def missingInput (moduleName : Name) (names : Array Name) :
+    IO (Option Input) := do
+  let before ← unsafe Cache.loadPPModule moduleName
+  let missing := names.filter fun name => !before.contains name
+  return if missing.isEmpty then none else some (moduleName, missing, before)
+
 private unsafe def buildModules (sourcePath : SearchPath) (env : Environment)
     (inputs : Array Input) (moduleOf? : Name → Option Name := fun _ => none)
     (progress : Name → NameMap Declaration → Nat → IO Unit := fun _ _ _ => pure ()) : IO Nat := do
@@ -46,10 +52,8 @@ unsafe def buildPPModules (modules : Array Name) : IO Nat := do
   let mut inputs : Array Input := #[]
   for moduleName in modules do
     let names ← unsafe Cache.moduleNames moduleName
-    let before ← unsafe Cache.loadPPModule moduleName
-    let missing := names.filter fun name => !before.contains name
-    unless missing.isEmpty do
-      inputs := inputs.push (moduleName, missing, before)
+    if let some input ← unsafe missingInput moduleName names then
+      inputs := inputs.push input
   if inputs.isEmpty then return 0
   let env ← importEnvironment (inputs.map fun (module, _, _) => module) (leakEnv := true)
   unsafe buildModules sourcePath env inputs
@@ -67,12 +71,10 @@ unsafe def buildPPRoots (roots : Array Name)
   let mut inputs : Array Input := #[]
   let mut envTask? := none
   for (moduleName, names) in index.declarationsByModule do
-    let before ← unsafe Cache.loadPPModule moduleName
-    let missing := names.filter fun name => !before.contains name
-    unless missing.isEmpty do
+    if let some input ← unsafe missingInput moduleName names then
       if envTask?.isNone then
         envTask? := some (← IO.asTask <| importEnvironment roots (leakEnv := true))
-      inputs := inputs.push (moduleName, missing, before)
+      inputs := inputs.push input
   let mut count := 0
   unless inputs.isEmpty do
     let some envTask := envTask? | unreachable!
