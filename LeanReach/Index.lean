@@ -50,6 +50,10 @@ private def lastComponent : Name → String
   | .num _ value => toString value
   | .anonymous => ""
 
+private def significantParts (name : Name) : List String :=
+  let leaf := (lastComponent name).toLower
+  if leaf.contains '_' then (leaf.splitOn "_").filter (·.length ≥ 3) else []
+
 private def nameAffinity (source : String) (sourceParts : List String)
     (candidate : Name) : Float :=
   let candidate := lastComponent candidate
@@ -201,10 +205,7 @@ private def Index.rankIds (index : Index) (source : UInt32)
   let sourceNameParts := sourceName.components
   let sourceModuleParts := sourceModule.components
   let sourceLeaf := lastComponent sourceName
-  let sourceParts :=
-    if sourceLeaf.contains '_' then
-      (sourceLeaf.toLower.splitOn "_").filter (·.length ≥ 3)
-    else []
+  let sourceParts := significantParts sourceName
   let positions := rankPositions ids.size limit
     (fun position =>
       let candidate := ids[position]!
@@ -229,10 +230,7 @@ def rankLocated (source : LocatedName) (candidates : Array LocatedName)
   let sourceNameParts := source.name.components
   let sourceModuleParts := source.moduleName.components
   let sourceLeaf := lastComponent source.name
-  let sourceParts :=
-    if sourceLeaf.contains '_' then
-      (sourceLeaf.toLower.splitOn "_").filter (·.length ≥ 3)
-    else []
+  let sourceParts := significantParts source.name
   let positions := rankPositions candidates.size limit
     (fun position =>
       let candidate := candidates[position]!
