@@ -33,11 +33,7 @@ def Session.ppCache (session : Session) : IO (NameMap Declaration) :=
   session.declarations.get
 
 def Session.merge (session : Session) (declarations : NameMap Declaration) : IO Unit := do
-  session.declarations.modify fun current => Id.run do
-    let mut current := current
-    for (name, declaration) in declarations do
-      current := current.insert name declaration
-    return current
+  session.declarations.modify fun current => Std.TreeMap.union current declarations
 
 def Session.missing (session : Session) (names : Array Name) : IO (Array Name) := do
   let cached ← session.declarations.get

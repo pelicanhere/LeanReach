@@ -1,4 +1,4 @@
-import LeanReach.Cache
+import LeanReach.IndexCache
 
 namespace LeanReach.QueryOverlay
 

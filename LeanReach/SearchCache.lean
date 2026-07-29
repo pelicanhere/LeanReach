@@ -1,4 +1,5 @@
 import LeanReach.Cache
+import LeanReach.Index
 
 namespace LeanReach.SearchCache
 
@@ -25,11 +26,8 @@ private def shard (trigram : String) : Nat :=
   (hash trigram % UInt64.ofNat shardCount).toNat
 
 private def ready (roots : Array Name) (olean : System.FilePath)
-    (depHash : String) : IO Bool := do
-  let marker := markerPath roots olean
-  unless ← marker.pathExists do return false
-  try return (← IO.FS.readFile marker) == depHash
-  catch _ => return false
+    (depHash : String) : IO Bool :=
+  Cache.markerMatches (markerPath roots olean) depHash
 
 unsafe def isBuilt (roots : Array Name) : IO Bool := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots

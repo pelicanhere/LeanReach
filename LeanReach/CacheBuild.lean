@@ -1,6 +1,7 @@
 import Std.Sync.Channel
-import LeanReach.Cache
+import LeanReach.IndexCache
 import LeanReach.ModuleData
+import LeanReach.PPCache
 import LeanReach.PrettyPrint
 import LeanReach.QueryCache
 import LeanReach.Runtime
@@ -19,21 +20,14 @@ private def parallelism : IO Nat := do
 private unsafe def saveModule (moduleName : Name) (before added : NameMap Declaration) :
     IO (Nat × Nat) := do
   let started ← IO.monoNanosNow
-  let mut after := before
-  for (name, declaration) in added do
-    after := after.insert name declaration
-  unsafe Cache.savePPModule moduleName after
+  unsafe Cache.savePPModule moduleName (Std.TreeMap.union before added)
   return (added.size, (← IO.monoNanosNow) - started)
 
-private unsafe def missingInput (moduleName : Name) (names : Array Name) :
-    IO (Option Input) := do
+private unsafe def addMissingInput (inputs : Array Input)
+    (moduleName : Name) (names : Array Name) : IO (Array Input) := do
   let before ← unsafe Cache.loadPPModule moduleName
   let missing := names.filter fun name => !before.contains name
-  return if missing.isEmpty then none else some (moduleName, missing, before)
-
-private unsafe def addMissingInput (inputs : Array Input)
-    (moduleName : Name) (names : Array Name) : IO (Array Input) :=
-  return (← unsafe missingInput moduleName names).map inputs.push |>.getD inputs
+  return if missing.isEmpty then inputs else inputs.push (moduleName, missing, before)
 
 private unsafe def completedModules (roots : Array Name) : IO NameHashSet := do
   let mut completed : NameHashSet := {}

@@ -1,5 +1,6 @@
-import LeanReach.Cache
-import LeanReach.PP
+import LeanReach.CacheBuild
+import LeanReach.IndexCache
+import LeanReach.PPCache
 import LeanReach.Query
 import LeanReach.QueryCache
 import LeanReach.Runtime

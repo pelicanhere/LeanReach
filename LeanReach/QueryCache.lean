@@ -1,3 +1,4 @@
+import LeanReach.IndexCache
 import LeanReach.QueryOverlay
 import LeanReach.NameSearch
 import LeanReach.SearchCache
@@ -18,11 +19,8 @@ private def shardPath (olean : System.FilePath) (id : Nat) : System.FilePath :=
 private def markerPath (olean : System.FilePath) : System.FilePath :=
   olean.withExtension s!"leanreach-query-root-{version}"
 
-private def ready (olean : System.FilePath) (depHash : String) : IO Bool := do
-  let path := markerPath olean
-  unless ← path.pathExists do return false
-  try return (← IO.FS.readFile path) == depHash
-  catch _ => return false
+private def ready (olean : System.FilePath) (depHash : String) : IO Bool :=
+  Cache.markerMatches (markerPath olean) depHash
 
 private def allLocated (query : CachedQuery) : Array LocatedName :=
   #[query.target] ++ query.upstream ++ query.downstream
