@@ -65,7 +65,7 @@ unsafe def runCore {α : Type} (env : Environment) (action : CoreM α) : IO α :
     { env }
 
 unsafe def importEnvironment (modules : Array Name) (leakEnv := false)
-    (level := OLeanLevel.server) : IO Environment := do
+    (level := OLeanLevel.exported) : IO Environment := do
   Lean.enableInitializersExecution
   let imports := modules.map fun module => { module }
   if level == .private then

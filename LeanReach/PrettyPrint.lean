@@ -1,8 +1,8 @@
-import Lean.DeclarationRange
 import Lean.PrettyPrinter.Delaborator.Builtins
 import Lean.Structure
 import Lean.Util.Path
 import LeanReach.Declaration
+import LeanReach.Source
 
 namespace LeanReach
 
@@ -53,36 +53,39 @@ private def prettyPrintConstant (cache : SignatureCache) (name : Name)
     (← prettyPrintList cache "constructors" inductiveInfo.ctors.toArray)
 
 private def prettyPrintKnownDeclaration (cache : SignatureCache)
-    (moduleName : Name) (file : Option String) (name : Name) : CoreM Declaration := do
+    (moduleName : Name) (file : Option String) (position : Nat × Nat)
+    (name : Name) : CoreM Declaration := do
   let env ← getEnv
   let some info := env.find? name | throwError "unknown declaration '{name}'"
-  let range? := (← findDeclarationRanges? name).map (·.selectionRange)
   return {
     name := name.toString
     signature := ← MetaM.run' (prettyPrintConstant cache name info)
     moduleName := moduleName.toString
     file
-    line := range?.map (·.pos.line) |>.getD 0
-    column := range?.map (·.pos.column + 1) |>.getD 0
+    line := position.1
+    column := position.2
   }
 
 def prettyPrintDeclaration (sourcePath : SearchPath) (name : Name) :
     CoreM Declaration := do
   let cache ← IO.mkRef {}
   let some moduleName ← findModuleOf? name | throwError "unknown module for '{name}'"
+  let positions ← sourcePositions (← findOLean moduleName)
   let file := (← sourcePath.findModuleWithExt "lean" moduleName).map (·.toString)
-  prettyPrintKnownDeclaration cache moduleName file name
+  let position := (positions.find? name).getD (0, 0)
+  prettyPrintKnownDeclaration cache moduleName file position name
 
 def prettyPrintModule (sourcePath : SearchPath) (moduleName : Name)
     (names : Array Name) : CoreM (NameMap Declaration) := do
   let cache ← IO.mkRef {}
+  let positions ← sourcePositions (← findOLean moduleName)
   let file := (← sourcePath.findModuleWithExt "lean" moduleName).map (·.toString)
   let mut declarations := {}
   for name in names do
-    let declaration ←
-      try prettyPrintKnownDeclaration cache moduleName file name
-      catch error =>
-        throwError m!"could not pretty-print '{name}' from '{moduleName}': {error.toMessageData}"
+    let position := (positions.find? name).getD (0, 0)
+    let declaration ← try prettyPrintKnownDeclaration cache moduleName file position name
+    catch error =>
+      throwError m!"could not pretty-print '{name}' from '{moduleName}': {error.toMessageData}"
     declarations := declarations.insert name declaration
   return declarations
 

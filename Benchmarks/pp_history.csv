@@ -61,3 +61,7 @@ project-cache-marker-hit,16,0,92,internal elapsed time for the next cache comman
 distinct-query-final,16,10,150,median new-process wall time across four distinct cached declarations
 pp-batch-paired,64,2310,21415,warm filesystem baseline with four-module batch barriers
 pp-worker-pool-paired,64,2310,20180,warm filesystem sustained four-worker queue with byte-identical sidecars
+pp-exported-ilean,64,2310,19523,exported olean environment with positions recovered from ilean
+missing-pp-server-paired,1,4,8608,warm environment import with one target module PP sidecar missing
+missing-pp-exported-paired,1,4,8465,warm exported import for the same missing PP sidecar
+missing-pp-exported-semilocal,1,1,12808,first exported import for a distinct ring theory module

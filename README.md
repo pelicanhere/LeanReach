@@ -176,7 +176,10 @@ instead of waiting for the other three modules in a fixed batch. An interruption
 completed modules reusable. A small root marker makes later `cache` calls return before loading the catalog,
 while queries read only the module sidecars containing their selected declarations. Sidecars are
 reusable from larger roots and invalidated by the defining module's build hash; LeanReach never
-builds missing modules implicitly.
+builds missing modules implicitly. PP imports the public `exported` olean layer; declaration
+positions come from the matching `.ilean`, including generated projections recorded as definition
+references. This avoids loading the larger server layer without changing cached signatures or
+source locations.
 
 When a detected view combines local roots with Mathlib, a valid completed Mathlib view is reused
 without reopening all of its module sidecars, and only modules with missing PP are imported. On the
@@ -188,7 +191,8 @@ completed Mathlib view took 1.69 seconds; caching 16 declarations from one missi
 took 29.9 seconds in two 32-module import waves, 15.3 seconds with one import, and 14.1 seconds with
 four pretty-print tasks. On a 64-module, 2310-declaration paired warm-filesystem workload, replacing
 four-module barriers with the persistent worker queue reduced PP time from 21.42 to 20.18 seconds;
-all 64 module sidecars were byte-identical.
+using the exported layer and `.ilean` positions reduced it further to 19.52 seconds. All 2310
+declarations matched the previous server-layer signature, module, file, line, and column exactly.
 
 The root cache also materializes the current default top ten upstream and downstream results into
 hash-partitioned query shards. A view that adds local modules over an already-cached Mathlib stores
