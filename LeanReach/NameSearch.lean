@@ -4,6 +4,8 @@ namespace LeanReach.NameSearch
 
 open Lean
 
+universe u v
+
 def leaf : Name → String
   | .str _ value => value
   | .num _ value => toString value
@@ -29,5 +31,18 @@ def bucket? (query : String) (name : Name) : Option Nat :=
   else if candidate.endsWith ("." ++ query) then some 1
   else if candidate.contains query then some 2
   else none
+
+def buckets {α : Type u} {β : Type v} (query : String)
+    (items : Array α) (project : α → Option β) (nameOf : β → Name)
+    (limit : Nat) : Array (Array β) := Id.run do
+  let query := query.toLower
+  let mut buckets : Array (Array β) := #[#[], #[], #[]]
+  for item in items do
+    let some item := project item | continue
+    let name := nameOf item
+    if let some bucket := bucket? query name then
+      if buckets[bucket]!.size < limit then
+        buckets := buckets.modify bucket (·.push item)
+  return buckets
 
 end LeanReach.NameSearch

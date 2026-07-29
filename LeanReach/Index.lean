@@ -299,24 +299,20 @@ private def Index.candidates (index : Index) (query : String) : Array UInt32 :=
       if best.all (ids.size < ·.size) then best := some ids
     return best.getD #[]
 
-private def Index.matchBuckets (index : Index) (query : String) (limit : Nat) :
-    Array (Array Name) := Id.run do
+private def Index.matches (index : Index) (query : String) (limit : Nat) :
+    Array (Array Name) :=
   let query := query.toLower
-  let mut buckets : Array (Array Name) := #[#[], #[], #[]]
-  for id in index.candidates query do
-    let name := index.entries[id.toNat]!.1
-    if let some score := NameSearch.bucket? query name then
-      if buckets[score]!.size < limit then
-        buckets := buckets.modify score (·.push name)
-  return buckets
+  NameSearch.buckets query (index.candidates query)
+    (fun id => index.entries[id.toNat]?.map (·.1)) id limit
 
 def Index.search (index : Index) (query : String) (limit : Nat := 20) : Array Name :=
-  (index.matchBuckets query limit).flatten.take limit
+  (index.matches query limit).flatten.take limit
 
 def Index.resolve (index : Index) (query : String) : Except String Name := do
   let exact := query.toName
   if index.findId? exact |>.isSome then return exact
-  let candidates := (index.matchBuckets query 10).find? (not ∘ Array.isEmpty) |>.getD #[]
+  let candidates := (index.matches query 10).find?
+    (not ∘ Array.isEmpty) |>.getD #[]
   if candidates.size == 1 then return candidates[0]!
   if candidates.isEmpty then throw s!"no declaration name contains '{query}'"
   throw s!"ambiguous declaration '{query}':\n{String.intercalate "\n" <|

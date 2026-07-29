@@ -218,25 +218,16 @@ private def localMatches (overlay : QueryOverlay.Data) (query : String) :
     NameSearch.exact wanted target.name ||
       name.isAtomic && NameSearch.leafMatches wanted target.name
 
-private def localSearchMatches (overlay : QueryOverlay.Data) (query : String) :
-    Array LocatedName :=
-  let wanted := query.toLower
-  overlay.localNames.filter fun target =>
-    (NameSearch.bucket? wanted target.name).isSome
-
 private def mergeMatches (query : String) (limit : Nat)
     (left right : Array LocatedName) : Array LocatedName := Id.run do
-  let wanted := query.toLower
   let mut seen : NameHashSet := {}
-  let mut buckets : Array (Array LocatedName) := #[#[], #[], #[]]
+  let mut candidates := #[]
   for target in left ++ right do
     unless seen.contains target.name do
       seen := seen.insert target.name
-      if let some bucket := NameSearch.bucket? wanted target.name then
-        buckets := buckets.modify bucket (·.push target)
-  buckets := buckets.map fun bucket =>
-    bucket.qsort fun a b => Name.lt a.name b.name
-  return buckets.flatten.take limit
+      candidates := candidates.push target
+  candidates := candidates.qsort fun a b => Name.lt a.name b.name
+  return (NameSearch.buckets query candidates some (·.name) limit).flatten.take limit
 
 unsafe def load (roots : Array Name) (name : Name) : IO (Option CachedQuery) := do
   let overlay? ← unsafe loadOverlay roots
@@ -276,7 +267,7 @@ unsafe def search (roots : Array Name) (query : String)
     let base := (← unsafe searchFull #[overlay.baseRoot] query limit).getD #[]
     let results := mergeMatches query limit (localMatches overlay query) base
     return if results.isEmpty then none else some results
-  let results := mergeMatches query limit (localSearchMatches overlay query) base
+  let results := mergeMatches query limit overlay.localNames base
   return some results
 
 end LeanReach.QueryCache

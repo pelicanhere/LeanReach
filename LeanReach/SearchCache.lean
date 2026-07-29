@@ -133,15 +133,12 @@ unsafe def build (roots : Array Name) (index : Index) : IO Nat := do
 private def findMatches (table : NameTable) (ids : Array UInt32)
     (query : String) (limit : Nat) : Array LocatedName := Id.run do
   let (names, owners, modules) := table
-  let mut buckets : Array (Array LocatedName) := #[#[], #[], #[]]
-  for id in ids do
-    let some name := names[id.toNat]? | continue
-    let some moduleName := owners[id.toNat]? >>=
-      fun owner => modules[owner.toNat]? | continue
-    if let some bucket := NameSearch.bucket? query name then
-      if buckets[bucket]!.size < limit then
-        buckets := buckets.modify bucket (·.push { name, moduleName })
-  return buckets.flatten.take limit
+  let located? id := do
+    let name ← names[id.toNat]?
+    let owner ← owners[id.toNat]?
+    let moduleName ← modules[owner.toNat]?
+    return { name, moduleName }
+  return (NameSearch.buckets query ids located? (·.name) limit).flatten.take limit
 
 unsafe def search (roots : Array Name) (query : String)
     (limit : Nat) : IO (Option (Array LocatedName)) := do
