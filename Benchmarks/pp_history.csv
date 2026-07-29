@@ -69,3 +69,5 @@ incremental-completed-root-skip-import,10,78,7929,refresh local modules without 
 incremental-cache-hit-final,16,0,79,internal elapsed time for the next cache command after local refresh
 target-module-chain-partial,1,2,8592,new-process second theorem after the first query wrote only selected declarations
 target-module-chain-complete,1,134,108,new-process second theorem after the first query completed the target module
+post-build-overlay-fallback,16,2597,35372,first query after a local rebuild without cache loaded the complete combined index
+post-build-overlay-recovery,16,2597,130,first query after a local rebuild rebuilt only the local overlay and reused Mathlib

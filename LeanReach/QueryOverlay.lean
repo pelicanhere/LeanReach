@@ -22,12 +22,10 @@ unsafe def load (roots : Array Name) : IO (Option Data) := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
   unsafe Cache.loadPart Data (path olean) depHash
 
-unsafe def build (roots : Array Name) (baseRoot : Name)
-    (baseModules : NameHashSet) : IO Nat := do
-  if let some data ← unsafe load roots then return data.entries.size
+unsafe def build (roots : Array Name) (baseRoot : Name) : IO Data := do
   let mut entries : NameMap Entry := {}
   for moduleName in roots do
-    unless baseModules.contains moduleName do
+    unless moduleName == baseRoot do
       for (name, dependencies) in ← unsafe Cache.moduleDeclarations moduleName do
         let mut merged := entries.find? name |>.map (·.dependencies) |>.getD #[]
         for dependency in dependencies do
@@ -42,7 +40,7 @@ unsafe def build (roots : Array Name) (baseRoot : Name)
   let data : Data := { baseRoot, entries, reverse }
   let (olean, depHash, root) ← unsafe Cache.rootData roots
   Cache.pickle (path olean) (depHash, data) (Name.str root "_leanreachQueryOverlay")
-  return entries.size
+  return data
 
 def Data.size (data : Data) : Nat :=
   data.entries.size

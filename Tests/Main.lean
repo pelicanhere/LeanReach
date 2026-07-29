@@ -87,6 +87,14 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "base declaration did not resolve through the overlay"
   unless layeredBase.target.name == `Submodule.span_le do
     throw <| IO.userError "overlay resolved the wrong base declaration"
+  let lazyRoots := #[`Tests.Main, `Tests.Fixture, `Mathlib]
+  let .ok (some lazyLocal) ← unsafe QueryCache.resolve lazyRoots
+      "LeanReachFixture.double" |
+    throw <| IO.userError "query did not recover a missing local overlay"
+  unless lazyLocal.target.name == `LeanReachFixture.double do
+    throw <| IO.userError "recovered overlay resolved the wrong local declaration"
+  unless lazyLocal.downstream.any (·.name == `LeanReachFixture.double_eq_add) do
+    throw <| IO.userError "recovered overlay lost local reverse dependencies"
   withSession #[`Tests.Fixture] fun index session => do
     let fixtureNames ← unsafe Cache.moduleNames `Tests.Fixture
     check (fixtureNames.contains `LeanReachFixture.double)

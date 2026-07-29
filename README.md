@@ -207,6 +207,12 @@ dependencies with the same scoring function instead of copying Mathlib's 132 MB 
 fixture benchmark this reduced a new combined plan from 101.36 seconds to 359 ms. Dependency queries
 by fully qualified name or unique final component therefore read one small plan shard or overlay and
 only the selected module PP sidecars; ambiguous final components are reported from the same cache.
+After a local `lake build` changes the combined root hash, the first query now rebuilds this overlay
+directly from the per-module local fragments while continuing to reuse the completed Mathlib base.
+It does not load or rebuild the complete combined index, and the refreshed overlay is saved
+atomically for later processes. In the development project, a post-build query without running
+`cache` fell from 35.37 seconds internally to 130 ms; a strict missing-overlay rerun took 28 ms
+internally and reproduced the same 181,944-byte sidecar hash.
 Name search also uses these caches for a complete full name or final component while preserving
 exact-before-suffix ordering. General substring matching, and dependency limits above ten,
 deliberately fall back to the complete index so they preserve the same matching and ranking semantics.

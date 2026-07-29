@@ -82,11 +82,24 @@ private unsafe def isFullBuilt (roots : Array Name) : IO Bool := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
   ready olean depHash
 
-private unsafe def loadOverlay (roots : Array Name) : IO (Option QueryOverlay.Data) :=
+private unsafe def baseRoot? (roots : Array Name) : IO (Option Name) := do
+  if roots.size < 2 then return none
+  if roots.contains `Mathlib then
+    return if ← unsafe isFullBuilt #[`Mathlib] then some `Mathlib else none
+  for root in roots do
+    if ← unsafe isFullBuilt #[root] then return some root
+  return none
+
+private unsafe def readOverlay (roots : Array Name) : IO (Option QueryOverlay.Data) :=
   if roots.size > 1 then unsafe QueryOverlay.load roots else pure none
 
+private unsafe def loadOverlay (roots : Array Name) : IO (Option QueryOverlay.Data) := do
+  if let some overlay ← unsafe readOverlay roots then return some overlay
+  let some baseRoot ← unsafe baseRoot? roots | return none
+  return some (← unsafe QueryOverlay.build roots baseRoot)
+
 unsafe def isBuilt (roots : Array Name) : IO Bool := do
-  if (← unsafe loadOverlay roots).isSome then return true
+  if (← unsafe readOverlay roots).isSome then return true
   else unsafe isFullBuilt roots
 
 private unsafe def buildFull (roots : Array Name) (index : Index) : IO Nat := do
@@ -118,20 +131,10 @@ private unsafe def buildFull (roots : Array Name) (index : Index) : IO Nat := do
   IO.FS.writeFile (markerPath olean) depHash
   return index.size
 
-private unsafe def baseRoot? (roots : Array Name) : IO (Option Name) := do
-  if roots.size < 2 then return none
-  if roots.contains `Mathlib then
-    return if ← unsafe isFullBuilt #[`Mathlib] then some `Mathlib else none
-  for root in roots do
-    if ← unsafe isFullBuilt #[root] then return some root
-  return none
-
 unsafe def build (roots : Array Name) : IO Nat := do
   if ← unsafe isBuilt roots then return 0
   if let some baseRoot ← unsafe baseRoot? roots then
-    let base ← unsafe Cache.loadIndex #[baseRoot] false
-    let baseModules := base.modules.foldl (init := ({} : NameHashSet)) (·.insert ·)
-    return ← unsafe QueryOverlay.build roots baseRoot baseModules
+    return (← unsafe QueryOverlay.build roots baseRoot).size
   unsafe buildFull roots (← unsafe Cache.loadIndex roots true)
 
 private def findExact (modules : Array Name) (lines : List String)
