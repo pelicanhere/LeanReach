@@ -1,5 +1,6 @@
 import Std.Sync.Channel
 import LeanReach.Cache
+import LeanReach.ModuleData
 import LeanReach.PrettyPrint
 import LeanReach.QueryCache
 import LeanReach.Runtime
@@ -44,7 +45,7 @@ private unsafe def completedModules (roots : Array Name) : IO NameHashSet := do
 unsafe def prettyPrintModuleWithConstants (sourcePath : SearchPath) (env : Environment)
     (moduleName : Name) (names : Array Name) (moduleOf? : Name → Option Name) :
     IO (NameMap Declaration) :=
-  unsafe Cache.withModuleConstants env moduleName names moduleOf? fun env =>
+  unsafe ModuleData.withPrivateOverlay env moduleName names moduleOf? fun env =>
     unsafe runCore env (prettyPrintModule sourcePath moduleName names)
 
 private unsafe def worker (sourcePath : SearchPath) (env : Environment)
