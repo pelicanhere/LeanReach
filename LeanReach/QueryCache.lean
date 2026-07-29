@@ -1,4 +1,5 @@
 import LeanReach.QueryOverlay
+import LeanReach.NameSearch
 
 namespace LeanReach.QueryCache
 
@@ -7,13 +8,8 @@ open Lean
 private def version := 9
 private def shardCount := 1024
 
-private def leaf : Name → String
-  | .str _ value => value
-  | .num _ value => toString value
-  | .anonymous => ""
-
 private def shard (name : Name) : Nat :=
-  (hash (leaf name).toLower % UInt64.ofNat shardCount).toNat
+  (hash (NameSearch.leaf name).toLower % UInt64.ofNat shardCount).toNat
 
 private def shardPath (olean : System.FilePath) (id : Nat) : System.FilePath :=
   olean.withExtension s!"leanreach-query-{version}-{id}"
@@ -170,7 +166,7 @@ private unsafe def resolveFull (roots : Array Name) (query : String) :
   let candidates := lines.filterMap fun line =>
     match line.splitOn "\t" with
     | candidate :: _ =>
-      if (leaf candidate.toName).toLower == wanted then some (candidate, line) else none
+      if NameSearch.leafMatches wanted candidate.toName then some (candidate, line) else none
     | _ => none
   if let [(_, line)] := candidates then return .ok (decode modules line)
   if candidates.isEmpty then return .ok none
@@ -191,10 +187,9 @@ private unsafe def searchFull (roots : Array Name) (query : String)
   let mut suffix := #[]
   for line in lines do
     let some target := target? modules line | continue
-    let lower := target.name.toString.toLower
-    if lower == wanted then
+    if NameSearch.exact wanted target.name then
       exact := exact.push target
-    else if name.isAtomic && (leaf target.name).toLower == wanted then
+    else if name.isAtomic && NameSearch.leafMatches wanted target.name then
       suffix := suffix.push target
   let results := (exact ++ suffix).take limit
   return if results.isEmpty then none else some results
@@ -204,8 +199,8 @@ private def localMatches (overlay : QueryOverlay.Data) (query : String) :
   let name := query.toName
   let wanted := query.toLower
   overlay.localNames.filter fun target =>
-    let lower := target.name.toString.toLower
-    lower == wanted || name.isAtomic && (leaf target.name).toLower == wanted
+    NameSearch.exact wanted target.name ||
+      name.isAtomic && NameSearch.leafMatches wanted target.name
 
 private def mergeMatches (query : String) (limit : Nat)
     (left right : Array LocatedName) : Array LocatedName := Id.run do
@@ -216,7 +211,7 @@ private def mergeMatches (query : String) (limit : Nat)
   for target in left ++ right do
     unless seen.contains target.name do
       seen := seen.insert target.name
-      if target.name.toString.toLower == wanted then exact := exact.push target
+      if NameSearch.exact wanted target.name then exact := exact.push target
       else suffix := suffix.push target
   exact := exact.qsort fun a b => Name.lt a.name b.name
   suffix := suffix.qsort fun a b => Name.lt a.name b.name
@@ -242,7 +237,7 @@ unsafe def resolve (roots : Array Name) (query : String) :
   unless name.isAtomic do return .ok none
   let localResults := localMatches overlay query
   let baseMatches := (base.search query 11).filterMap base.located?
-    |>.filter fun target => (leaf target.name).toLower == query.toLower
+    |>.filter fun target => NameSearch.leafMatches query.toLower target.name
   let candidates := mergeMatches query 11 localResults baseMatches
   if candidates.size == 1 then return .ok (some (overlay.query base candidates[0]!))
   if candidates.isEmpty then return .ok none

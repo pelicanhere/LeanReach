@@ -1,5 +1,6 @@
 import Lean.Data.Name
 import Lean.Data.Trie
+import LeanReach.NameSearch
 
 namespace LeanReach
 
@@ -41,14 +42,6 @@ structure Index where
 
 abbrev IndexedDeclaration := Name × Name × NameSet
 
-private def stringTrigrams (value : String) : Array String := Id.run do
-  let mut result := #[]
-  let length := value.length
-  for offset in [0:length] do
-    if length < offset + 3 then break
-    result := result.push ((value.drop offset).take 3).copy
-  return result
-
 private def commonPrefixLength : List Name → List Name → Nat
   | a :: as, b :: bs => if a == b then commonPrefixLength as bs + 1 else 0
   | _, _ => 0
@@ -60,13 +53,8 @@ private def diceScore (left right shared : Nat) : Float :=
 private def prefixSimilarity (left right : List Name) : Float :=
   diceScore left.length right.length (commonPrefixLength left right)
 
-private def lastComponent : Name → String
-  | .str _ value => value
-  | .num _ value => toString value
-  | .anonymous => ""
-
 private def significantParts (name : Name) : List String :=
-  let leaf := (lastComponent name).toLower
+  let leaf := (NameSearch.leaf name).toLower
   (leaf.splitOn "_").filter (·.length ≥ 3)
 
 private def tokenSimilarity (left right : List String) : Float :=
@@ -173,7 +161,7 @@ def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
   let mut trigramIndex : Data.Trie (Array UInt32) := {}
   for ((name, _), id) in entries.zipIdx do
     let mut seen : Std.HashSet String := {}
-    for trigram in stringTrigrams name.toString.toLower do
+    for trigram in NameSearch.trigrams name.toString.toLower do
       unless seen.contains trigram do
         seen := seen.insert trigram
         trigramIndex := trigramIndex.upsert trigram fun ids =>
@@ -306,7 +294,7 @@ private def Index.candidates (index : Index) (query : String) : Array UInt32 :=
     index.entries.mapIdx fun id _ => id.toUInt32
   else Id.run do
     let mut best : Option (Array UInt32) := none
-    for trigram in stringTrigrams query do
+    for trigram in NameSearch.trigrams query do
       let some ids := index.trigrams.find? trigram | return #[]
       if best.all (ids.size < ·.size) then best := some ids
     return best.getD #[]
@@ -314,17 +302,10 @@ private def Index.candidates (index : Index) (query : String) : Array UInt32 :=
 private def Index.matchBuckets (index : Index) (query : String) (limit : Nat) :
     Array (Array Name) := Id.run do
   let query := query.toLower
-  let suffix := "." ++ query
   let mut buckets : Array (Array Name) := #[#[], #[], #[]]
   for id in index.candidates query do
     let name := index.entries[id.toNat]!.1
-    let lower := name.toString.toLower
-    let score? :=
-      if lower == query then some 0
-      else if lower.endsWith suffix then some 1
-      else if lower.contains query then some 2
-      else none
-    if let some score := score? then
+    if let some score := NameSearch.bucket? query name then
       if buckets[score]!.size < limit then
         buckets := buckets.modify score (·.push name)
   return buckets
