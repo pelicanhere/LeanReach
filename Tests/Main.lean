@@ -63,8 +63,16 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "complete leaf search did not use its shard"
   unless cachedSearch.map (·.name) == fixtureIndex.search "duplicateLeaf" 10 do
     throw <| IO.userError "cached leaf search changed search ordering"
-  if (← unsafe QueryCache.search #[`Tests.Fixture] "doubleVia" 10).isSome then
-    throw <| IO.userError "substring search incorrectly used a single name shard"
+  let some substringSearch ← unsafe QueryCache.search #[`Tests.Fixture]
+      "doubleVia" 10 |
+    throw <| IO.userError "substring search cache is missing"
+  unless substringSearch.map (·.name) == fixtureIndex.search "doubleVia" 10 do
+    throw <| IO.userError "cached substring search changed search ordering"
+  let some missingSearch ← unsafe QueryCache.search #[`Tests.Fixture]
+      "not_a_declaration_name" 10 |
+    throw <| IO.userError "cached empty search fell back to the complete index"
+  unless missingSearch.isEmpty do
+    throw <| IO.userError "cached empty search returned a declaration"
   let layeredRoots := #[`Tests.Fixture, `Mathlib]
   discard <| unsafe QueryCache.build layeredRoots
   let some overlay ← unsafe QueryOverlay.load layeredRoots |
@@ -87,6 +95,21 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "base declaration did not resolve through the overlay"
   unless layeredBase.target.name == `Submodule.span_le do
     throw <| IO.userError "overlay resolved the wrong base declaration"
+  let some layeredSearch ← unsafe QueryCache.search layeredRoots
+      "localization_maximal" 10 |
+    throw <| IO.userError "base substring search did not use the overlay cache"
+  unless layeredSearch.map (·.name) ==
+      mathlibIndex.search "localization_maximal" 10 do
+    throw <| IO.userError "overlay substring search changed search ordering"
+  for (pattern, limit) in #[
+      ("Submodule.span_le", 10),
+      ("span_eq", 37),
+      ("continuouson_image", 10),
+      ("eq", 10)] do
+    let some cached ← unsafe QueryCache.search #[`Mathlib] pattern limit |
+      throw <| IO.userError s!"Mathlib search cache is missing for '{pattern}'"
+    unless cached.map (·.name) == mathlibIndex.search pattern limit do
+      throw <| IO.userError s!"cached search differs for '{pattern}'"
   let lazyRoots := #[`Tests.Main, `Tests.Fixture, `Mathlib]
   let .ok (some lazyLocal) ← unsafe QueryCache.resolve lazyRoots
       "LeanReachFixture.double" |

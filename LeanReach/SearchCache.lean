@@ -1,0 +1,171 @@
+import LeanReach.Cache
+
+namespace LeanReach.SearchCache
+
+open Lean
+
+private def version := 3
+private def shardCount := 256
+
+private abbrev NameTable := Array Name × Array UInt32 × Array Name
+
+private def stem (roots : Array Name) :=
+  if roots.size == 1 then "leanreach-search" else "leanreach-roots-search"
+
+private def path (roots : Array Name) (olean : System.FilePath) (part : String) :=
+  olean.withExtension s!"{stem roots}-{version}-{part}"
+
+private def markerPath (roots : Array Name) (olean : System.FilePath) :=
+  path roots olean "root"
+
+private def shardPath (roots : Array Name) (olean : System.FilePath) (id : Nat) :=
+  path roots olean s!"posting-{id}"
+
+private def shard (trigram : String) : Nat :=
+  (hash trigram % UInt64.ofNat shardCount).toNat
+
+private def ready (roots : Array Name) (olean : System.FilePath)
+    (depHash : String) : IO Bool := do
+  let marker := markerPath roots olean
+  unless ← marker.pathExists do return false
+  try return (← IO.FS.readFile marker) == depHash
+  catch _ => return false
+
+unsafe def isBuilt (roots : Array Name) : IO Bool := do
+  let (olean, depHash, _) ← unsafe Cache.rootData roots
+  ready roots olean depHash
+
+private partial def collectPostings (trie : Data.Trie (Array UInt32)) :
+    Array (String × Array UInt32) :=
+  (visit ByteArray.empty trie).run #[] |>.2
+where
+  add (keyBytes : ByteArray) (value : Option (Array UInt32)) :
+      StateM (Array (String × Array UInt32)) Unit := do
+    if let some ids := value then
+      modify (·.push (String.fromUTF8! keyBytes, ids))
+
+  visit (keyBytes : ByteArray) :
+      Data.Trie (Array UInt32) →
+        StateM (Array (String × Array UInt32)) Unit
+    | .leaf value => add keyBytes value
+    | .node1 value byte child => do
+      add keyBytes value
+      visit (keyBytes.push byte) child
+    | .node value bytes children => do
+      add keyBytes value
+      for i in [0:children.size] do
+        visit (keyBytes.push bytes[i]!) children[i]!
+
+private def packIds (ids : Array UInt32) : ByteArray := Id.run do
+  let mut bytes := ByteArray.empty
+  let mut previous := 0
+  for id in ids do
+    let current := id.toNat
+    let mut delta := current - previous
+    while delta ≥ 128 do
+      bytes := bytes.push (UInt8.ofNat (delta % 128 + 128))
+      delta := delta / 128
+    bytes := bytes.push (UInt8.ofNat delta)
+    previous := current
+  return bytes
+
+private def unpackIds (bytes : ByteArray) : Array UInt32 := Id.run do
+  let mut ids := #[]
+  let mut previous := 0
+  let mut delta := 0
+  let mut scale := 1
+  for byte in bytes do
+    let value := byte.toNat
+    delta := delta + value % 128 * scale
+    if value < 128 then
+      previous := previous + delta
+      ids := ids.push previous.toUInt32
+      delta := 0
+      scale := 1
+    else
+      scale := scale * 128
+  return ids
+
+private def makeNameTable (entries : Array CatalogEntry) : NameTable := Id.run do
+  let mut ids : NameMap UInt32 := {}
+  let mut modules := #[]
+  let mut names := #[]
+  let mut owners := #[]
+  for (name, moduleName) in entries do
+    let id ← match ids.find? moduleName with
+      | some id => pure id
+      | none =>
+        let id := modules.size.toUInt32
+        ids := ids.insert moduleName id
+        modules := modules.push moduleName
+        pure id
+    names := names.push name
+    owners := owners.push id
+  return (names, owners, modules)
+
+unsafe def build (roots : Array Name) (index : Index) : IO Nat := do
+  let (olean, depHash, root) ← unsafe Cache.rootData roots
+  if ← ready roots olean depHash then return 0
+  let (entries, trigrams) := index.catalog
+  let mut directory : Data.Trie UInt32 := {}
+  let mut shards : Array (Data.Trie ByteArray) :=
+    Array.replicate shardCount {}
+  for (trigram, ids) in collectPostings trigrams do
+    directory := directory.insert trigram ids.size.toUInt32
+    let id := shard trigram
+    shards := shards.modify id (·.insert trigram (packIds ids))
+  Cache.pickle (path roots olean "names") (depHash, makeNameTable entries)
+    (Name.str root "_leanreachSearchNames")
+  Cache.pickle (path roots olean "directory") (depHash, directory)
+    (Name.str root "_leanreachSearchDirectory")
+  let mut offset := 0
+  while offset < shardCount do
+    let stop := min shardCount (offset + 16)
+    let tasks ← (Array.range (stop - offset)).mapM fun delta =>
+      let id := offset + delta
+      IO.asTask <| Cache.pickle (shardPath roots olean id)
+        (depHash, shards[id]!) (Name.str root s!"_leanreachSearchPosting{id}")
+    tasks.forM fun task => IO.ofExcept task.get
+    offset := stop
+  IO.FS.writeFile (markerPath roots olean) depHash
+  return entries.size
+
+private def findMatches (table : NameTable) (ids : Array UInt32)
+    (query : String) (limit : Nat) : Array LocatedName := Id.run do
+  let (names, owners, modules) := table
+  let mut buckets : Array (Array LocatedName) := #[#[], #[], #[]]
+  for id in ids do
+    let some name := names[id.toNat]? | continue
+    let some moduleName := owners[id.toNat]? >>=
+      fun owner => modules[owner.toNat]? | continue
+    if let some bucket := NameSearch.bucket? query name then
+      if buckets[bucket]!.size < limit then
+        buckets := buckets.modify bucket (·.push { name, moduleName })
+  return buckets.flatten.take limit
+
+unsafe def search (roots : Array Name) (query : String)
+    (limit : Nat) : IO (Option (Array LocatedName)) := do
+  let (olean, depHash, _) ← unsafe Cache.rootData roots
+  unless ← ready roots olean depHash do return none
+  let query := query.toLower
+  if query.length < 3 then
+    let some table ← unsafe Cache.loadPart NameTable
+        (path roots olean "names") depHash | return none
+    return some (findMatches table
+      (Array.range table.1.size |>.map UInt32.ofNat) query limit)
+  let some directory ← unsafe Cache.loadPart (Data.Trie UInt32)
+      (path roots olean "directory") depHash | return none
+  let mut selected : Option (String × UInt32) := none
+  for trigram in NameSearch.trigrams query do
+    let some count := directory.find? trigram | return some #[]
+    if selected.all (count < ·.2) then selected := some (trigram, count)
+  let some (trigram, _) := selected | return some #[]
+  let some postings ← unsafe Cache.loadPart (Data.Trie ByteArray)
+      (shardPath roots olean (shard trigram)) depHash | return none
+  let ids := (postings.find? trigram).map unpackIds |>.getD #[]
+  if ids.isEmpty then return some #[]
+  let some table ← unsafe Cache.loadPart NameTable
+      (path roots olean "names") depHash | return none
+  return some (findMatches table ids query limit)
+
+end LeanReach.SearchCache

@@ -22,6 +22,19 @@ QUERIES = (
     "norm_intCast_lt_one_iff",
 )
 
+SUBSTRING_QUERIES = (
+    "span_image",
+    "localization_atprime",
+    "orderiso",
+    "measurable_equiv",
+    "continuouslinearmap",
+    "finite_dimensional",
+    "polynomial.derivative",
+    "convexhull",
+    "aestrongly",
+    "integral_comp",
+)
+
 
 def elapsed_ms(started: float) -> float:
     return (time.perf_counter() - started) * 1000
@@ -114,8 +127,10 @@ def main() -> None:
     parser.add_argument("--history", default="Benchmarks/history.csv")
     parser.add_argument("--append-history", action="store_true")
     parser.add_argument("--skip-session", action="store_true")
+    parser.add_argument("--query-set", choices=("leaf", "substring"), default="leaf")
     parser.add_argument("--timeout", type=float, default=300)
     args = parser.parse_args()
+    queries = SUBSTRING_QUERIES if args.query_set == "substring" else QUERIES
 
     root = Path(__file__).resolve().parent.parent
     executable = root / ".lake/build/leanreach-dist/leanreach.exe"
@@ -138,10 +153,10 @@ def main() -> None:
     measure_process(["rg", "--version"], args.timeout)
     rows = []
     if not args.skip_session:
-        session = measure_session(executable, QUERIES, args.timeout)
-        for query, (latency, found) in zip(QUERIES, session, strict=True):
+        session = measure_session(executable, queries, args.timeout)
+        for query, (latency, found) in zip(queries, session, strict=True):
             rows.append((query, "leanreach_session", latency, found))
-    for query in QUERIES:
+    for query in queries:
         latency, output = measure_process(
             [
                 executable,
@@ -156,9 +171,9 @@ def main() -> None:
             args.timeout,
         )
         rows.append((query, "leanreach_process", latency, len(json.loads(output)["items"])))
-    for query in QUERIES:
+    for query in queries:
         latency, _ = measure_process(
-            ["rg", "-n", "--glob", "*.lean", query, str(mathlib)],
+            ["rg", "-n", "-i", "--glob", "*.lean", query, str(mathlib)],
             args.timeout,
             capture=False,
         )

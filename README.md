@@ -38,6 +38,7 @@ a long-lived LeanReach session, one LeanReach process per query, and one `rg` pr
 
 ```console
 python Benchmarks/run.py --stage baseline --append-history
+python Benchmarks/run.py --stage substring --query-set substring --append-history
 python Benchmarks/plot.py
 ```
 
@@ -213,15 +214,27 @@ It does not load or rebuild the complete combined index, and the refreshed overl
 atomically for later processes. In the development project, a post-build query without running
 `cache` fell from 35.37 seconds internally to 130 ms; a strict missing-overlay rerun took 28 ms
 internally and reproduced the same 181,944-byte sidecar hash.
-Name search also uses these caches for a complete full name or final component while preserving
-exact-before-suffix ordering. General substring matching, and dependency limits above ten,
-deliberately fall back to the complete index so they preserve the same matching and ranking semantics.
+Name search has a separate disk index that preserves the complete Index ordering: exact name,
+final component, then general substring. A small frequency directory selects the rarest query
+trigram, then a query maps only one of 256 posting shards and a compact declaration/module table.
+Posting IDs use delta-varint `ByteArray`s rather than boxed integers; one-character and
+two-character queries scan the compact table. The completed Mathlib search index is 47,035,576
+bytes, down from 126,113,952 bytes for the initial boxed representation, and took 12.18 seconds to
+derive from an already cached Catalog in the test process. Empty cached searches also return
+directly instead of falling through to the complete index. Dependency limits above ten still
+deliberately fall back to the complete relation index so ranking semantics remain unchanged.
 Root dependency hashes are memoized against the modification time and size of every root trace, so a
 normal rebuild invalidates the view without reparsing every trace on each query. With the current
 Mathlib and local view fully cached, measured internal time was 12 ms for a distinct exact query and
 11 ms for a distinct final-component search. The median one-shot wall time was 116 ms because the
 Windows process still maps roughly 250 MB of Lean runtime DLLs; interactive mode avoids that fixed
 process startup cost.
+
+Across ten distinct, PP-cached substring searches found by both tools, the long-lived LeanReach
+session measured 10.78 ms median versus 203.94 ms for a fresh `rg` process (5.28%). A fresh
+LeanReach process measured 111.16 ms median (54.51% of `rg`); most of that gap is
+the fixed Lean runtime DLL startup rather than name matching. `Benchmarks/history.svg` records every
+sample and its median in a fixed-width log-scale scatter plot.
 
 For a PP-cold `Mathlib.LinearAlgebra.Span.Defs`, querying `Submodule.span_eq_bot` now writes the same
 byte-for-byte 134-declaration sidecar as an explicit complete module cache. A second new process
@@ -283,8 +296,11 @@ with [Lucene's smoothed IDF](https://lucene.apache.org/core/9_4_2/core/org/apach
 ## Layout
 
 ```text
+LeanReach/NameSearch.lean  shared name normalization and match ordering
 LeanReach/Index.lean  names, direct-reference postings, and resolution
 LeanReach/Cache.lean  persistent index serialization and freshness checks
+LeanReach/SearchCache.lean  sharded trigram postings for one-shot name search
+LeanReach/QueryCache.lean  pre-ranked dependency shards and local overlays
 LeanReach/BlackListed.lean  generated-declaration filtering
 LeanReach/SourceInfo.lean  `.ilean` declarations and source locations
 LeanReach/PrettyPrint.lean  Lean signatures, bodies, and declaration formatting
