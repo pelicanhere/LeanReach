@@ -191,9 +191,6 @@ private def Index.findId? (index : Index) (name : Name) : Option UInt32 := Id.ru
 def Index.size (index : Index) : Nat :=
   index.entries.size
 
-def Index.idOf? (index : Index) (name : Name) : Option UInt32 :=
-  index.findId? name
-
 private def Index.namesAt (index : Index) (ids : Array UInt32) : Array Name :=
   ids.map fun id => index.entries[id.toNat]!.1
 
@@ -323,16 +320,6 @@ def Index.downstream (index : Index) (name : Name) (limit : Nat) : Array Name :=
 def Index.moduleOf? (index : Index) (name : Name) : Option Name :=
   index.findId? name |>.map fun id => index.entries[id.toNat]!.2
 
-def Index.modulesFor (index : Index) (names : Array Name) : Array Name := Id.run do
-  let mut seen : NameHashSet := {}
-  let mut modules := #[]
-  for name in names do
-    if let some moduleName := index.moduleOf? name then
-      unless seen.contains moduleName do
-        seen := seen.insert moduleName
-        modules := modules.push moduleName
-  return modules
-
 def Index.modules (index : Index) : Array Name := Id.run do
   let mut seen : NameHashSet := {}
   let mut modules := #[]
@@ -341,11 +328,6 @@ def Index.modules (index : Index) : Array Name := Id.run do
       seen := seen.insert moduleName
       modules := modules.push moduleName
   return modules
-
-def Index.namesInModules (index : Index) (modules : Array Name) : Array Name :=
-  let wanted := modules.foldl (init := ({} : NameHashSet)) (·.insert ·)
-  index.entries.filterMap fun (name, moduleName) =>
-    if wanted.contains moduleName then some name else none
 
 def Index.declarationsByModule (index : Index) : NameMap (Array Name) :=
   index.entries.foldl (init := {}) fun modules (name, moduleName) =>
