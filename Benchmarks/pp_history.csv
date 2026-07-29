@@ -53,3 +53,9 @@ proof-rank-shards-cached-prior,9978,375372,34725,precompute each candidate prior
 rank-overlay-refresh,16,2597,8249,refresh local PP and rank overlay after rebuilding LeanReach
 rank-distinct-query,16,10,22,median internal elapsed across ten distinct cross-domain declarations
 rank-distinct-query-wall,16,10,139,median new-process wall time across ten distinct cross-domain declarations
+mathlib-full-cache-overlapped,9978,375372,957704,isolated full dependency query and PP cache with root import overlapped
+signature-memo-baseline,96,9815,28496,warm PP rebuild before module-local signature memoization
+signature-memo,96,9815,27890,warm PP rebuild with byte-identical module-local signature memoization
+project-cache-refresh,5,36,8566,refresh five changed local modules over the completed Mathlib cache
+project-cache-marker-hit,16,0,92,internal elapsed time for the next cache command
+distinct-query-final,16,10,150,median new-process wall time across four distinct cached declarations

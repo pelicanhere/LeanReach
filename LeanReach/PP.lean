@@ -79,26 +79,35 @@ unsafe def buildPPRoots (roots : Array Name)
   let ppReady ← unsafe Cache.isFullyPP roots
   let queryReady ← unsafe QueryCache.isBuilt roots
   if ppReady && queryReady then return 0
+  let envTask? ←
+    if !ppReady && !queryReady then
+      some <$> IO.asTask (importEnvironment roots (leakEnv := true))
+    else pure none
   unless queryReady do discard <| unsafe QueryCache.build roots
   if ppReady then return 0
   let completed ← unsafe completedModules roots
-  let mut inputs : Array Input := #[]
-  let count ←
+  let (inputs, moduleOf?) : Array Input × (Name → Option Name) ←
     if completed.isEmpty then
       let index ← unsafe Cache.loadIndex roots false
+      let mut inputs := #[]
       for (moduleName, names) in index.declarationsByModule do
         if let some input ← unsafe missingInput moduleName names then
           inputs := inputs.push input
-      unsafe buildInputs sourcePath inputs index.moduleOf? fun moduleName _ done =>
-        progress moduleName done inputs.size
+      pure (inputs, index.moduleOf?)
     else
+      let mut inputs := #[]
       for moduleName in roots do
         unless completed.contains moduleName do
           if let some input ← unsafe missingInput moduleName
               (← unsafe Cache.moduleNames moduleName) then
             inputs := inputs.push input
-      unsafe buildInputs sourcePath inputs (progress := fun moduleName _ done =>
-        progress moduleName done inputs.size)
+      pure (inputs, fun _ => none)
+  let report := fun moduleName _ done => progress moduleName done inputs.size
+  let count ←
+    if let some envTask := envTask? then
+      unsafe buildModules sourcePath (← IO.ofExcept envTask.get) inputs moduleOf? report
+    else
+      unsafe buildInputs sourcePath inputs moduleOf? report
   unsafe Cache.markFullyPP roots
   return count
 
