@@ -23,9 +23,9 @@ ASSETS = {
 def default_binary() -> Path:
     candidates = (
         ROOT / "leanreach.exe",
-        ROOT / ".lake/build/leanreach-dist/leanreach.exe",
         ROOT / ".lake/build/bin/leanreach.exe",
         ROOT / ".lake/build/bin/leanreach",
+        ROOT / ".lake/build/leanreach-dist/leanreach.exe",
     )
     return next((path for path in candidates if path.exists()), candidates[1])
 
