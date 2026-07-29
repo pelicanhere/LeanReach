@@ -100,13 +100,14 @@ unsafe def buildPPRoots (roots : Array Name)
   let ppReady ← unsafe Cache.isFullyPP roots
   let queryReady ← unsafe QueryCache.isBuilt roots
   if ppReady && queryReady then return 0
+  let completed : NameHashSet ←
+    if ppReady then pure {} else unsafe completedModules roots
   let envTask? ←
-    if !ppReady && !queryReady then
+    if !ppReady && !queryReady && completed.isEmpty then
       some <$> IO.asTask (importEnvironment roots (leakEnv := true))
     else pure none
   unless queryReady do discard <| unsafe QueryCache.build roots
   if ppReady then return 0
-  let completed ← unsafe completedModules roots
   let (inputs, moduleOf?) : Array Input × (Name → Option Name) ←
     if completed.isEmpty then
       let index ← unsafe Cache.loadIndex roots false

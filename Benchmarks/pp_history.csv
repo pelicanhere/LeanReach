@@ -65,3 +65,5 @@ pp-exported-ilean,64,2310,19523,exported olean environment with positions recove
 missing-pp-server-paired,1,4,8608,warm environment import with one target module PP sidecar missing
 missing-pp-exported-paired,1,4,8465,warm exported import for the same missing PP sidecar
 missing-pp-exported-semilocal,1,1,12808,first exported import for a distinct ring theory module
+incremental-completed-root-skip-import,10,78,7929,refresh local modules without starting the completed Mathlib root import
+incremental-cache-hit-final,16,0,79,internal elapsed time for the next cache command after local refresh

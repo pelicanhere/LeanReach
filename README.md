@@ -167,12 +167,14 @@ After `lake build`, precompute PP for the complete built root once:
 /path/to/leanreach cache
 ```
 
-This pays index construction, environment import, and pretty-printing once. On a new root,
-LeanReach starts the immutable environment import while it builds the dependency and query caches,
-then joins that import before PP begins. It imports only modules with missing PP, shares the
-environment across four persistent workers, reuses signatures repeated by a structure or class,
-and writes one PP sidecar after each completed module. A worker immediately takes the next module
-instead of waiting for the other three modules in a fixed batch. An interruption therefore leaves
+This pays index construction, environment import, and pretty-printing once. When none of the roots
+has a completed PP view, LeanReach starts the immutable environment import while it builds the
+dependency and query caches, then joins that import before PP begins. An incremental view with a
+completed dependency such as Mathlib skips that root import. LeanReach imports only modules with
+missing PP, shares the environment across four persistent workers, reuses signatures repeated by a
+structure or class, and writes one PP sidecar after each completed module. A worker immediately
+takes the next module instead of waiting for the other three modules in a fixed batch. An
+interruption therefore leaves
 completed modules reusable. A small root marker makes later `cache` calls return before loading the catalog,
 while queries read only the module sidecars containing their selected declarations. Sidecars are
 reusable from larger roots and invalidated by the defining module's build hash; LeanReach never
@@ -186,8 +188,9 @@ without reopening all of its module sidecars, and only modules with missing PP a
 development Windows machine, an isolated full Mathlib cache including the dependency, query, and PP
 artifacts took 15 minutes 57.7 seconds with the root import overlapped, versus an approximately
 19-minute sequential warm-cache baseline. Rebuilding a combined root marker while reusing the
-completed Mathlib view took 1.69 seconds; caching 16 declarations from one missing local module took
-14.56 seconds without importing the separate Mathlib root. The same 64 modules and 982 declarations
+completed Mathlib view took 1.69 seconds. In the current implementation, refreshing 78 declarations
+across ten changed local modules took 7.93 seconds internally without importing the separate
+Mathlib root, and the following `cache` command took 79 ms. The same 64 modules and 982 declarations
 took 29.9 seconds in two 32-module import waves, 15.3 seconds with one import, and 14.1 seconds with
 four pretty-print tasks. On a 64-module, 2310-declaration paired warm-filesystem workload, replacing
 four-module barriers with the persistent worker queue reduced PP time from 21.42 to 20.18 seconds;
