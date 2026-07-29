@@ -10,9 +10,9 @@ namespace LeanReach.Cache
 
 open Lean
 
-private def catalogVersion := 5
-private def relationsVersion := 5
-private def fragmentVersion := 5
+private def catalogVersion := 6
+private def relationsVersion := 7
+private def fragmentVersion := 6
 private def ppVersion := 3
 private def rootHashVersion := 1
 
@@ -97,15 +97,20 @@ private unsafe def readFragment (moduleName : Name) (olean : System.FilePath) :
   let source ← sourceNames olean
   let visibleNames := visible.constants.foldl (init := ({} : NameHashSet))
     fun names info => names.insert info.name
-  let internal := all.constants.foldl (init := ({} : NameMap NameSet)) fun internal info =>
-    if isBlackListed info.name || !visibleNames.contains info.name then
-      internal.insert info.name info.getUsedConstantsAsSet
-    else internal
+  let (constants, internal) := all.constants.foldl
+      (init := (({} : NameMap ConstantInfo), ({} : NameMap NameSet))) fun state info =>
+    let constants := state.1.insert info.name info
+    let internal :=
+      if isBlackListed info.name || !visibleNames.contains info.name then
+        state.2.insert info.name info.getUsedConstantsAsSet
+      else state.2
+    (constants, internal)
   return ({
     imports := all.imports.map (·.module)
-    declarations := visible.constants.filterMap fun info =>
-      let name := info.name
+    declarations := visible.constants.filterMap fun visibleInfo =>
+      let name := visibleInfo.name
       if source.contains name.toString && !isBlackListed name then
+        let info := (constants.find? name).getD visibleInfo
         some (name, collapseInternal internal info.getUsedConstantsAsSet)
       else none
   }, parts.map (·.2))
@@ -263,7 +268,7 @@ unsafe def loadIndex (roots : Array Name) (loadRelations := true) : IO Index := 
   let catalogPath := olean.withExtension s!"{stem}-catalog-{catalogVersion}"
   let relationsPath := olean.withExtension s!"{stem}-relations-{relationsVersion}"
   if let some catalog ← unsafe loadPart Catalog catalogPath depHash then
-    if !loadRelations then return Index.ofParts catalog (#[], #[])
+    if !loadRelations then return Index.ofParts catalog default
     if let some relations ← unsafe loadPart Relations relationsPath depHash then
       return Index.ofParts catalog relations
   let index ← buildIndex roots
@@ -272,7 +277,7 @@ unsafe def loadIndex (roots : Array Name) (loadRelations := true) : IO Index := 
     pickle relationsPath (depHash, index.relations) (Name.str root "_leanreachRelations")
   catch _ => IO.eprintln "leanreach: could not write root index cache"
   if loadRelations then return index
-  return Index.ofParts index.catalog (#[], #[])
+  return Index.ofParts index.catalog default
 
 unsafe def loadPPModule (moduleName : Name) : IO (NameMap Declaration) := do
   let olean ← findOLean moduleName

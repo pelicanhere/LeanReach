@@ -10,7 +10,13 @@ universe u
 /-- Searchable names and their defining modules. Array positions are declaration IDs. -/
 abbrev CatalogEntry := Name × Name
 abbrev Catalog := Array CatalogEntry × Data.Trie (Array UInt32)
-abbrev Relations := Array (Array UInt32) × Array (Array UInt32)
+
+structure Relations where
+  forward : Array (Array UInt32)
+  reverse : Array (Array UInt32)
+  upstreamPrior : Array Float
+  downstreamPrior : Array Float
+  deriving Inhabited
 
 structure LocatedName where
   name : Name
@@ -29,6 +35,8 @@ structure Index where
   private trigrams : Data.Trie (Array UInt32)
   private forward : Array (Array UInt32)
   private reverse : Array (Array UInt32)
+  private upstreamPrior : Array Float
+  private downstreamPrior : Array Float
   deriving Inhabited
 
 abbrev IndexedDeclaration := Name × Name × NameSet
@@ -45,6 +53,13 @@ private def commonPrefixLength : List Name → List Name → Nat
   | a :: as, b :: bs => if a == b then commonPrefixLength as bs + 1 else 0
   | _, _ => 0
 
+private def diceScore (left right shared : Nat) : Float :=
+  let total := left + right
+  if total == 0 then 0.0 else 2.0 * shared.toFloat / total.toFloat
+
+private def prefixSimilarity (left right : List Name) : Float :=
+  diceScore left.length right.length (commonPrefixLength left right)
+
 private def lastComponent : Name → String
   | .str _ value => value
   | .num _ value => toString value
@@ -52,26 +67,19 @@ private def lastComponent : Name → String
 
 private def significantParts (name : Name) : List String :=
   let leaf := (lastComponent name).toLower
-  if leaf.contains '_' then (leaf.splitOn "_").filter (·.length ≥ 3) else []
+  (leaf.splitOn "_").filter (·.length ≥ 3)
 
-private def nameAffinity (source : String) (sourceParts : List String)
-    (candidate : Name) : Float :=
-  let candidate := lastComponent candidate
-  let exact := if source == candidate then 3.5 else 0.0
-  if sourceParts.isEmpty then exact
-  else
-    let candidateParts := candidate.toLower.splitOn "_"
-    let shared := sourceParts.countP candidateParts.contains
-    exact + 1.5 * shared.toFloat
+private def tokenSimilarity (left right : List String) : Float :=
+  diceScore left.length right.length (left.countP right.contains)
 
-private def locality (sourceModule : Name)
-    (sourceNameParts sourceModuleParts : List Name) (sourceLeaf : String)
+private def localityScore (sourceModule : Name)
+    (sourceNameParts sourceModuleParts : List Name)
     (sourceParts : List String) (candidate : LocatedName) : Float :=
   let { name := candidateName, moduleName := candidateModule } := candidate
-  (if sourceModule == candidateModule then 8.0 else 0.0) +
-    4.0 * (commonPrefixLength sourceNameParts candidateName.components).toFloat +
-    (commonPrefixLength sourceModuleParts candidateModule.components).toFloat +
-    nameAffinity sourceLeaf sourceParts candidateName
+  (if sourceModule == candidateModule then 3.0 else 0.0) +
+    3.0 * prefixSimilarity sourceNameParts candidateName.components +
+    2.0 * prefixSimilarity sourceModuleParts candidateModule.components +
+    4.0 * tokenSimilarity sourceParts (significantParts candidateName)
 
 private def heapifyDown {α : Type u} [Inhabited α] (lt : α → α → Bool)
     (items : Array α) : Array α := Id.run do
@@ -126,18 +134,26 @@ private def rankPositions (size limit : Nat) (score : Nat → Float)
         return heap
   return (best.qsort better).map (·.2)
 
-private def relationScore (total reverseCount : Nat) (source : LocatedName)
-    (sourceNameParts sourceModuleParts : List Name) (sourceLeaf : String)
-    (sourceParts : List String) (upstream : Bool) (candidate : LocatedName) : Float :=
+private def relationPrior (total reverseCount forwardCount : Nat) (upstream : Bool) : Float :=
   let df := reverseCount.toFloat
-  let frequency :=
-    if upstream then
-      let n := total.toFloat
-      Float.log (1.0 + (n - df + 0.5) / (df + 0.5))
-    else
-      Float.log (1.0 + df)
-  locality source.moduleName sourceNameParts sourceModuleParts sourceLeaf sourceParts candidate +
-    frequency
+  let specificity :=
+    Float.log (1.0 + (total.toFloat - df + 0.5) / (df + 0.5))
+  let support := df / (df + 0.5)
+  let out := forwardCount.toFloat
+  let substance := 4.0 * out / (out + df + 8.0)
+  if upstream then specificity * support + substance
+  else Float.log (1.0 + df) + substance
+
+private def relationPriors (forward reverse : Array (Array UInt32))
+    (upstream : Bool) : Array Float :=
+  forward.mapIdx fun id outgoing =>
+    relationPrior forward.size reverse[id]!.size outgoing.size upstream
+
+private def relationScore (prior : Float) (source : LocatedName)
+    (sourceNameParts sourceModuleParts : List Name)
+    (sourceParts : List String) (candidate : LocatedName) : Float :=
+  prior * (1.0 + localityScore source.moduleName sourceNameParts
+    sourceModuleParts sourceParts candidate / 8.0)
 
 def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
   let mut byName : NameMap (Name × NameSet) := {}
@@ -171,16 +187,35 @@ def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
         if let some target := ids.find? dependency then
           forward := forward.modify source.toNat (·.push target)
           reverse := reverse.modify target.toNat (·.push source)
-  return { entries, trigrams := trigramIndex, forward, reverse }
+  return {
+    entries
+    trigrams := trigramIndex
+    forward
+    reverse
+    upstreamPrior := relationPriors forward reverse true
+    downstreamPrior := relationPriors forward reverse false
+  }
 
 def Index.catalog (index : Index) : Catalog :=
   (index.entries, index.trigrams)
 
 def Index.relations (index : Index) : Relations :=
-  (index.forward, index.reverse)
+  {
+    forward := index.forward
+    reverse := index.reverse
+    upstreamPrior := index.upstreamPrior
+    downstreamPrior := index.downstreamPrior
+  }
 
 def Index.ofParts (catalog : Catalog) (relations : Relations) : Index :=
-  { entries := catalog.1, trigrams := catalog.2, forward := relations.1, reverse := relations.2 }
+  {
+    entries := catalog.1
+    trigrams := catalog.2
+    forward := relations.forward
+    reverse := relations.reverse
+    upstreamPrior := relations.upstreamPrior
+    downstreamPrior := relations.downstreamPrior
+  }
 
 private def Index.findId? (index : Index) (name : Name) : Option UInt32 := Id.run do
   let mut lo := 0
@@ -204,14 +239,15 @@ private def Index.rankIds (index : Index) (source : UInt32)
   let source : LocatedName := { name := sourceName, moduleName := sourceModule }
   let sourceNameParts := sourceName.components
   let sourceModuleParts := sourceModule.components
-  let sourceLeaf := lastComponent sourceName
   let sourceParts := significantParts sourceName
   let positions := rankPositions ids.size limit
     (fun position =>
       let candidate := ids[position]!
       let (name, moduleName) := index.entries[candidate.toNat]!
-      relationScore index.size index.reverse[candidate.toNat]!.size source
-        sourceNameParts sourceModuleParts sourceLeaf sourceParts upstream { name, moduleName })
+      let prior :=
+        if upstream then index.upstreamPrior[candidate.toNat]!
+        else index.downstreamPrior[candidate.toNat]!
+      relationScore prior source sourceNameParts sourceModuleParts sourceParts { name, moduleName })
     (fun position => index.entries[ids[position]!.toNat]!.1)
   return positions.map fun position => ids[position]!
 
@@ -225,17 +261,17 @@ private def Index.locatedAt (index : Index) (id : UInt32) : LocatedName :=
   { name, moduleName }
 
 def rankLocated (source : LocatedName) (candidates : Array LocatedName)
-    (total : Nat) (reverseCount : Name → Nat) (upstream : Bool)
+    (total : Nat) (reverseCount forwardCount : Name → Nat) (upstream : Bool)
     (limit : Nat) : Array LocatedName := Id.run do
   let sourceNameParts := source.name.components
   let sourceModuleParts := source.moduleName.components
-  let sourceLeaf := lastComponent source.name
   let sourceParts := significantParts source.name
   let positions := rankPositions candidates.size limit
     (fun position =>
       let candidate := candidates[position]!
-      relationScore total (reverseCount candidate.name) source sourceNameParts
-        sourceModuleParts sourceLeaf sourceParts upstream candidate)
+      relationScore (relationPrior total (reverseCount candidate.name)
+        (forwardCount candidate.name) upstream) source sourceNameParts
+        sourceModuleParts sourceParts candidate)
     (fun position => candidates[position]!.name)
   return positions.map fun position => candidates[position]!
 
@@ -251,6 +287,9 @@ def Index.relatedLocated (index : Index) (name : Name)
 
 def Index.reverseCount (index : Index) (name : Name) : Nat :=
   index.findId? name |>.map (index.reverse[·.toNat]!.size) |>.getD 0
+
+def Index.forwardCount (index : Index) (name : Name) : Nat :=
+  index.findId? name |>.map (index.forward[·.toNat]!.size) |>.getD 0
 
 private def Index.cachedAt (index : Index) (id : UInt32) : CachedQuery :=
   {

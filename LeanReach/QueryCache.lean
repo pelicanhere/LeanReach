@@ -4,7 +4,7 @@ namespace LeanReach.QueryCache
 
 open Lean
 
-private def version := 6
+private def version := 9
 private def shardCount := 1024
 
 private def leaf : Name → String
@@ -117,8 +117,8 @@ private unsafe def buildFull (roots : Array Name) (index : Index) : IO Nat := do
 
 private unsafe def baseRoot? (roots : Array Name) : IO (Option Name) := do
   if roots.size < 2 then return none
-  if roots.contains `Mathlib && (← unsafe isFullBuilt #[`Mathlib]) then
-    return some `Mathlib
+  if roots.contains `Mathlib then
+    return if ← unsafe isFullBuilt #[`Mathlib] then some `Mathlib else none
   for root in roots do
     if ← unsafe isFullBuilt #[root] then return some root
   return none

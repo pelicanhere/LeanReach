@@ -4,7 +4,7 @@ namespace LeanReach.QueryOverlay
 
 open Lean
 
-private def version := 1
+private def version := 4
 
 structure Entry where
   target : LocatedName
@@ -70,12 +70,14 @@ def Data.query (data : Data) (base : Index) (target : LocatedName) : CachedQuery
       (data.reverse.find? target.name).getD #[]
   let reverseCount name :=
     base.reverseCount name + (data.reverse.find? name |>.map (·.size) |>.getD 0)
+  let forwardCount name :=
+    data.entries.find? name |>.map (·.dependencies.size) |>.getD (base.forwardCount name)
   {
     target
     upstream := rankLocated target upstream (base.size + data.size)
-      reverseCount true cachedQueryLimit
+      reverseCount forwardCount true cachedQueryLimit
     downstream := rankLocated target downstream (base.size + data.size)
-      reverseCount false cachedQueryLimit
+      reverseCount forwardCount false cachedQueryLimit
   }
 
 end LeanReach.QueryOverlay

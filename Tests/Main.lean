@@ -24,6 +24,24 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "built local modules were not detected"
   unless roots.contains `Mathlib do
     throw <| IO.userError "required Mathlib was not detected"
+  let mathlibIndex ← unsafe Cache.loadIndex #[`Mathlib] true
+  let intervalRank := mathlibIndex.upstream
+    `ContinuousOn.image_Icc_of_antitoneOn 10
+  unless intervalRank.take 2 ==
+      #[`intermediate_value_Icc', `AntitoneOn.image_Icc_subset] do
+    throw <| IO.userError "interval proof dependencies are poorly ranked"
+  let spanRank := mathlibIndex.upstream `Submodule.span_eq_bot 10
+  unless spanRank.take 2 == #[`Submodule.span_le, `Submodule.subset_span] do
+    throw <| IO.userError "span proof dependencies are poorly ranked"
+  let pidRank := mathlibIndex.upstream
+    `isPrincipalIdealRing_of_isPrincipalIdealRing_isLocalization_maximal 10
+  for expected in #[
+      `IsNoetherianRing.of_isLocalization_maximal,
+      `IsIntegrallyClosed.of_isLocalization_maximal,
+      `Ring.krullDimLE_of_isLocalization_maximal,
+      `IsPrincipalIdealRing.of_finite_maximals] do
+    unless pidRank.contains expected do
+      throw <| IO.userError s!"PID proof dependency '{expected}' is poorly ranked"
   let fixtureIndex ← unsafe Cache.loadIndex #[`Tests.Fixture] true
   discard <| unsafe QueryCache.build #[`Tests.Fixture]
   let some cachedQuery ← unsafe QueryCache.load #[`Tests.Fixture]

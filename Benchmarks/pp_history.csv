@@ -47,3 +47,9 @@ auto-root-marker-hit,16,2597,35,refresh built roots and validate completed PP an
 auto-root-exact-query,16,5,12,internal elapsed time for a fresh process using persisted roots and root stamps
 auto-root-leaf-search,16,10,11,internal elapsed time for a fresh process using persisted roots and root stamps
 packaged-distinct-query-wall,16,5,116,median wall time across five distinct declarations; Windows loads 250 MB of runtime DLLs
+private-proof-fragments,8265,375372,273000,one-time migration from server signatures to private theorem bodies
+proof-rank-shards-naive,9978,375372,168342,full proof graph with graph priors recomputed for every edge
+proof-rank-shards-cached-prior,9978,375372,34725,precompute each candidate prior once and persist it with relations
+rank-overlay-refresh,16,2597,8249,refresh local PP and rank overlay after rebuilding LeanReach
+rank-distinct-query,16,10,22,median internal elapsed across ten distinct cross-domain declarations
+rank-distinct-query-wall,16,10,139,median new-process wall time across ten distinct cross-domain declarations

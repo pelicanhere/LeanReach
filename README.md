@@ -217,21 +217,34 @@ entire posting list, which matters for very widely used constants.
 
 Both directions combine mathematical relevance with locality:
 
-- same-module, common namespace, and common module prefixes favor declarations near the target;
-- exact final names and shared underscore-separated words connect wrappers such as
-  `Nat.Prime.dvd_of_dvd_pow` with `Prime.dvd_of_dvd_pow`;
-- upstream uses Lucene's smoothed IDF, favoring specific definitions and lemmas over ubiquitous
-  proof plumbing;
-- downstream uses `log(1 + df)`, favoring declarations that themselves became reusable APIs.
+- namespace, module, and underscore-separated name tokens use bounded Dice similarities rather than
+  unbounded prefix bonuses;
+- upstream combines Lucene's smoothed IDF with `df / (df + 0.5)`, so a one-off implementation
+  projection does not win merely because it is rare;
+- `4 out / (out + df + 8)` favors declarations that carry useful dependency structure without
+  treating large, globally reused instances as substantive mathematical steps;
+- downstream retains `log(1 + df)` to favor reusable APIs, with the same normalized structural and
+  locality signals.
 
-For an upstream declaration used by `df` of the `N` indexed declarations, the frequency component
-is:
+For a candidate used by `df` of the `N` indexed declarations and itself using `out` declarations,
+the graph priors are:
 
 ```text
-log(1 + (N - df + 0.5) / (df + 0.5))
+specificity = log(1 + (N - df + 0.5) / (df + 0.5))
+substance   = 4 out / (out + df + 8)
+upstream    = specificity · df / (df + 0.5) + substance
+downstream  = log(1 + df) + substance
 ```
 
-This combines the rarity principle from Lean's
+The final score multiplies the graph prior by `1 + locality / 8`. It does not inspect declaration
+kinds and has no special cases for theorem, instance, or projection names. Candidate priors are
+computed once, stored with the relation cache, and reused by every query shard.
+
+The dependency extractor reads the complete `ConstantInfo` from the private `.olean` layer. This is
+necessary because exported and server layers omit opaque theorem values; using those layers alone
+silently reduces theorem dependencies to signature constants.
+
+The formula combines the rarity principle from Lean's
 [MePo implementation](https://github.com/leanprover/lean4/blob/master/src/Lean/LibrarySuggestions/MePo.lean)
 and the original [Meng–Paulson relevance filter](https://www.cl.cam.ac.uk/~lp15/papers/Automation/filtering-jal.pdf)
 with [Lucene's smoothed IDF](https://lucene.apache.org/core/9_4_2/core/org/apache/lucene/search/similarities/BM25Similarity.html).
