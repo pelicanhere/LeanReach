@@ -22,9 +22,6 @@ unsafe def load (roots : Array Name) : IO (Option Data) := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
   unsafe Cache.loadPart Data (path olean) depHash
 
-unsafe def isBuilt (roots : Array Name) : IO Bool :=
-  return (← unsafe load roots).isSome
-
 unsafe def build (roots : Array Name) (baseRoot : Name)
     (baseModules : NameHashSet) : IO Nat := do
   if let some data ← unsafe load roots then return data.entries.size

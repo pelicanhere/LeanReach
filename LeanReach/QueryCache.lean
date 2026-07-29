@@ -82,8 +82,11 @@ private unsafe def isFullBuilt (roots : Array Name) : IO Bool := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
   ready olean depHash
 
+private unsafe def loadOverlay (roots : Array Name) : IO (Option QueryOverlay.Data) :=
+  if roots.size > 1 then unsafe QueryOverlay.load roots else pure none
+
 unsafe def isBuilt (roots : Array Name) : IO Bool := do
-  if roots.size > 1 && (← unsafe QueryOverlay.isBuilt roots) then return true
+  if (← unsafe loadOverlay roots).isSome then return true
   else unsafe isFullBuilt roots
 
 private unsafe def buildFull (roots : Array Name) (index : Index) : IO Nat := do
@@ -217,7 +220,7 @@ private def mergeMatches (query : String) (limit : Nat)
   return (exact ++ suffix).take limit
 
 unsafe def load (roots : Array Name) (name : Name) : IO (Option CachedQuery) := do
-  let overlay? ← if roots.size > 1 then unsafe QueryOverlay.load roots else pure none
+  let overlay? ← unsafe loadOverlay roots
   let some overlay := overlay? |
     return ← unsafe loadFull roots name
   let base ← unsafe Cache.loadIndex #[overlay.baseRoot] true
@@ -226,7 +229,7 @@ unsafe def load (roots : Array Name) (name : Name) : IO (Option CachedQuery) := 
 
 unsafe def resolve (roots : Array Name) (query : String) :
     IO (Except String (Option CachedQuery)) := do
-  let overlay? ← if roots.size > 1 then unsafe QueryOverlay.load roots else pure none
+  let overlay? ← unsafe loadOverlay roots
   let some overlay := overlay? |
     return ← unsafe resolveFull roots query
   let base ← unsafe Cache.loadIndex #[overlay.baseRoot] true
@@ -245,7 +248,7 @@ unsafe def resolve (roots : Array Name) (query : String) :
 
 unsafe def search (roots : Array Name) (query : String)
     (limit : Nat) : IO (Option (Array LocatedName)) := do
-  let overlay? ← if roots.size > 1 then unsafe QueryOverlay.load roots else pure none
+  let overlay? ← unsafe loadOverlay roots
   let some overlay := overlay? |
     return ← unsafe searchFull roots query limit
   let base := (← unsafe searchFull #[overlay.baseRoot] query limit).getD #[]
