@@ -1,4 +1,4 @@
-import LeanReach.Cache
+import LeanReach.QueryOverlay
 
 namespace LeanReach.QueryCache
 
@@ -78,11 +78,15 @@ private def buildShards (index : Index) (start stop : Nat) :
     shards := shards.modify (shard query.target.name) (·.push query)
   return shards
 
-unsafe def isBuilt (roots : Array Name) : IO Bool := do
+private unsafe def isFullBuilt (roots : Array Name) : IO Bool := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
   ready olean depHash
 
-unsafe def build (roots : Array Name) (index : Index) : IO Nat := do
+unsafe def isBuilt (roots : Array Name) : IO Bool := do
+  if roots.size > 1 && (← unsafe QueryOverlay.isBuilt roots) then return true
+  else unsafe isFullBuilt roots
+
+private unsafe def buildFull (roots : Array Name) (index : Index) : IO Nat := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
   if ← ready olean depHash then return 0
   let mut shards : Array (Array CachedQuery) := Array.replicate shardCount #[]
@@ -111,6 +115,22 @@ unsafe def build (roots : Array Name) (index : Index) : IO Nat := do
   IO.FS.writeFile (markerPath olean) depHash
   return index.size
 
+private unsafe def baseRoot? (roots : Array Name) : IO (Option Name) := do
+  if roots.size < 2 then return none
+  if roots.contains `Mathlib && (← unsafe isFullBuilt #[`Mathlib]) then
+    return some `Mathlib
+  for root in roots do
+    if ← unsafe isFullBuilt #[root] then return some root
+  return none
+
+unsafe def build (roots : Array Name) : IO Nat := do
+  if ← unsafe isBuilt roots then return 0
+  if let some baseRoot ← unsafe baseRoot? roots then
+    let base ← unsafe Cache.loadIndex #[baseRoot] false
+    let baseModules := base.modules.foldl (init := ({} : NameHashSet)) (·.insert ·)
+    return ← unsafe QueryOverlay.build roots baseRoot baseModules
+  unsafe buildFull roots (← unsafe Cache.loadIndex roots true)
+
 private def findExact (modules : Array Name) (lines : List String)
     (name : Name) : Option CachedQuery := do
   let needle := name.toString ++ "\t"
@@ -129,11 +149,12 @@ private unsafe def loadShard (roots : Array Name) (name : Name) :
   let _ :: queries := queries | return none
   return some (modules.toArray.map (·.toName), queries)
 
-unsafe def load (roots : Array Name) (name : Name) : IO (Option CachedQuery) := do
+private unsafe def loadFull (roots : Array Name) (name : Name) :
+    IO (Option CachedQuery) := do
   let some (modules, lines) ← unsafe loadShard roots name | return none
   return findExact modules lines name
 
-unsafe def resolve (roots : Array Name) (query : String) :
+private unsafe def resolveFull (roots : Array Name) (query : String) :
     IO (Except String (Option CachedQuery)) := do
   let name := query.toName
   let some (modules, lines) ← unsafe loadShard roots name | return .ok none
@@ -155,7 +176,7 @@ private def target? (modules : Array Name) (line : String) : Option LocatedName 
   let some moduleName := moduleId.toNat? >>= fun id => modules[id]? | none
   return { name := name.toName, moduleName }
 
-unsafe def search (roots : Array Name) (query : String)
+private unsafe def searchFull (roots : Array Name) (query : String)
     (limit : Nat) : IO (Option (Array LocatedName)) := do
   let name := query.toName
   let some (modules, lines) ← unsafe loadShard roots name | return none
@@ -170,6 +191,65 @@ unsafe def search (roots : Array Name) (query : String)
     else if name.isAtomic && (leaf target.name).toLower == wanted then
       suffix := suffix.push target
   let results := (exact ++ suffix).take limit
+  return if results.isEmpty then none else some results
+
+private def localMatches (overlay : QueryOverlay.Data) (query : String) :
+    Array LocatedName :=
+  let name := query.toName
+  let wanted := query.toLower
+  overlay.localNames.filter fun target =>
+    let lower := target.name.toString.toLower
+    lower == wanted || name.isAtomic && (leaf target.name).toLower == wanted
+
+private def mergeMatches (query : String) (limit : Nat)
+    (left right : Array LocatedName) : Array LocatedName := Id.run do
+  let wanted := query.toLower
+  let mut seen : NameHashSet := {}
+  let mut exact := #[]
+  let mut suffix := #[]
+  for target in left ++ right do
+    unless seen.contains target.name do
+      seen := seen.insert target.name
+      if target.name.toString.toLower == wanted then exact := exact.push target
+      else suffix := suffix.push target
+  exact := exact.qsort fun a b => Name.lt a.name b.name
+  suffix := suffix.qsort fun a b => Name.lt a.name b.name
+  return (exact ++ suffix).take limit
+
+unsafe def load (roots : Array Name) (name : Name) : IO (Option CachedQuery) := do
+  let overlay? ← if roots.size > 1 then unsafe QueryOverlay.load roots else pure none
+  let some overlay := overlay? |
+    return ← unsafe loadFull roots name
+  let base ← unsafe Cache.loadIndex #[overlay.baseRoot] true
+  let some target := overlay.local? name <|> base.located? name | return none
+  return some (overlay.query base target)
+
+unsafe def resolve (roots : Array Name) (query : String) :
+    IO (Except String (Option CachedQuery)) := do
+  let overlay? ← if roots.size > 1 then unsafe QueryOverlay.load roots else pure none
+  let some overlay := overlay? |
+    return ← unsafe resolveFull roots query
+  let base ← unsafe Cache.loadIndex #[overlay.baseRoot] true
+  let name := query.toName
+  if let some target := overlay.local? name <|> base.located? name then
+    return .ok (some (overlay.query base target))
+  unless name.isAtomic do return .ok none
+  let localResults := localMatches overlay query
+  let baseMatches := (base.search query 11).filterMap base.located?
+    |>.filter fun target => (leaf target.name).toLower == query.toLower
+  let candidates := mergeMatches query 11 localResults baseMatches
+  if candidates.size == 1 then return .ok (some (overlay.query base candidates[0]!))
+  if candidates.isEmpty then return .ok none
+  let options := candidates.take 10 |>.map fun target => s!"  {target.name}"
+  return .error s!"ambiguous declaration '{query}':\n{String.intercalate "\n" options.toList}"
+
+unsafe def search (roots : Array Name) (query : String)
+    (limit : Nat) : IO (Option (Array LocatedName)) := do
+  let overlay? ← if roots.size > 1 then unsafe QueryOverlay.load roots else pure none
+  let some overlay := overlay? |
+    return ← unsafe searchFull roots query limit
+  let base := (← unsafe searchFull #[overlay.baseRoot] query limit).getD #[]
+  let results := mergeMatches query limit (localMatches overlay query) base
   return if results.isEmpty then none else some results
 
 end LeanReach.QueryCache

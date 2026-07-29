@@ -20,7 +20,7 @@ structure ModuleFragment where
   declarations : Array (Name × NameSet)
 
 /-- Save a compacted Lean object. Adapted from Loogle's `Pickle` module. -/
-private def pickle {α : Type} (path : System.FilePath) (value : α) (key : Name) : IO Unit :=
+def pickle {α : Type} (path : System.FilePath) (value : α) (key : Name) : IO Unit :=
   saveModuleData path key (unsafe unsafeCast value)
 
 private unsafe def unpickle (α : Type) (path : System.FilePath) :
@@ -28,7 +28,7 @@ private unsafe def unpickle (α : Type) (path : System.FilePath) :
   let (value, region) ← readModuleData path
   return (unsafeCast value, region)
 
-private unsafe def loadPart (α : Type) (path : System.FilePath) (depHash : String) :
+unsafe def loadPart (α : Type) (path : System.FilePath) (depHash : String) :
     IO (Option α) := do
   unless ← path.pathExists do return none
   try
@@ -195,6 +195,10 @@ private unsafe def loadFragment (moduleName : Name) : IO ModuleFragment := do
 
 unsafe def moduleNames (moduleName : Name) : IO (Array Name) :=
   return (← unsafe loadFragment moduleName).declarations.map (·.1)
+
+unsafe def moduleDeclarations (moduleName : Name) :
+    IO (Array (Name × NameSet)) :=
+  return (← unsafe loadFragment moduleName).declarations
 
 private unsafe def buildIndex (roots : Array Name) : IO Index := do
   let mut pending := roots

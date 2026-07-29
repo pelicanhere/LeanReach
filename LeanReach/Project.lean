@@ -6,9 +6,9 @@ namespace LeanReach.Project
 
 open Lean Lake System
 
-private def cacheVersion := 4
+private def cacheVersion := 5
 
-private abbrev Metadata := Array Name × Bool
+private abbrev Metadata := Array Name × Array String × Bool
 
 private def configFile? (dir : FilePath) : IO (Option FilePath) := do
   for name in #[defaultLeanConfigFile, defaultTomlConfigFile] do
@@ -32,16 +32,18 @@ private def loadCached (path : FilePath) (hash : String) : IO (Option Metadata) 
     unless (← json.getObjValAs? String "hash") == hash do
       throw "stale project cache"
     let roots ← json.getObjValAs? (Array String) "roots"
+    let sourceDirs ← json.getObjValAs? (Array String) "sourceDirs"
     let mathlib ← json.getObjValAs? Bool "mathlib"
-    return (roots.map (·.toName), mathlib)
+    return (roots.map (·.toName), sourceDirs, mathlib)
   return parsed.toOption
 
 private def saveCached (path : FilePath) (hash : String) (roots : Array Name)
-    (mathlib : Bool) : IO Unit := do
+    (sourceDirs : Array String) (mathlib : Bool) : IO Unit := do
   if let some parent := path.parent then IO.FS.createDirAll parent
   IO.FS.writeFile path <| (Json.mkObj [
     ("hash", toJson hash),
     ("roots", toJson <| roots.map (·.toString)),
+    ("sourceDirs", toJson sourceDirs),
     ("mathlib", toJson mathlib)
   ]).compress
 
@@ -51,8 +53,9 @@ private unsafe def loadConfig (dir sysroot : FilePath) : IO (Option Metadata) :=
   let .ok lakeEnv ← (Env.compute lake lean (← findElanInstall?)).toBaseIO | return none
   let config : LoadConfig := { lakeEnv, wsDir := dir }
   let (some package, _) ← (loadPackage config).run? {} | return none
-  let roots := package.leanLibs.flatMap (·.roots)
-  return some (roots,
+  let libraries := package.leanLibs
+  let roots := libraries.flatMap (·.roots)
+  return some (roots, libraries.map (·.srcDir.toString),
     package.depConfigs.any fun dependency => dependency.name == `mathlib)
 
 private partial def builtSubmodules (dir : FilePath) (base : Name) : IO (Array Name) := do
@@ -75,10 +78,10 @@ unsafe def detectRoots (sysroot : FilePath) : IO (Array Name) := do
     if let some metadata ← loadCached cache hash then pure (some metadata)
     else
       let metadata ← unsafe loadConfig dir sysroot
-      if let some (roots, mathlib) := metadata then
-        try saveCached cache hash roots mathlib catch _ => pure ()
+      if let some (roots, sourceDirs, mathlib) := metadata then
+        try saveCached cache hash roots sourceDirs mathlib catch _ => pure ()
       pure metadata
-  let some (roots, mathlib) := metadata | return #[]
+  let some (roots, sourceDirs, mathlib) := metadata | return #[]
   let buildDir := dir / ".lake" / "build" / "lib" / "lean"
   let mut candidates := roots
   for root in roots do
@@ -86,7 +89,12 @@ unsafe def detectRoots (sysroot : FilePath) : IO (Array Name) := do
       (← builtSubmodules (Lean.modToFilePath buildDir root "") root)
   let mut built := #[]
   for moduleName in candidates do
-    if !built.contains moduleName &&
+    let mut hasSource := false
+    for sourceDir in sourceDirs do
+      if ← (Lean.modToFilePath (FilePath.mk sourceDir) moduleName "lean").pathExists then
+        hasSource := true
+        break
+    if hasSource && !built.contains moduleName &&
         (← (Lean.modToFilePath buildDir moduleName "olean").pathExists) then
       built := built.push moduleName
   if mathlib && !built.contains `Mathlib then built := built.push `Mathlib

@@ -41,3 +41,5 @@ single-module-warm-pp,1,134,14490,warm import probe; pretty-printing itself took
 combined-root-first-plan,2,0,101360,first Tests.Fixture plus Mathlib query-plan materialization
 combined-root-pp-reuse,2,0,1690,rebuild root marker while reusing completed Mathlib PP view
 incremental-local-pp,2,16,14557,rebuild one local module without importing the separate Mathlib root
+local-query-overlay,2,16,359,build local declarations and cross-layer reverse edges over cached Mathlib
+auto-root-incremental-cache,16,120,8344,native cache for current local modules over cached Mathlib

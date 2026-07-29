@@ -25,7 +25,7 @@ private unsafe def runTests : IO Unit := do
   unless roots.contains `Mathlib do
     throw <| IO.userError "required Mathlib was not detected"
   let fixtureIndex ← unsafe Cache.loadIndex #[`Tests.Fixture] true
-  discard <| unsafe QueryCache.build #[`Tests.Fixture] fixtureIndex
+  discard <| unsafe QueryCache.build #[`Tests.Fixture]
   let some cachedQuery ← unsafe QueryCache.load #[`Tests.Fixture]
       `LeanReachFixture.Topic.ranked |
     throw <| IO.userError "exact query cache is missing"
@@ -47,6 +47,28 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "cached leaf search changed search ordering"
   if (← unsafe QueryCache.search #[`Tests.Fixture] "doubleVia" 10).isSome then
     throw <| IO.userError "substring search incorrectly used a single name shard"
+  let layeredRoots := #[`Tests.Fixture, `Mathlib]
+  discard <| unsafe QueryCache.build layeredRoots
+  let some overlay ← unsafe QueryOverlay.load layeredRoots |
+    throw <| IO.userError "local query overlay is missing"
+  unless overlay.baseRoot == `Mathlib && overlay.size > 0 do
+    throw <| IO.userError "local query overlay has the wrong base or no declarations"
+  let .ok (some layeredLocal) ← unsafe QueryCache.resolve layeredRoots
+      "doubleViaPrivate" |
+    throw <| IO.userError "local declaration did not resolve through the overlay"
+  unless layeredLocal.target.name == `LeanReachFixture.doubleViaPrivate do
+    throw <| IO.userError "overlay resolved the wrong local declaration"
+  let .ok (some layeredRelations) ← unsafe QueryCache.resolve layeredRoots
+      "LeanReachFixture.double" |
+    throw <| IO.userError "local overlay relations are missing"
+  unless layeredRelations.downstream.any
+      (·.name == `LeanReachFixture.double_eq_add) do
+    throw <| IO.userError "local overlay downstream relation is missing"
+  let .ok (some layeredBase) ← unsafe QueryCache.resolve layeredRoots
+      "Submodule.span_le" |
+    throw <| IO.userError "base declaration did not resolve through the overlay"
+  unless layeredBase.target.name == `Submodule.span_le do
+    throw <| IO.userError "overlay resolved the wrong base declaration"
   withSession #[`Tests.Fixture] fun index session => do
     let fixtureNames ← unsafe Cache.moduleNames `Tests.Fixture
     check (fixtureNames.contains `LeanReachFixture.double)

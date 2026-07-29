@@ -150,9 +150,11 @@ directory or any of its subdirectories, invoke the packaged binary directly:
 
 LeanReach walks upward to the nearest Lake configuration and uses Lake's own package APIs to find
 the local `lean_lib` modules. Every module with an existing `.olean` is searchable, so a partial
-`lake build` is enough; missing modules are not built implicitly. If that package directly
+`lake build` is enough; stale `.olean` files whose source module was removed are ignored, and missing
+modules are not built implicitly. If that package directly
 `require`s Mathlib, the Mathlib root is included in the same search view. The small discovery result
-is cached under `.lake` and invalidated by the Lake configuration hash.
+including Lake's actual `lean_lib` source directories is cached under `.lake` and invalidated by the
+Lake configuration hash.
 
 `--module MyProject` remains available as an explicit override. Without `LEAN_PATH`, LeanReach also
 discovers the project and dependency build directories plus their source roots. `lake env` remains
@@ -179,13 +181,15 @@ declarations took 29.9 seconds in two 32-module import waves, 15.3 seconds with 
 14.1 seconds with four pretty-print tasks.
 
 The root cache also materializes the current default top ten upstream and downstream results into
-hash-partitioned query shards. Dependency queries by fully qualified name or unique final component
-therefore read one small plan shard and only the selected module PP sidecars; ambiguous final
-components are reported from that same shard. Name search also uses one shard for a complete full
-name or final component while preserving exact-before-suffix ordering. Each shard uses a local module
-dictionary instead of repeating module names in every relation. General substring matching, and
-dependency limits above ten, deliberately fall back to the complete index so they preserve the same
-matching and ranking semantics.
+hash-partitioned query shards. A view that adds local modules over an already-cached Mathlib stores
+only a compact overlay of local declarations and cross-layer reverse edges; it ranks merged
+dependencies with the same scoring function instead of copying Mathlib's 132 MB query plan. In the
+fixture benchmark this reduced a new combined plan from 101.36 seconds to 359 ms. Dependency queries
+by fully qualified name or unique final component therefore read one small plan shard or overlay and
+only the selected module PP sidecars; ambiguous final components are reported from the same cache.
+Name search also uses these caches for a complete full name or final component while preserving
+exact-before-suffix ordering. General substring matching, and dependency limits above ten,
+deliberately fall back to the complete index so they preserve the same matching and ranking semantics.
 
 ## Dependency semantics
 

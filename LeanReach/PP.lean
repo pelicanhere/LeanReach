@@ -55,6 +55,14 @@ private unsafe def buildModules (sourcePath : SearchPath) (env : Environment)
     offset := stop
   return count
 
+private unsafe def buildInputs (sourcePath : SearchPath) (inputs : Array Input)
+    (moduleOf? : Name → Option Name := fun _ => none)
+    (progress : Name → NameMap Declaration → Nat → IO Unit := fun _ _ _ => pure ()) :
+    IO Nat := do
+  if inputs.isEmpty then return 0
+  let env ← importEnvironment (inputs.map (·.1)) (leakEnv := true)
+  unsafe buildModules sourcePath env inputs moduleOf? progress
+
 unsafe def buildPPModules (modules : Array Name) : IO Nat := do
   let sourcePath ← prepareEnvironment
   let mut inputs : Array Input := #[]
@@ -62,9 +70,7 @@ unsafe def buildPPModules (modules : Array Name) : IO Nat := do
     let names ← unsafe Cache.moduleNames moduleName
     if let some input ← unsafe missingInput moduleName names then
       inputs := inputs.push input
-  if inputs.isEmpty then return 0
-  let env ← importEnvironment (inputs.map fun (module, _, _) => module) (leakEnv := true)
-  unsafe buildModules sourcePath env inputs
+  unsafe buildInputs sourcePath inputs
 
 /-- Pretty-print every declaration below a root, checkpointing once per defining module. -/
 unsafe def buildPPRoots (roots : Array Name)
@@ -73,20 +79,26 @@ unsafe def buildPPRoots (roots : Array Name)
   let ppReady ← unsafe Cache.isFullyPP roots
   let queryReady ← unsafe QueryCache.isBuilt roots
   if ppReady && queryReady then return 0
-  let index ← unsafe Cache.loadIndex roots (!queryReady)
-  unless queryReady do discard <| unsafe QueryCache.build roots index
+  unless queryReady do discard <| unsafe QueryCache.build roots
   if ppReady then return 0
   let completed ← unsafe completedModules roots
   let mut inputs : Array Input := #[]
-  for (moduleName, names) in index.declarationsByModule do
-    unless completed.contains moduleName do
-      if let some input ← unsafe missingInput moduleName names then
-        inputs := inputs.push input
-  let mut count := 0
-  unless inputs.isEmpty do
-    let env ← importEnvironment (inputs.map (·.1)) (leakEnv := true)
-    count ← unsafe buildModules sourcePath env inputs index.moduleOf? fun moduleName _ done =>
-      progress moduleName done inputs.size
+  let count ←
+    if completed.isEmpty then
+      let index ← unsafe Cache.loadIndex roots false
+      for (moduleName, names) in index.declarationsByModule do
+        if let some input ← unsafe missingInput moduleName names then
+          inputs := inputs.push input
+      unsafe buildInputs sourcePath inputs index.moduleOf? fun moduleName _ done =>
+        progress moduleName done inputs.size
+    else
+      for moduleName in roots do
+        unless completed.contains moduleName do
+          if let some input ← unsafe missingInput moduleName
+              (← unsafe Cache.moduleNames moduleName) then
+            inputs := inputs.push input
+      unsafe buildInputs sourcePath inputs (progress := fun moduleName _ done =>
+        progress moduleName done inputs.size)
   unsafe Cache.markFullyPP roots
   return count
 
