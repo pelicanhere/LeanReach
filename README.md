@@ -108,6 +108,9 @@ Submodule.span_le
 The process emits one compact JSON value per line and flushes stdout after every response. It loads
 the dependency index once but does not import Mathlib at startup. Each query loads only its selected
 module PP sidecars into the session; only a missing declaration triggers a bounded module import.
+After paying that import, a target module with at most 512 searchable declarations fills all of its
+remaining PP entries. This completion applies only to the target module, not its upstream or
+downstream modules; larger generated modules remain strictly declaration-on-demand.
 
 On the development Windows machine, nine distinct PP-cached complete-leaf searches had 9.39 ms
 median session latency and 100.87 ms median one-shot latency, versus 204.68 ms for `rg`. The first
@@ -213,6 +216,12 @@ Mathlib and local view fully cached, measured internal time was 12 ms for a dist
 11 ms for a distinct final-component search. The median one-shot wall time was 116 ms because the
 Windows process still maps roughly 250 MB of Lean runtime DLLs; interactive mode avoids that fixed
 process startup cost.
+
+For a PP-cold `Mathlib.LinearAlgebra.Span.Defs`, querying `Submodule.span_eq_bot` now writes the same
+byte-for-byte 134-declaration sidecar as an explicit complete module cache. A second new process
+querying the distinct `Submodule.span_iUnion₂` then took 108 ms wall time (10 ms internally), versus
+8.59 seconds when the first query had cached only its selected declarations. The query JSON was
+identical in both paths.
 
 ## Dependency semantics
 

@@ -129,13 +129,17 @@ private def Prepared.names : Prepared → Array Name
   | .query names => names.all
   | .search _ names => names
 
+private def Prepared.target? : Prepared → Option Name
+  | .query names => some names.1
+  | .search .. => none
+
 private def prepare (config : Config) (command : Command) (index : Index) :
-    Except String (Prepared × Array Name) := do
+    Except String (Prepared × Array Name × Option Name) := do
   let result : Prepared ← match command with
     | .query query => pure <| .query (← index.queryNames query config.limits)
     | .search pattern => pure <| .search pattern (index.search pattern config.limits.search)
     | .cache _ => throw "cache is not an interactive query"
-  return (result, result.names)
+  return (result, result.names, result.target?)
 
 private def runPrepared (session : Session) (config : Config) : Prepared → CoreM Unit
   | .query names => do printQuery config.json (← session.describeQuery names)
