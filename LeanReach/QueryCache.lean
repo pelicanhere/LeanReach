@@ -79,8 +79,7 @@ private unsafe def isFullBuilt (roots : Array Name) : IO Bool := do
 
 private unsafe def baseRoot? (roots : Array Name) : IO (Option Name) := do
   if roots.size < 2 then return none
-  if roots.contains `Mathlib then
-    return if ← unsafe isFullBuilt #[`Mathlib] then some `Mathlib else none
+  if roots.contains `Mathlib then return some `Mathlib
   for root in roots do
     if ← unsafe isFullBuilt #[root] then return some root
   return none
