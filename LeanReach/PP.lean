@@ -1,3 +1,4 @@
+import Std.Sync.Channel
 import LeanReach.Cache
 import LeanReach.PrettyPrint
 import LeanReach.QueryCache
@@ -40,23 +41,41 @@ private unsafe def completedModules (roots : Array Name) : IO NameHashSet := do
         completed := completed.insert moduleName
   return completed
 
+private unsafe def worker (sourcePath : SearchPath) (env : Environment)
+    (moduleOf? : Name → Option Name) (jobs : Std.Channel.Sync (Option Input))
+    (results : Std.Channel.Sync (Option (Name × Except IO.Error Nat))) : IO Unit := do
+  while true do
+    let some (moduleName, names, before) ← jobs.recv | return
+    let result ← try
+      let added ← unsafe Cache.withModuleConstants env moduleName names moduleOf? fun env =>
+        unsafe runCore env (prettyPrintModule sourcePath moduleName names)
+      .ok <$> unsafe saveModule moduleName before added
+    catch error => pure (.error error)
+    results.send (some (moduleName, result))
+
 private unsafe def buildModules (sourcePath : SearchPath) (env : Environment)
     (inputs : Array Input) (moduleOf? : Name → Option Name := fun _ => none)
     (progress : Name → Nat → IO Unit := fun _ _ => pure ()) : IO Nat := do
-  let workers ← parallelism
+  if inputs.isEmpty then return 0
+  let workers := min (← parallelism) inputs.size
+  let jobs ← Std.Channel.Sync.new
+  let results ← Std.Channel.Sync.new
+  for input in inputs do jobs.send (some input)
+  for _ in [0:workers] do jobs.send none
+  let tasks ← (Array.range workers).mapM fun _ =>
+    IO.asTask <| unsafe worker sourcePath env moduleOf? jobs results
   let mut count := 0
-  let mut offset := 0
-  while offset < inputs.size do
-    let stop := min inputs.size (offset + workers)
-    let batch := inputs.extract offset stop
-    let tasks ← batch.mapM fun (moduleName, names, _) =>
-      IO.asTask <| unsafe Cache.withModuleConstants env moduleName names moduleOf? fun env =>
-        unsafe runCore env (prettyPrintModule sourcePath moduleName names)
-    for (((moduleName, _, before), task), done) in (batch.zip tasks).zipIdx do
-      let added ← IO.ofExcept task.get
-      count := count + (← unsafe saveModule moduleName before added)
-      progress moduleName (offset + done + 1)
-    offset := stop
+  let mut failure? := none
+  for done in [0:inputs.size] do
+    let some (moduleName, result) ← results.recv | unreachable!
+    match result with
+    | .ok added =>
+      count := count + added
+      progress moduleName (done + 1)
+    | .error error =>
+      if failure?.isNone then failure? := some error
+  for task in tasks do IO.ofExcept task.get
+  if let some error := failure? then throw error
   return count
 
 private unsafe def buildInputs (sourcePath : SearchPath) (inputs : Array Input)

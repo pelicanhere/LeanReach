@@ -170,9 +170,10 @@ After `lake build`, precompute PP for the complete built root once:
 This pays index construction, environment import, and pretty-printing once. On a new root,
 LeanReach starts the immutable environment import while it builds the dependency and query caches,
 then joins that import before PP begins. It imports only modules with missing PP, shares the
-environment across four bounded module tasks, reuses signatures repeated by a structure or class,
-and writes one PP sidecar after each completed module. An interruption therefore leaves completed
-modules reusable. A small root marker makes later `cache` calls return before loading the catalog,
+environment across four persistent workers, reuses signatures repeated by a structure or class,
+and writes one PP sidecar after each completed module. A worker immediately takes the next module
+instead of waiting for the other three modules in a fixed batch. An interruption therefore leaves
+completed modules reusable. A small root marker makes later `cache` calls return before loading the catalog,
 while queries read only the module sidecars containing their selected declarations. Sidecars are
 reusable from larger roots and invalidated by the defining module's build hash; LeanReach never
 builds missing modules implicitly.
@@ -185,7 +186,9 @@ artifacts took 15 minutes 57.7 seconds with the root import overlapped, versus a
 completed Mathlib view took 1.69 seconds; caching 16 declarations from one missing local module took
 14.56 seconds without importing the separate Mathlib root. The same 64 modules and 982 declarations
 took 29.9 seconds in two 32-module import waves, 15.3 seconds with one import, and 14.1 seconds with
-four pretty-print tasks.
+four pretty-print tasks. On a 64-module, 2310-declaration paired warm-filesystem workload, replacing
+four-module barriers with the persistent worker queue reduced PP time from 21.42 to 20.18 seconds;
+all 64 module sidecars were byte-identical.
 
 The root cache also materializes the current default top ten upstream and downstream results into
 hash-partitioned query shards. A view that adds local modules over an already-cached Mathlib stores

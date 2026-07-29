@@ -59,3 +59,5 @@ signature-memo,96,9815,27890,warm PP rebuild with byte-identical module-local si
 project-cache-refresh,5,36,8566,refresh five changed local modules over the completed Mathlib cache
 project-cache-marker-hit,16,0,92,internal elapsed time for the next cache command
 distinct-query-final,16,10,150,median new-process wall time across four distinct cached declarations
+pp-batch-paired,64,2310,21415,warm filesystem baseline with four-module batch barriers
+pp-worker-pool-paired,64,2310,20180,warm filesystem sustained four-worker queue with byte-identical sidecars
