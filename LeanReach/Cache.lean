@@ -4,7 +4,7 @@ import Lean.Util.Path
 import LeanReach.BlackListed
 import LeanReach.Declaration
 import LeanReach.Index
-import LeanReach.Source
+import LeanReach.SourceInfo
 
 namespace LeanReach.Cache
 
@@ -48,14 +48,6 @@ private def depHash? (olean : System.FilePath) : IO (Option String) := do
     if ← path.pathExists then
       hashes := hashes.push (toString (← Lake.computeFileHash path))
   return if hashes.isEmpty then none else some (String.intercalate ":" hashes.toList)
-
-private def sourceNames (olean : System.FilePath) : IO (Std.HashSet String) := do
-  let some ilean ← loadIlean? olean | return {}
-  let mut names := ilean.decls.foldl (init := {}) fun names name _ => names.insert name
-  for (ident, info) in ilean.references do
-    if info.definition?.isSome then
-      if let .const _ name := ident then names := names.insert name
-  return names
 
 private unsafe def readParts (olean : System.FilePath) :
     IO (Array (ModuleData × CompactedRegion) × Nat) := do
