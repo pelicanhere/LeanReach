@@ -42,7 +42,7 @@ private unsafe def completedModules (roots : Array Name) : IO NameHashSet := do
 
 private unsafe def buildModules (sourcePath : SearchPath) (env : Environment)
     (inputs : Array Input) (moduleOf? : Name → Option Name := fun _ => none)
-    (progress : Name → NameMap Declaration → Nat → IO Unit := fun _ _ _ => pure ()) : IO Nat := do
+    (progress : Name → Nat → IO Unit := fun _ _ => pure ()) : IO Nat := do
   let workers ← parallelism
   let mut count := 0
   let mut offset := 0
@@ -55,13 +55,13 @@ private unsafe def buildModules (sourcePath : SearchPath) (env : Environment)
     for (((moduleName, _, before), task), done) in (batch.zip tasks).zipIdx do
       let added ← IO.ofExcept task.get
       count := count + (← unsafe saveModule moduleName before added)
-      progress moduleName added (offset + done + 1)
+      progress moduleName (offset + done + 1)
     offset := stop
   return count
 
 private unsafe def buildInputs (sourcePath : SearchPath) (inputs : Array Input)
     (moduleOf? : Name → Option Name := fun _ => none)
-    (progress : Name → NameMap Declaration → Nat → IO Unit := fun _ _ _ => pure ()) :
+    (progress : Name → Nat → IO Unit := fun _ _ => pure ()) :
     IO Nat := do
   if inputs.isEmpty then return 0
   let env ← importEnvironment (inputs.map (·.1)) (leakEnv := true)
@@ -102,7 +102,7 @@ unsafe def buildPPRoots (roots : Array Name)
           inputs ← unsafe addMissingInput inputs moduleName
             (← unsafe Cache.moduleNames moduleName)
       pure (inputs, fun _ => none)
-  let report := fun moduleName _ done => progress moduleName done inputs.size
+  let report := fun moduleName done => progress moduleName done inputs.size
   let count ←
     if let some envTask := envTask? then
       unsafe buildModules sourcePath (← IO.ofExcept envTask.get) inputs moduleOf? report
