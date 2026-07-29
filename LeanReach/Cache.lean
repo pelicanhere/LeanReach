@@ -1,10 +1,10 @@
 import Lake.Build.Trace
 import Lean.Environment
-import Lean.Server.References
 import Lean.Util.Path
 import LeanReach.BlackListed
 import LeanReach.Declaration
 import LeanReach.Index
+import LeanReach.Source
 
 namespace LeanReach.Cache
 
@@ -50,9 +50,7 @@ private def depHash? (olean : System.FilePath) : IO (Option String) := do
   return if hashes.isEmpty then none else some (String.intercalate ":" hashes.toList)
 
 private def sourceNames (olean : System.FilePath) : IO (Std.HashSet String) := do
-  let path := olean.withExtension "ilean"
-  unless ← path.pathExists do return {}
-  let ilean ← Server.Ilean.load path
+  let some ilean ← loadIlean? olean | return {}
   let mut names := ilean.decls.foldl (init := {}) fun names name _ => names.insert name
   for (ident, info) in ilean.references do
     if info.definition?.isSome then
