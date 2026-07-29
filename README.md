@@ -280,7 +280,10 @@ with [Lucene's smoothed IDF](https://lucene.apache.org/core/9_4_2/core/org/apach
 LeanReach/Index.lean  names, direct-reference postings, and resolution
 LeanReach/Cache.lean  persistent index serialization and freshness checks
 LeanReach/BlackListed.lean  generated-declaration filtering
-LeanReach/Query.lean  pretty-printing, source locations, and sessions
+LeanReach/SourceInfo.lean  `.ilean` declarations and source locations
+LeanReach/PrettyPrint.lean  Lean signatures, bodies, and declaration formatting
+LeanReach/PP.lean     shared module PP execution and full-cache workers
+LeanReach/Query.lean  query results and reusable in-memory sessions
 LeanReach/Project.lean  Lake project and built-module discovery
 LeanReach.lean        environment-loading facade
 Main.lean             Lake ArgsT CLI and interactive transport

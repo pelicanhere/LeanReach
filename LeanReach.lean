@@ -8,9 +8,10 @@ namespace LeanReach
 
 open Lean
 
+abbrev SessionPlan (α : Type) := α × Array Name × Option Name
+
 private def selectPlan {α : Type} (index : Index)
-    (select : Index → Except String (α × Array Name × Option Name)) :
-    IO (α × Array Name × Option Name) :=
+    (select : Index → Except String (SessionPlan α)) : IO (SessionPlan α) :=
   match select index with
   | .ok plan => pure plan
   | .error message => throw <| IO.userError message
@@ -39,8 +40,8 @@ private unsafe def completeTargetModule (moduleOf? : Name → Option Name)
   let missing := names.filter fun name => !cached.contains name
   if missing.isEmpty then return
   try
-    let declarations ← unsafe Cache.withModuleConstants env moduleName missing moduleOf? fun env =>
-      unsafe runCore env (session.prettyPrintModule moduleName missing)
+    let declarations ← unsafe prettyPrintModuleWithConstants
+      session.sourcePath env moduleName missing moduleOf?
     session.merge declarations
   catch _ => pure ()
 
@@ -72,7 +73,7 @@ private unsafe def runSession {α : Type} (moduleOf? : Name → Option Name) (se
 
 private unsafe def withIndexSession {α β : Type} (roots : Array Name)
     (loadRelations : Bool)
-    (select : Index → Except String (α × Array Name × Option Name))
+    (select : Index → Except String (SessionPlan α))
     (forceRootImport : Bool)
     (action : Index → Session → α → CoreM β) : IO β := do
   let sourcePath ← prepareEnvironment
@@ -84,7 +85,7 @@ private unsafe def withIndexSession {α β : Type} (roots : Array Name)
 
 /-- Import only the modules needed to pretty-print the selected declarations. -/
 unsafe def withSessionFor {α β : Type} (roots : Array Name)
-    (select : Index → Except String (α × Array Name × Option Name)) (loadRelations : Bool)
+    (select : Index → Except String (SessionPlan α)) (loadRelations : Bool)
     (action : Session → α → CoreM β) : IO β :=
   withIndexSession roots loadRelations select false fun _ => action
 
@@ -121,7 +122,7 @@ unsafe def withSession {α : Type} (roots : Array Name)
     action index session
 
 abbrev SessionRunner :=
-  {α : Type} → (Index → Except String (α × Array Name × Option Name)) →
+  {α : Type} → (Index → Except String (SessionPlan α)) →
     (α → CoreM Unit) → IO Unit
 
 unsafe def withLazySession {α : Type} (roots : Array Name)

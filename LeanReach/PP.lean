@@ -41,14 +41,20 @@ private unsafe def completedModules (roots : Array Name) : IO NameHashSet := do
         completed := completed.insert moduleName
   return completed
 
+unsafe def prettyPrintModuleWithConstants (sourcePath : SearchPath) (env : Environment)
+    (moduleName : Name) (names : Array Name) (moduleOf? : Name → Option Name) :
+    IO (NameMap Declaration) :=
+  unsafe Cache.withModuleConstants env moduleName names moduleOf? fun env =>
+    unsafe runCore env (prettyPrintModule sourcePath moduleName names)
+
 private unsafe def worker (sourcePath : SearchPath) (env : Environment)
     (moduleOf? : Name → Option Name) (jobs : Std.Channel.Sync (Option Input))
     (results : Std.Channel.Sync (Option (Name × Except IO.Error Nat))) : IO Unit := do
   while true do
     let some (moduleName, names, before) ← jobs.recv | return
     let result ← try
-      let added ← unsafe Cache.withModuleConstants env moduleName names moduleOf? fun env =>
-        unsafe runCore env (prettyPrintModule sourcePath moduleName names)
+      let added ← unsafe prettyPrintModuleWithConstants
+        sourcePath env moduleName names moduleOf?
       .ok <$> unsafe saveModule moduleName before added
     catch error => pure (.error error)
     results.send (some (moduleName, result))

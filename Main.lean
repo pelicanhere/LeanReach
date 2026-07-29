@@ -134,7 +134,7 @@ private def Prepared.target? : Prepared → Option Name
   | .search .. => none
 
 private def prepare (config : Config) (command : Command) (index : Index) :
-    Except String (Prepared × Array Name × Option Name) := do
+    Except String (SessionPlan Prepared) := do
   let result : Prepared ← match command with
     | .query query => pure <| .query (← index.queryNames query config.limits)
     | .search pattern => pure <| .search pattern (index.search pattern config.limits.search)

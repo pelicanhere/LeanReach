@@ -23,15 +23,11 @@ def Limits.usesCachedQuery (limits : Limits) : Bool :=
   limits.upstream ≤ cachedQueryLimit && limits.downstream ≤ cachedQueryLimit
 
 structure Session where
-  private sourcePath : SearchPath
+  sourcePath : SearchPath
   private declarations : IO.Ref (NameMap Declaration)
 
 def Session.create (sourcePath : SearchPath) : IO Session :=
   return { sourcePath, declarations := ← IO.mkRef {} }
-
-def Session.prettyPrintModule (session : Session) (moduleName : Name)
-    (names : Array Name) : CoreM (NameMap Declaration) :=
-  LeanReach.prettyPrintModule session.sourcePath moduleName names
 
 def Session.ppCache (session : Session) : IO (NameMap Declaration) :=
   session.declarations.get
