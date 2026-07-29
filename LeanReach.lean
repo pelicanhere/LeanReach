@@ -18,6 +18,16 @@ private def modulesFor (moduleOf? : Name → Option Name) (names : Array Name) :
     Array Name :=
   (names.toList.filterMap moduleOf?).eraseDups.toArray
 
+private unsafe def cachedSession (moduleOf? : Name → Option Name)
+    (names : Array Name) : IO Session := do
+  let declarations ← unsafe Cache.loadPP moduleOf? names
+  let sourcePath ←
+    if names.all declarations.contains then pure []
+    else prepareEnvironment
+  let session ← Session.create sourcePath
+  session.merge declarations
+  return session
+
 private unsafe def runSession {α : Type} (moduleOf? : Name → Option Name) (session : Session)
     (names : Array Name) (modules? : Option (Array Name)) (wholeModules : Bool)
     (emptyEnv? : Option Environment) (action : CoreM α) : IO α := do
@@ -62,25 +72,25 @@ unsafe def withSessionFor {α β : Type} (roots : Array Name)
 unsafe def withCachedQueryFor {α : Type} (roots : Array Name) (query : String)
     (limits : Limits) (action : Session → QueryNames → CoreM α) : IO (Option α) := do
   unless limits.usesCachedQuery do return none
-  let sourcePath ← prepareEnvironment
+  unsafe prepareSearchPath
   let cached? ← unsafe QueryCache.resolve roots query
   let cached ← match cached? with
     | .ok (some cached) => pure cached
     | .ok none => return none
     | .error message => throw <| IO.userError message
   let names := cached.queryNames limits
-  let session ← Session.create sourcePath
+  let session ← unsafe cachedSession cached.moduleOf? names.all
   return some (← unsafe runSession cached.moduleOf? session names.all none false none
     (action session names))
 
 /-- Search complete declaration names from a query shard without loading the catalog. -/
 unsafe def withCachedSearchFor {α : Type} (roots : Array Name) (query : String)
     (limit : Nat) (action : Session → Array Name → CoreM α) : IO (Option α) := do
-  let sourcePath ← prepareEnvironment
+  unsafe prepareSearchPath
   let some targets ← unsafe QueryCache.search roots query limit | return none
   let names := targets.map (·.name)
   let moduleOf? name := targets.find? (·.name == name) |>.map (·.moduleName)
-  let session ← Session.create sourcePath
+  let session ← unsafe cachedSession moduleOf? names
   return some (← unsafe runSession moduleOf? session names none false none
     (action session names))
 

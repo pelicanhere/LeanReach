@@ -43,3 +43,7 @@ combined-root-pp-reuse,2,0,1690,rebuild root marker while reusing completed Math
 incremental-local-pp,2,16,14557,rebuild one local module without importing the separate Mathlib root
 local-query-overlay,2,16,359,build local declarations and cross-layer reverse edges over cached Mathlib
 auto-root-incremental-cache,16,120,8344,native cache for current local modules over cached Mathlib
+auto-root-marker-hit,16,2597,35,refresh built roots and validate completed PP and query caches
+auto-root-exact-query,16,5,12,internal elapsed time for a fresh process using persisted roots and root stamps
+auto-root-leaf-search,16,10,11,internal elapsed time for a fresh process using persisted roots and root stamps
+packaged-distinct-query-wall,16,5,116,median wall time across five distinct declarations; Windows loads 250 MB of runtime DLLs

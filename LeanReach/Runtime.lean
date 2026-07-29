@@ -47,6 +47,11 @@ private def sourceSearchPath (sysroot : System.FilePath)
   | some path => return System.SearchPath.parse path ++ fallback
   | none => return fallback
 
+unsafe def prepareSearchPath : IO Unit := do
+  let roots ← workspaceRoots
+  let sysroot ← leanSysroot
+  initializeSearchPath sysroot roots
+
 unsafe def prepareEnvironment : IO SearchPath := do
   let roots ← workspaceRoots
   let sysroot ← leanSysroot
@@ -71,8 +76,8 @@ unsafe def importEnvironment (modules : Array Name) (leakEnv := false)
     Lean.enableInitializersExecution
     importModules (loadExts := true) (leakEnv := leakEnv) imports {}
 
-unsafe def detectRoots : IO (Array Name) := do
-  let roots ← unsafe Project.detectRoots (← leanSysroot)
+unsafe def detectRoots (refresh := false) : IO (Array Name) := do
+  let roots ← unsafe Project.detectRoots (← leanSysroot) refresh
   if roots.isEmpty then
     throw <| IO.userError "could not detect a built local lean_lib or required Mathlib; use --module"
   return roots

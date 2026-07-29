@@ -176,15 +176,15 @@ private def validate (config : Config) : CliMainM Unit := do
     if limit == 0 || limit > 1000 then
       throw <| Lake.CliError.invalidOptArg "--limit" "an integer from 1 to 1000"
 
-private unsafe def Config.roots (config : Config) : IO (Array Name) :=
-  config.root?.map (#[·]) |>.getDM detectRoots
+private unsafe def Config.roots (config : Config) (refresh := false) : IO (Array Name) :=
+  config.root?.map (#[·]) |>.getDM (detectRoots refresh)
 
 private unsafe def execute (config : Config) (command? : Option Command) : IO UInt32 := do
   let started ← IO.monoMsNow
   match command? with
   | some (.cache modules) =>
     if modules.isEmpty then
-      let count ← buildPPRoots (← config.roots) fun moduleName done total =>
+      let count ← buildPPRoots (← config.roots true) fun moduleName done total =>
         unless config.json do
           if done == total || done % 100 == 0 then
             IO.eprintln s!"leanreach: pretty-printed modules {done}/{total} ({moduleName})"

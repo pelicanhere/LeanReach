@@ -154,7 +154,8 @@ the local `lean_lib` modules. Every module with an existing `.olean` is searchab
 modules are not built implicitly. If that package directly
 `require`s Mathlib, the Mathlib root is included in the same search view. The small discovery result
 including Lake's actual `lean_lib` source directories is cached under `.lake` and invalidated by the
-Lake configuration hash.
+Lake configuration hash. Running `cache` refreshes the list of built modules; ordinary queries reuse
+that persisted view instead of recursively scanning the build tree in every process.
 
 `--module MyProject` remains available as an explicit override. Without `LEAN_PATH`, LeanReach also
 discovers the project and dependency build directories plus their source roots. `lake env` remains
@@ -190,6 +191,12 @@ only the selected module PP sidecars; ambiguous final components are reported fr
 Name search also uses these caches for a complete full name or final component while preserving
 exact-before-suffix ordering. General substring matching, and dependency limits above ten,
 deliberately fall back to the complete index so they preserve the same matching and ranking semantics.
+Root dependency hashes are memoized against the modification time and size of every root trace, so a
+normal rebuild invalidates the view without reparsing every trace on each query. With the current
+Mathlib and local view fully cached, measured internal time was 12 ms for a distinct exact query and
+11 ms for a distinct final-component search. The median one-shot wall time was 116 ms because the
+Windows process still maps roughly 250 MB of Lean runtime DLLs; interactive mode avoids that fixed
+process startup cost.
 
 ## Dependency semantics
 
