@@ -28,6 +28,10 @@ private unsafe def missingInput (moduleName : Name) (names : Array Name) :
   let missing := names.filter fun name => !before.contains name
   return if missing.isEmpty then none else some (moduleName, missing, before)
 
+private unsafe def addMissingInput (inputs : Array Input)
+    (moduleName : Name) (names : Array Name) : IO (Array Input) :=
+  return (← unsafe missingInput moduleName names).map inputs.push |>.getD inputs
+
 private unsafe def completedModules (roots : Array Name) : IO NameHashSet := do
   let mut completed : NameHashSet := {}
   for root in roots do
@@ -67,9 +71,7 @@ unsafe def buildPPModules (modules : Array Name) : IO Nat := do
   let sourcePath ← prepareEnvironment
   let mut inputs : Array Input := #[]
   for moduleName in modules do
-    let names ← unsafe Cache.moduleNames moduleName
-    if let some input ← unsafe missingInput moduleName names then
-      inputs := inputs.push input
+    inputs ← unsafe addMissingInput inputs moduleName (← unsafe Cache.moduleNames moduleName)
   unsafe buildInputs sourcePath inputs
 
 /-- Pretty-print every declaration below a root, checkpointing once per defining module. -/
@@ -91,16 +93,14 @@ unsafe def buildPPRoots (roots : Array Name)
       let index ← unsafe Cache.loadIndex roots false
       let mut inputs := #[]
       for (moduleName, names) in index.declarationsByModule do
-        if let some input ← unsafe missingInput moduleName names then
-          inputs := inputs.push input
+        inputs ← unsafe addMissingInput inputs moduleName names
       pure (inputs, index.moduleOf?)
     else
       let mut inputs := #[]
       for moduleName in roots do
         unless completed.contains moduleName do
-          if let some input ← unsafe missingInput moduleName
-              (← unsafe Cache.moduleNames moduleName) then
-            inputs := inputs.push input
+          inputs ← unsafe addMissingInput inputs moduleName
+            (← unsafe Cache.moduleNames moduleName)
       pure (inputs, fun _ => none)
   let report := fun moduleName _ done => progress moduleName done inputs.size
   let count ←
