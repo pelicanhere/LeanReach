@@ -38,3 +38,6 @@ query-module-dictionary,9978,375372,28290,wall time; per-shard module IDs reduce
 dictionary-query-hit,9978,5,113,median packaged-process wall time; 10ms median internal across three queries
 single-module-cold-pp,1,134,94034,cold native cache build; full environment import dominates
 single-module-warm-pp,1,134,14490,warm import probe; pretty-printing itself took 0.56s
+combined-root-first-plan,2,0,101360,first Tests.Fixture plus Mathlib query-plan materialization
+combined-root-pp-reuse,2,0,1690,rebuild root marker while reusing completed Mathlib PP view
+incremental-local-pp,2,16,14557,rebuild one local module without importing the separate Mathlib root

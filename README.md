@@ -164,15 +164,19 @@ After `lake build`, precompute PP for the complete built root once:
 /path/to/leanreach cache
 ```
 
-This pays index construction, environment import, and pretty-printing once. LeanReach imports the
-detected roots once, shares the immutable environment across four bounded module tasks, and writes
-one PP sidecar after each completed module. An interruption therefore leaves completed modules
+This pays index construction, environment import, and pretty-printing once. LeanReach imports only
+the modules with missing PP, shares the immutable environment across four bounded module tasks, and
+writes one PP sidecar after each completed module. An interruption therefore leaves completed modules
 reusable. A small root marker makes later `cache` calls return before loading the catalog, while queries
 read only the module sidecars containing their selected declarations. Sidecars are reusable from
 larger roots and invalidated by the defining module's build hash; LeanReach never builds missing
-modules implicitly. On the development Windows machine, the same 64 modules and 982 declarations
-took 29.9 seconds in two 32-module import waves, 15.3 seconds with one import, and 14.1 seconds with
-four pretty-print tasks.
+modules implicitly. When a detected view combines local roots with Mathlib, a valid completed
+Mathlib view is reused without reopening all of its module sidecars, and only modules with missing
+PP are imported. On the development Windows machine, rebuilding a combined root marker while reusing
+the completed Mathlib view took 1.69 seconds; caching 16 declarations from one missing local module
+took 14.56 seconds without importing the separate Mathlib root. The same 64 modules and 982
+declarations took 29.9 seconds in two 32-module import waves, 15.3 seconds with one import, and
+14.1 seconds with four pretty-print tasks.
 
 The root cache also materializes the current default top ten upstream and downstream results into
 hash-partitioned query shards. Dependency queries by fully qualified name or unique final component

@@ -286,6 +286,15 @@ def Index.modulesFor (index : Index) (names : Array Name) : Array Name := Id.run
         modules := modules.push moduleName
   return modules
 
+def Index.modules (index : Index) : Array Name := Id.run do
+  let mut seen : NameHashSet := {}
+  let mut modules := #[]
+  for (_, moduleName) in index.entries do
+    unless seen.contains moduleName do
+      seen := seen.insert moduleName
+      modules := modules.push moduleName
+  return modules
+
 def Index.namesInModules (index : Index) (modules : Array Name) : Array Name :=
   let wanted := modules.foldl (init := ({} : NameHashSet)) (·.insert ·)
   index.entries.filterMap fun (name, moduleName) =>

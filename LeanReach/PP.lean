@@ -28,6 +28,14 @@ private unsafe def missingInput (moduleName : Name) (names : Array Name) :
   let missing := names.filter fun name => !before.contains name
   return if missing.isEmpty then none else some (moduleName, missing, before)
 
+private unsafe def completedModules (roots : Array Name) : IO NameHashSet := do
+  let mut completed : NameHashSet := {}
+  for root in roots do
+    if ← unsafe Cache.isFullyPP #[root] then
+      for moduleName in (← unsafe Cache.loadIndex #[root] false).modules do
+        completed := completed.insert moduleName
+  return completed
+
 private unsafe def buildModules (sourcePath : SearchPath) (env : Environment)
     (inputs : Array Input) (moduleOf? : Name → Option Name := fun _ => none)
     (progress : Name → NameMap Declaration → Nat → IO Unit := fun _ _ _ => pure ()) : IO Nat := do
@@ -68,17 +76,15 @@ unsafe def buildPPRoots (roots : Array Name)
   let index ← unsafe Cache.loadIndex roots (!queryReady)
   unless queryReady do discard <| unsafe QueryCache.build roots index
   if ppReady then return 0
+  let completed ← unsafe completedModules roots
   let mut inputs : Array Input := #[]
-  let mut envTask? := none
   for (moduleName, names) in index.declarationsByModule do
-    if let some input ← unsafe missingInput moduleName names then
-      if envTask?.isNone then
-        envTask? := some (← IO.asTask <| importEnvironment roots (leakEnv := true))
-      inputs := inputs.push input
+    unless completed.contains moduleName do
+      if let some input ← unsafe missingInput moduleName names then
+        inputs := inputs.push input
   let mut count := 0
   unless inputs.isEmpty do
-    let some envTask := envTask? | unreachable!
-    let env ← IO.ofExcept envTask.get
+    let env ← importEnvironment (inputs.map (·.1)) (leakEnv := true)
     count ← unsafe buildModules sourcePath env inputs index.moduleOf? fun moduleName _ done =>
       progress moduleName done inputs.size
   unsafe Cache.markFullyPP roots
