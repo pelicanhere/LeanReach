@@ -15,6 +15,7 @@ abbrev Relations := Array (Array UInt32) × Array (Array UInt32)
 structure LocatedName where
   name : Name
   moduleName : Name
+  deriving Inhabited
 
 structure CachedQuery where
   target : LocatedName
@@ -59,10 +60,10 @@ private def nameAffinity (source : String) (sourceParts : List String)
     let shared := sourceParts.countP candidateParts.contains
     exact + 1.5 * shared.toFloat
 
-private def locality (entries : Array CatalogEntry) (sourceModule : Name)
+private def locality (sourceModule : Name)
     (sourceNameParts sourceModuleParts : List Name) (sourceLeaf : String)
-    (sourceParts : List String) (candidate : UInt32) : Float :=
-  let (candidateName, candidateModule) := entries[candidate.toNat]!
+    (sourceParts : List String) (candidate : LocatedName) : Float :=
+  let { name := candidateName, moduleName := candidateModule } := candidate
   (if sourceModule == candidateModule then 8.0 else 0.0) +
     4.0 * (commonPrefixLength sourceNameParts candidateName.components).toFloat +
     (commonPrefixLength sourceModuleParts candidateModule.components).toFloat +
@@ -100,6 +101,39 @@ private def heapKeepBest {α : Type u} [Inhabited α] (lt : α → α → Bool)
   match items[0]? with
   | some worst => if lt item worst then heapifyDown lt (items.set! 0 item) else items
   | none => items
+
+private def rankPositions (size limit : Nat) (score : Nat → Float)
+    (name : Nat → Name) : Array Nat := Id.run do
+  if limit == 0 || size == 0 then return #[]
+  if size == 1 then return #[0]
+  let better := fun (scoreA, a) (scoreB, b) =>
+    if scoreA != scoreB then scoreA > scoreB else Name.lt (name a) (name b)
+  let best :=
+    if size ≤ limit then
+      (Array.range size).map fun id => (score id, id)
+    else
+      Id.run do
+        let mut heap := #[]
+        for id in [0:size] do
+          let item := (score id, id)
+          heap :=
+            if heap.size < limit then heapInsert better heap item
+            else heapKeepBest better heap item
+        return heap
+  return (best.qsort better).map (·.2)
+
+private def relationScore (total reverseCount : Nat) (source : LocatedName)
+    (sourceNameParts sourceModuleParts : List Name) (sourceLeaf : String)
+    (sourceParts : List String) (upstream : Bool) (candidate : LocatedName) : Float :=
+  let df := reverseCount.toFloat
+  let frequency :=
+    if upstream then
+      let n := total.toFloat
+      Float.log (1.0 + (n - df + 0.5) / (df + 0.5))
+    else
+      Float.log (1.0 + df)
+  locality source.moduleName sourceNameParts sourceModuleParts sourceLeaf sourceParts candidate +
+    frequency
 
 def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
   let mut byName : NameMap (Name × NameSet) := {}
@@ -165,9 +199,8 @@ private def Index.namesAt (index : Index) (ids : Array UInt32) : Array Name :=
 
 private def Index.rankIds (index : Index) (source : UInt32)
     (ids : Array UInt32) (upstream : Bool) (limit : Nat) : Array UInt32 := Id.run do
-  if limit == 0 || ids.isEmpty then return #[]
-  if ids.size == 1 then return ids
   let (sourceName, sourceModule) := index.entries[source.toNat]!
+  let source : LocatedName := { name := sourceName, moduleName := sourceModule }
   let sourceNameParts := sourceName.components
   let sourceModuleParts := sourceModule.components
   let sourceLeaf := lastComponent sourceName
@@ -175,31 +208,14 @@ private def Index.rankIds (index : Index) (source : UInt32)
     if sourceLeaf.contains '_' then
       (sourceLeaf.toLower.splitOn "_").filter (·.length ≥ 3)
     else []
-  let score (candidate : UInt32) :=
-    let df := index.reverse[candidate.toNat]!.size.toFloat
-    let frequency :=
-      if upstream then
-        let n := index.entries.size.toFloat
-        Float.log (1.0 + (n - df + 0.5) / (df + 0.5))
-      else
-        Float.log (1.0 + df)
-    locality index.entries sourceModule sourceNameParts sourceModuleParts
-      sourceLeaf sourceParts candidate + frequency
-  let better := fun (scoreA, a) (scoreB, b) =>
-      if scoreA != scoreB then scoreA > scoreB
-      else Name.lt index.entries[a.toNat]!.1 index.entries[b.toNat]!.1
-  let best :=
-    if ids.size ≤ limit then ids.map fun id => (score id, id)
-    else
-      Id.run do
-        let mut heap := #[]
-        for id in ids do
-          let item := (score id, id)
-          heap :=
-            if heap.size < limit then heapInsert better heap item
-            else heapKeepBest better heap item
-        return heap
-  return (best.qsort better).map (·.2)
+  let positions := rankPositions ids.size limit
+    (fun position =>
+      let candidate := ids[position]!
+      let (name, moduleName) := index.entries[candidate.toNat]!
+      relationScore index.size index.reverse[candidate.toNat]!.size source
+        sourceNameParts sourceModuleParts sourceLeaf sourceParts upstream { name, moduleName })
+    (fun position => index.entries[ids[position]!.toNat]!.1)
+  return positions.map fun position => ids[position]!
 
 private def Index.relatedIds (index : Index) (source : UInt32)
     (upstream : Bool) (limit : Nat) : Array UInt32 :=
@@ -209,6 +225,37 @@ private def Index.relatedIds (index : Index) (source : UInt32)
 private def Index.locatedAt (index : Index) (id : UInt32) : LocatedName :=
   let (name, moduleName) := index.entries[id.toNat]!
   { name, moduleName }
+
+def rankLocated (source : LocatedName) (candidates : Array LocatedName)
+    (total : Nat) (reverseCount : Name → Nat) (upstream : Bool)
+    (limit : Nat) : Array LocatedName := Id.run do
+  let sourceNameParts := source.name.components
+  let sourceModuleParts := source.moduleName.components
+  let sourceLeaf := lastComponent source.name
+  let sourceParts :=
+    if sourceLeaf.contains '_' then
+      (sourceLeaf.toLower.splitOn "_").filter (·.length ≥ 3)
+    else []
+  let positions := rankPositions candidates.size limit
+    (fun position =>
+      let candidate := candidates[position]!
+      relationScore total (reverseCount candidate.name) source sourceNameParts
+        sourceModuleParts sourceLeaf sourceParts upstream candidate)
+    (fun position => candidates[position]!.name)
+  return positions.map fun position => candidates[position]!
+
+def Index.located? (index : Index) (name : Name) : Option LocatedName :=
+  index.findId? name |>.map index.locatedAt
+
+def Index.relatedLocated (index : Index) (name : Name)
+    (upstream : Bool) : Array LocatedName :=
+  match index.findId? name with
+  | some id =>
+    (if upstream then index.forward[id.toNat]! else index.reverse[id.toNat]!).map index.locatedAt
+  | none => #[]
+
+def Index.reverseCount (index : Index) (name : Name) : Nat :=
+  index.findId? name |>.map (index.reverse[·.toNat]!.size) |>.getD 0
 
 private def Index.cachedAt (index : Index) (id : UInt32) : CachedQuery :=
   {
