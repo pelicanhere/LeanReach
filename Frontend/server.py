@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,13 +22,24 @@ ASSETS = {
 
 
 def default_binary() -> Path:
-    candidates = (
-        ROOT / "leanreach.exe",
-        ROOT / ".lake/build/bin/leanreach.exe",
-        ROOT / ".lake/build/bin/leanreach",
-        ROOT / ".lake/build/leanreach-dist/leanreach.exe",
-    )
-    return next((path for path in candidates if path.exists()), candidates[1])
+    packaged = ROOT / "leanreach.exe"
+    if packaged.exists():
+        return packaged
+    if os.name == "nt":
+        built = ROOT / ".lake/build/bin/leanreach.exe"
+        bundled = ROOT / ".lake/build/leanreach-dist/leanreach.exe"
+        stale = (
+            bundled.exists()
+            and built.exists()
+            and built.stat().st_mtime > bundled.stat().st_mtime
+        )
+        if not bundled.exists() or stale:
+            raise SystemExit("Run 'pwsh scripts/package.ps1' to refresh the Lean runtime bundle.")
+        return bundled
+    built = ROOT / ".lake/build/bin/leanreach"
+    if not built.exists():
+        raise SystemExit("Run 'lake build leanreach' first.")
+    return built
 
 
 class Worker:
