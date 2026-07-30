@@ -167,6 +167,11 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "local query overlay is missing"
   unless overlay.baseRoot == `Mathlib && overlay.size > 0 do
     throw <| IO.userError "local query overlay has the wrong base or no declarations"
+  unless (overlay.cached? `LeanReachFixture.double).isSome &&
+      (overlay.cached? `HAdd.hAdd).isSome do
+    throw <| IO.userError "local query overlay is missing an affected delta"
+  unless (overlay.cached? `Submodule.span_le).isNone do
+    throw <| IO.userError "local query overlay copied an unaffected Mathlib query"
   let .ok (some layeredLocal) ← unsafe QueryCache.resolve layeredRoots
       "doubleViaPrivate" |
     throw <| IO.userError "local declaration did not resolve through the overlay"

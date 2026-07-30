@@ -164,7 +164,7 @@ unsafe def withInteractiveSession {α : Type} (roots : Array Name)
   let emptyEnv ← mkEmptyEnvironment
   let indexCache ← IO.mkRef none
   let query := fun query limits action => do
-    if roots.size == 1 && limits.usesCachedQuery then
+    if limits.usesCachedQuery then
       match ← unsafe QueryCache.resolve roots query with
       | .error message => throw <| IO.userError message
       | .ok (some cached) =>

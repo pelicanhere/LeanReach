@@ -65,6 +65,30 @@ private def decode (modules : Array Name) (line : String) : Option CachedQuery :
     downstream := ← decodeLocated modules downstream
   }
 
+private unsafe def loadQueries (roots : Array Name) (names : Array Name) :
+    IO (NameMap CachedQuery) := do
+  let (olean, depHash, _) ← unsafe Cache.rootData roots
+  unless ← ready olean depHash do return {}
+  let mut wanted : NameHashSet := {}
+  let mut shards := #[]
+  for name in names do
+    wanted := wanted.insert name
+    let id := shard name
+    unless shards.contains id do shards := shards.push id
+  let mut result := {}
+  for id in shards do
+    let path := shardPath olean id
+    unless ← path.pathExists do continue
+    let content ← IO.FS.readFile path
+    let (modules, lines) := content.splitOn "\n" |>.span (· != "|")
+    let _ :: lines := lines | continue
+    let modules := modules.toArray.map (·.toName)
+    for line in lines do
+      if let some query := decode modules line then
+        if wanted.contains query.target.name then
+          result := result.insert query.target.name query
+  return result
+
 private def buildShards (index : Index) (start stop : Nat) :
     Array (Array CachedQuery) := Id.run do
   let mut shards : Array (Array CachedQuery) := Array.replicate shardCount #[]
@@ -86,11 +110,6 @@ private unsafe def baseRoot? (roots : Array Name) : IO (Option Name) := do
 
 private unsafe def readOverlay (roots : Array Name) : IO (Option QueryOverlay.Data) :=
   if roots.size > 1 then unsafe QueryOverlay.load roots else pure none
-
-private unsafe def loadOverlay (roots : Array Name) : IO (Option QueryOverlay.Data) := do
-  if let some overlay ← unsafe readOverlay roots then return some overlay
-  let some baseRoot ← unsafe baseRoot? roots | return none
-  return some (← unsafe QueryOverlay.build roots baseRoot)
 
 unsafe def isBuilt (roots : Array Name) : IO Bool := do
   if let some overlay ← unsafe readOverlay roots then
@@ -138,12 +157,36 @@ private unsafe def buildFullCaches (roots : Array Name) : IO Nat := do
     if searchReady then pure 0 else unsafe SearchCache.build roots index
   return max queryCount searchCount
 
+private unsafe def buildOverlay (roots : Array Name) (baseRoot : Name) :
+    IO QueryOverlay.Data := do
+  let graph ← unsafe QueryOverlay.buildGraph roots baseRoot
+  let affected := graph.affectedNames
+  let cached ← unsafe loadQueries #[baseRoot] affected
+  let base ← unsafe Cache.loadIndex #[baseRoot] true
+  let mut queries := {}
+  for name in affected do
+    let cached? := cached.find? name
+    let target? := graph.local? name <|> cached?.map (·.target)
+    if let some target := target? then
+      queries := queries.insert name (graph.queryFromBase base target cached?)
+  let overlay := { graph with queries }
+  unsafe QueryOverlay.save roots overlay
+  return overlay
+
+private unsafe def loadOverlay (roots : Array Name) : IO (Option QueryOverlay.Data) := do
+  if let some overlay ← unsafe readOverlay roots then return some overlay
+  let some baseRoot ← unsafe baseRoot? roots | return none
+  unless (← unsafe isFullBuilt #[baseRoot]) &&
+      (← unsafe SearchCache.isBuilt #[baseRoot]) do return none
+  return some (← unsafe buildOverlay roots baseRoot)
+
 unsafe def build (roots : Array Name) : IO Nat := do
   if let some overlay ← unsafe readOverlay roots then
     return ← unsafe buildFullCaches #[overlay.baseRoot]
   if let some baseRoot ← unsafe baseRoot? roots then
-    let overlay ← unsafe QueryOverlay.build roots baseRoot
-    return max overlay.size (← unsafe buildFullCaches #[baseRoot])
+    let count ← unsafe buildFullCaches #[baseRoot]
+    let overlay ← unsafe buildOverlay roots baseRoot
+    return max overlay.size count
   unsafe buildFullCaches roots
 
 private def target? (modules : Array Name) (line : String) : Option LocatedName := do
@@ -229,19 +272,36 @@ private def mergeMatches (query : String) (limit : Nat)
   candidates := candidates.qsort fun a b => Name.lt a.name b.name
   return NameSearch.collect query candidates some (·.name) limit
 
+private unsafe def baseMatches (root : Name) (query : String)
+    (limit : Nat) : IO (Array LocatedName) := do
+  if let some results ← unsafe SearchCache.search #[root] query limit then
+    return results
+  return (← unsafe searchFull #[root] query limit).getD #[]
+
+private unsafe def overlayQuery? (overlay : QueryOverlay.Data)
+    (target : LocatedName) : IO (Option CachedQuery) := do
+  if let some cached := overlay.cached? target.name then return some cached
+  if (overlay.local? target.name).isSome then return none
+  match ← unsafe resolveFull #[overlay.baseRoot] target.name.toString with
+  | .ok cached => return cached
+  | .error _ => return none
+
 unsafe def resolve (roots : Array Name) (query : String) :
     IO (Except String (Option CachedQuery)) := do
   let overlay? ← unsafe loadOverlay roots
   let some overlay := overlay? |
     return ← unsafe resolveFull roots query
-  let base ← unsafe Cache.loadIndex #[overlay.baseRoot] true
   let name := query.toName
-  if let some target := overlay.local? name <|> base.located? name then
-    return .ok (some (overlay.query base target))
+  if let some target := overlay.local? name then
+    return .ok (overlay.cached? target.name)
+  if let .ok (some cached) ← unsafe resolveFull #[overlay.baseRoot] query then
+    if cached.target.name == name then
+      return .ok (some <| (overlay.cached? cached.target.name).getD cached)
   let localResults := localMatches overlay query
-  let baseMatches := (base.search query 11).filterMap base.located?
-  let candidates := mergeMatches query 11 localResults baseMatches
-  if candidates.size == 1 then return .ok (some (overlay.query base candidates[0]!))
+  let base ← unsafe baseMatches overlay.baseRoot query 11
+  let candidates := mergeMatches query 11 localResults base
+  if candidates.size == 1 then
+    return .ok (← unsafe overlayQuery? overlay candidates[0]!)
   if candidates.isEmpty then return .ok none
   let options := candidates.take 10 |>.map fun target =>
     s!"  {privateToUserName target.name} ({target.moduleName})"
