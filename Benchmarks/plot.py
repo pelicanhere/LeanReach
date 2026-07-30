@@ -11,8 +11,10 @@ from pathlib import Path
 
 COLORS = {
     "leanreach_session": "#16a34a",
+    "rg_session": "#f97316",
     "leanreach_process": "#2563eb",
-    "rg": "#f97316",
+    "rg_process": "#dc2626",
+    "rg": "#a855f7",
 }
 
 

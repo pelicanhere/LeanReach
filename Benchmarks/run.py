@@ -10,29 +10,29 @@ import time
 from pathlib import Path
 
 
-QUERIES = (
-    "padicValuation_cast",
-    "surjective_padicValuation",
-    "stationaryPoint_spec",
-    "equiv_zero_of_val_eq_of_equiv_zero",
-    "norm_eq_zpow_neg_valuation",
-    "norm_values_discrete",
-    "eq_padic_norm'",
-    "exi_rat_seq_conv_cauchy",
-    "norm_intCast_lt_one_iff",
+SESSION_QUERIES = (
+    ("padicValuation_cast", "padicValuation_cast"),
+    ("surjective_padicValuation", "surjective_padicValuation"),
+    ("stationaryPoint_spec", "stationaryPoint_spec"),
+    ("equiv_zero_of_val_eq_of_equiv_zero", "equiv_zero_of_val_eq_of_equiv_zero"),
+    ("norm_eq_zpow_neg_valuation", "norm_eq_zpow_neg_valuation"),
+    ("norm_values_discrete", "norm_values_discrete"),
+    ("eq_padic_norm'", "eq_padic_norm'"),
+    ("exi_rat_seq_conv_cauchy", "exi_rat_seq_conv_cauchy"),
+    ("norm_intCast_lt_one_iff", "norm_intCast_lt_one_iff"),
 )
 
-SUBSTRING_QUERIES = (
-    "span_image",
-    "localization_atprime",
-    "orderiso",
-    "measurable_equiv",
-    "continuouslinearmap",
-    "finite_dimensional",
-    "polynomial.derivative",
-    "convexhull",
-    "aestrongly",
-    "integral_comp",
+PROCESS_QUERIES = (
+    ("span_image", "span_image"),
+    ("localization_.*maximal", "localization_maximal"),
+    ("OrderIso", "OrderIso"),
+    ("measurable_equiv", "measurable_equiv"),
+    ("ContinuousLinearMap", "ContinuousLinearMap"),
+    ("finite_dimensional", "finite_dimensional"),
+    (r"Polynomial\.derivative", "Polynomial.derivative"),
+    ("convexHull", "convexHull"),
+    ("AEStrongly", "AEStrongly"),
+    ("integral_comp", "integral_comp"),
 )
 
 
@@ -61,7 +61,7 @@ def measure_process(
 
 
 def measure_session(
-    executable: Path, queries: tuple[str, ...], timeout: float
+    executable: Path, queries: tuple[tuple[str, str], ...], timeout: float
 ) -> list[tuple[float, int]]:
     process = subprocess.Popen(
         [
@@ -104,9 +104,13 @@ def measure_session(
 
     try:
         json.loads(exchange("__leanreach_benchmark_ready__"))
-        for query in queries:
+        for query, expected in queries:
             started = time.perf_counter()
             data = json.loads(exchange(query))
+            if not any(expected in item["name"] for item in data["items"]):
+                raise RuntimeError(
+                    f"LeanReach session did not find {expected!r} for {query!r}"
+                )
             samples.append((elapsed_ms(started), len(data["items"])))
         process.stdin.write(b"\n")
         process.stdin.flush()
@@ -127,10 +131,13 @@ def main() -> None:
     parser.add_argument("--history", default="Benchmarks/history.csv")
     parser.add_argument("--append-history", action="store_true")
     parser.add_argument("--skip-session", action="store_true")
-    parser.add_argument("--query-set", choices=("leaf", "substring"), default="leaf")
+    parser.add_argument(
+        "--query-set", choices=("all", "session", "process"), default="all"
+    )
     parser.add_argument("--timeout", type=float, default=300)
     args = parser.parse_args()
-    queries = SUBSTRING_QUERIES if args.query_set == "substring" else QUERIES
+    run_session = args.query_set in ("all", "session") and not args.skip_session
+    run_process = args.query_set in ("all", "process")
 
     root = Path(__file__).resolve().parent.parent
     executable = root / ".lake/build/bin/leanreach.exe"
@@ -152,33 +159,48 @@ def main() -> None:
     )
     measure_process(["rg", "--version"], args.timeout)
     rows = []
-    if not args.skip_session:
-        session = measure_session(executable, queries, args.timeout)
-        for query, (latency, found) in zip(queries, session, strict=True):
+    if run_session:
+        session = measure_session(executable, SESSION_QUERIES, args.timeout)
+        for (query, _), (latency, found) in zip(
+            SESSION_QUERIES, session, strict=True
+        ):
             rows.append((query, "leanreach_session", latency, found))
-    for query in queries:
-        latency, output = measure_process(
-            [
-                executable,
-                "--module",
-                "Mathlib",
-                "search",
-                query,
-                "--limit",
-                "10",
-                "--json",
-            ],
-            args.timeout,
-        )
-        rows.append((query, "leanreach_process", latency, len(json.loads(output)["items"])))
-    for query in queries:
-        latency, _ = measure_process(
-            ["rg", "-n", "-i", "--glob", "*.lean", query, str(mathlib)],
-            args.timeout,
-            capture=False,
-        )
-        rows.append((query, "rg", latency, 1))
+    if run_process:
+        for query, expected in PROCESS_QUERIES:
+            latency, output = measure_process(
+                [
+                    executable,
+                    "--module",
+                    "Mathlib",
+                    "search",
+                    query,
+                    "--limit",
+                    "10",
+                    "--json",
+                ],
+                args.timeout,
+            )
+            data = json.loads(output)
+            if not any(expected in item["name"] for item in data["items"]):
+                raise RuntimeError(
+                    f"LeanReach process did not find {expected!r} for {query!r}"
+                )
+            rows.append((query, "leanreach_process", latency, len(data["items"])))
+    for queries, tool in (
+        (SESSION_QUERIES if run_session else (), "rg_session"),
+        (PROCESS_QUERIES if run_process else (), "rg_process"),
+    ):
+        for query, expected in queries:
+            latency, output = measure_process(
+                ["rg", "-n", "--glob", "*.lean", query, str(mathlib)],
+                args.timeout,
+            )
+            if expected not in output:
+                raise RuntimeError(f"rg did not find {expected!r} for {query!r}")
+            rows.append((query, tool, latency, len(output.splitlines())))
 
+    if not rows:
+        raise SystemExit("No benchmark set selected.")
     records = [
         {
             "stage": args.stage,
@@ -207,18 +229,30 @@ def main() -> None:
 
     by_tool = {
         tool: [latency for _, row_tool, latency, _ in rows if row_tool == tool]
-        for tool in ("leanreach_session", "leanreach_process", "rg")
+        for tool in (
+            "leanreach_session",
+            "rg_session",
+            "leanreach_process",
+            "rg_process",
+        )
         if any(row_tool == tool for _, row_tool, _, _ in rows)
     }
-    rg_median = statistics.median(by_tool["rg"])
     for tool, samples in by_tool.items():
         total = sum(samples)
         median = statistics.median(samples)
-        ratio = median / rg_median
         print(
             f"{tool:18} total={total:9.3f}ms "
-            f"median={median:8.3f}ms ratio={ratio:7.3%}"
+            f"median={median:8.3f}ms"
         )
+    for leanreach, rg in (
+        ("leanreach_session", "rg_session"),
+        ("leanreach_process", "rg_process"),
+    ):
+        if leanreach in by_tool and rg in by_tool:
+            ratio = statistics.median(by_tool[leanreach]) / statistics.median(
+                by_tool[rg]
+            )
+            print(f"{leanreach:18} / {rg} median ratio={ratio:7.3%}")
 
 
 if __name__ == "__main__":
