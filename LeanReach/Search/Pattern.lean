@@ -222,14 +222,29 @@ private def asciiLiteral? : Ast → Option String
       else none
   | _ => none
 
-private def combine (left right : Array (Array String)) :
+/-!
+Each alternative below is an ordered list of required ASCII literal runs.
+An empty string is a consuming barrier; an empty list is a zero-width match.
+Adjacent runs may be joined only when no barrier separates them.
+-/
+
+private def concatRuns (left right : Array String) : Array String := Id.run do
+  if let some leftLast := left.back? then
+    if let some rightFirst := right[0]? then
+      if !leftLast.isEmpty && !rightFirst.isEmpty then
+        return (left.pop.push (leftLast ++ rightFirst)) ++
+          right.extract 1 right.size
+  left ++ right
+
+private def combineRuns (left right : Array (Array String)) :
     Option (Array (Array String)) := Id.run do
   if left.size * right.size > maxAlternatives then return none
   let mut result := #[]
   for left in left do
     for right in right do
-      if left.size + right.size > maxLiterals then return none
-      result := result.push (left ++ right)
+      let literals := concatRuns left right
+      if literals.size > maxLiterals then return none
+      result := result.push literals
   return some result
 
 /--
@@ -237,23 +252,34 @@ Returns a disjunction of conjunctions of proven-required ASCII literals.
 `none` means that analysis was intentionally abandoned, never that no match
 exists.
 -/
-private def requiredLiterals (ast : Ast) : Option (Array (Array String)) :=
+private def requiredRuns (ast : Ast) : Option (Array (Array String)) :=
   if let some literal := asciiLiteral? ast then
-    some #[#[literal]]
+    some #[if literal.isEmpty then #[] else #[literal]]
   else
     match ast with
     | .empty => some #[]
-    | .group child => requiredLiterals child
+    | .epsilon
+    | .anchor _
+    | .flags _ => some #[#[]]
+    | .char char =>
+        some #[asciiChar char |>.map (#[·]) |>.getD #[""]]
+    | .group child => requiredRuns child
     | .alternate left right => do
-        let left ← requiredLiterals left
-        let right ← requiredLiterals right
+        let left ← requiredRuns left
+        let right ← requiredRuns right
         if left.size + right.size > maxAlternatives then none
         else some (left ++ right)
     | .concat left right => do
-        combine (← requiredLiterals left) (← requiredLiterals right)
+        combineRuns (← requiredRuns left) (← requiredRuns right)
     | .repeat min _ _ child =>
-        if min == 0 then some #[#[]] else requiredLiterals child
-    | _ => some #[#[]]
+        if min == 0 then
+          some #[#[""]]
+        else
+          (requiredRuns child).map fun alternatives =>
+            alternatives.map fun literals => (#[""] ++ literals).push ""
+    | .classes _
+    | .perl _
+    | .dot => some #[#[""]]
 
 private def enablesCaseInsensitive : Ast → Bool
   | .flags enabled => enabled
@@ -264,7 +290,7 @@ private def enablesCaseInsensitive : Ast → Bool
   | _ => false
 
 private def candidatePlanFor (ast : Ast) : CandidatePlan :=
-  match requiredLiterals ast with
+  match requiredRuns ast with
   | none => .all
   | some alternatives => Id.run do
     if alternatives.isEmpty then return .empty

@@ -48,6 +48,7 @@ PROCESS_QUERIES = (
     ),
     ("padicValuation_cast", "padicValuation_cast"),
     ("surjective_padicValuation", "surjective_padicValuation"),
+    ("(?i)^.*surject.*padic.*$", "surjective_padicValuation"),
     ("stationaryPoint_spec", "stationaryPoint_spec"),
 )
 

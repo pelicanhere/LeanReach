@@ -31,6 +31,12 @@ private unsafe def runTests : IO Unit := do
   let acceleratedCaseFold ← regex "(?i)DOUBLE_EQ"
   let .postings _ := acceleratedCaseFold.candidatePlan |
     throw <| IO.userError "safe case-insensitive regex did not use postings"
+  let naturalRegex ← regex "(?i)^.*padic.*surject.*$"
+  let .postings _ := naturalRegex.candidatePlan |
+    throw <| IO.userError "anchored wildcard regex did not use literal postings"
+  let shortAlternative ← regex "^.*(double|x).*$"
+  let .all := shortAlternative.candidatePlan |
+    throw <| IO.userError "regex branch without a trigram was unsafely prefiltered"
   check ((← regex "(?i)^LeanReachFixture\\.[D]ouble$").isMatch
       `LeanReachFixture.double)
     "case-insensitive regex did not fold an explicit character class"
@@ -76,6 +82,20 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "candidate planning discarded a valid posting"
   check (selected == #[#["abc"]])
     "candidate planning retained a duplicate posting"
+  let manyAs := "x" ++ String.ofList (List.replicate 17 'a') ++ "y"
+  let repetitionNames := #["xaay".toName, "xaaay".toName, manyAs.toName]
+  let repetitionIndex := Index.build <| repetitionNames.map fun name =>
+    (name, `Tests.Fixture, ({} : NameSet))
+  for (source, expected) in #[
+      ("^xa+y$", "xaay".toName),
+      ("^xa{2,3}y$", "xaay".toName),
+      ("^x(a|b){2}y$", "xaay".toName),
+      ("^xa{17}y$", manyAs.toName)] do
+    let pattern ← regex source
+    check (pattern.isMatch expected)
+      s!"repetition regex '{source}' did not match its fixture"
+    check (repetitionIndex.search pattern 10 == repetitionIndex.searchAll pattern 10)
+      s!"repetition candidate plan dropped a match for '{source}'"
   let sourcePath ← unsafe prepareEnvironment
   unless (← sourcePath.findModuleWithExt "lean" `Tests.Fixture).isSome do
     throw <| IO.userError s!"project source path does not contain Tests.Fixture: {sourcePath}"
@@ -290,6 +310,10 @@ private unsafe def runTests : IO Unit := do
       (r"[zZ]", 10),
       (r"LeanReachFixture\.hidden_double_zero", 10),
       (r"^LeanReachFixture\.", 10),
+      (r"^.*double.*zero.*$", 10),
+      (r"^.*double.?zero.*$", 10),
+      (r"^.*(double|cached).*zero.*$", 10),
+      ("(?i)^.*DOUBLE.*ZERO.*$", 10),
       ("(?i)DOUBLE_EQ", 10),
       ("(?i)[D]OUBLE_EQ", 10),
       ("(?i)[A-Z]ouble_eq", 10),
@@ -373,6 +397,7 @@ private unsafe def runTests : IO Unit := do
       ("Submodule.span_le", 10),
       ("span_eq", 37),
       ("continuouson_image", 10),
+      ("(?i)^.*surject.*padic.*$", 10),
       ("eq", 10)] do
     let pattern ← regex source
     let some cached ← unsafe QueryCache.search #[`Mathlib] pattern limit |
