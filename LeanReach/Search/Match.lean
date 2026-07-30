@@ -1,5 +1,9 @@
-import Lean.Data.Name
-import Lean.PrivateName
+module
+
+public import Lean.Data.Name
+public import Lean.PrivateName
+
+@[expose] public section
 
 namespace LeanReach.NameSearch
 
