@@ -33,12 +33,12 @@ unsafe def withPrivateOverlay {α : Type} (env : Environment) (moduleName : Name
     (signatureNames bodyNames : Array Name) (moduleOf? : Name → Option Name)
     (action : Environment → IO α) : IO (α × Nat) := do
   let started ← IO.monoNanosNow
-  let ((result, overlayNanos), regions) ←
-      show IO ((α × Nat) × Array CompactedRegion) from do
+  let mut regions : Array CompactedRegion := #[]
+  try
     let parts ← unsafe readParts (← findOLean moduleName)
+    regions := parts.map (·.2)
     let some (data, _) := parts.back? |
       throw <| IO.userError s!"empty module data for '{moduleName}'"
-    let mut regions := parts.map (·.2)
     let mut modules : NameMap (NameMap ConstantInfo) := {}
     modules := modules.insert moduleName (constantMap data)
     let mut env := env
@@ -54,9 +54,9 @@ unsafe def withPrivateOverlay {α : Type} (env : Environment) (moduleName : Name
         | some constants => pure constants
         | none => do
           let parts ← unsafe readParts (← findOLean owner)
+          regions := regions ++ parts.map (·.2)
           let some (data, _) := parts.back? |
             throw <| IO.userError s!"empty module data for '{owner}'"
-          regions := regions ++ parts.map (·.2)
           let result := constantMap data
           modules := modules.insert owner result
           pure result
@@ -76,8 +76,8 @@ unsafe def withPrivateOverlay {α : Type} (env : Environment) (moduleName : Name
                 moduleOf? dependency
           if let some owner := owner? then pending := pending.push (dependency, owner, false)
     let overlayNanos := (← IO.monoNanosNow) - started
-    return ((← action env, overlayNanos), regions)
-  regions.forM CompactedRegion.free
-  return (result, overlayNanos)
+    return (← action env, overlayNanos)
+  finally
+    regions.forM CompactedRegion.free
 
 end LeanReach.ModuleData
