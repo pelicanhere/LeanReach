@@ -1,4 +1,4 @@
-import Lean
+import Mathlib.Tactic.IrreducibleDef
 
 namespace LeanReachFixture
 
@@ -17,6 +17,10 @@ theorem double_zero_via_private : double 0 = 0 := hidden_double_zero
 private def hiddenDouble (n : Nat) : Nat := n + n
 
 def doubleViaPrivate (n : Nat) : Nat := hiddenDouble n
+
+irreducible_def cachedWrapped (n : Nat) : Nat := n + 1
+
+def cachedPrivateText : String := "_private."
 
 namespace Topic
 

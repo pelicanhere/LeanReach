@@ -76,6 +76,24 @@ private unsafe def runTests : IO Unit := do
       | some left, some right => (toJson left).compress == (toJson right).compress
       | _, _ => false do
     throw <| IO.userError "planned PP changed declaration output"
+  let some cachedWrapped := planned.find? `LeanReachFixture.cachedWrapped |
+    throw <| IO.userError "irreducible definition is missing from planned PP"
+  unless cachedWrapped.signature.contains "✝" do
+    throw <| IO.userError "irreducible definition did not exercise dagger PP"
+  let some cachedPrivateText := planned.find? `LeanReachFixture.cachedPrivateText |
+    throw <| IO.userError "private text fixture is missing from planned PP"
+  unless cachedPrivateText.signature.contains "_private." do
+    throw <| IO.userError "private text fixture did not exercise cache text"
+  unsafe Cache.savePPModule `Tests.Fixture planned
+  let roundTripped ← unsafe Cache.loadPPModule `Tests.Fixture
+  unless fixtureNames.all roundTripped.contains do
+    throw <| IO.userError "PP cache dropped a freshly serialized declaration"
+  let selected ← unsafe Cache.loadPP fixtureIndex.moduleOf?
+    #[`LeanReachFixture.cachedWrapped]
+  let some selectedWrapped := selected.find? `LeanReachFixture.cachedWrapped |
+    throw <| IO.userError "selective PP cache load dropped an irreducible definition"
+  unless (toJson selectedWrapped).compress == (toJson cachedWrapped).compress do
+    throw <| IO.userError "selective PP cache load changed declaration output"
   let (withoutSource, _) ← unsafe runCore fixtureEnv <|
     prettyPrintModuleWithBodies `Tests.Fixture (none, {})
       #[`LeanReachFixture.double] {}
@@ -84,6 +102,18 @@ private unsafe def runTests : IO Unit := do
   unless withoutSource.line == 0 && withoutSource.column == 0 do
     throw <| IO.userError "missing source position did not remain 0:0"
   discard <| unsafe QueryCache.build #[`Tests.Fixture]
+  for _ in [0:2] do
+    let cachedRun ← unsafe withCachedQueryFor #[`Tests.Fixture]
+        "LeanReachFixture.cachedWrapped" (Limits.uniform 0) fun session names => do
+      check session.sourcePath.isEmpty
+        "cached query unexpectedly prepared a source environment"
+      check (!(← getEnv).contains `LeanReachFixture.cachedWrapped)
+        "cached query unexpectedly imported its target module"
+      let result ← session.describeQuery names
+      check (result.target.signature.contains "✝")
+        "cached query lost the serialized irreducible definition"
+    unless cachedRun.isSome do
+      throw <| IO.userError "irreducible definition did not use the query cache"
   let .ok (some cachedQuery) ← unsafe QueryCache.resolve #[`Tests.Fixture]
       "LeanReachFixture.Topic.ranked" |
     throw <| IO.userError "exact query cache is missing"
