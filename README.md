@@ -29,9 +29,6 @@ can be launched directly without `lake exe` or a separate packaging step. For ex
 .\.lake\build\bin\leanreach_tests.exe
 ```
 
-`pwsh scripts/package.ps1` remains available when a copied directory containing the executable,
-runtime DLLs, and frontend assets is useful.
-
 ## CLI
 
 ```console
