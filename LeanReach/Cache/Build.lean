@@ -1,4 +1,4 @@
-import Std.Sync.Channel
+import Init.System.Promise
 import LeanReach.Cache.Index
 import LeanReach.Cache.PrettyPrint
 import LeanReach.Cache.Query
@@ -10,6 +10,7 @@ namespace LeanReach
 open Lean
 
 private abbrev Input := Name × Array Name × NameMap Declaration
+private abbrev Output := Name × Except IO.Error (Nat × PPTiming)
 
 private def parallelism : IO Nat := do
   let some value ← IO.getEnv "LEANREACH_PP_JOBS" | return 4
@@ -37,18 +38,20 @@ private unsafe def completedModules (roots : Array Name) : IO NameHashSet := do
   return completed
 
 private unsafe def worker (sourcePath : SearchPath) (env : Environment)
-    (moduleOf? : Name → Option Name) (jobs : Std.Channel.Sync (Option Input))
-    (results : Std.Channel.Sync
-      (Option (Name × Except IO.Error (Nat × PPTiming)))) : IO Unit := do
+    (inputs : Array Input) (moduleOf? : Name → Option Name)
+    (next finished : IO.Ref Nat) (outputs : Array (IO.Promise Output)) : IO Unit := do
   while true do
-    let some (moduleName, names, before) ← jobs.recv | return
+    let index ← next.modifyGet fun index => (index, index + 1)
+    let some (moduleName, names, before) := inputs[index]? | return
     let result ← try
       let (added, timing) ← unsafe prettyPrintModuleIO
         sourcePath env moduleName names moduleOf?
       let (count, writeNanos) ← unsafe saveModule moduleName before added
       pure <| .ok (count, { timing with sidecarWriteNanos := writeNanos })
     catch error => pure (.error error)
-    results.send (some (moduleName, result))
+    let slot ← finished.modifyGet fun slot => (slot, slot + 1)
+    let some output := outputs[slot]? | unreachable!
+    output.resolve (moduleName, result)
 
 private unsafe def buildModules (sourcePath : SearchPath) (env : Environment)
     (inputs : Array Input) (moduleOf? : Name → Option Name := fun _ => none)
@@ -56,17 +59,17 @@ private unsafe def buildModules (sourcePath : SearchPath) (env : Environment)
     IO (Nat × PPTiming) := do
   if inputs.isEmpty then return (0, {})
   let workers := min (← parallelism) inputs.size
-  let jobs ← Std.Channel.Sync.new
-  let results ← Std.Channel.Sync.new
-  for input in inputs do jobs.send (some input)
-  for _ in [0:workers] do jobs.send none
+  let next ← IO.mkRef 0
+  let finished ← IO.mkRef 0
+  let outputs : Array (IO.Promise Output) ← inputs.mapM fun _ => IO.Promise.new
   let tasks ← (Array.range workers).mapM fun _ =>
-    IO.asTask <| unsafe worker sourcePath env moduleOf? jobs results
+    IO.asTask <| unsafe worker sourcePath env inputs moduleOf? next finished outputs
   let mut count := 0
   let mut timing := {}
   let mut failure? := none
   for done in [0:inputs.size] do
-    let some (moduleName, result) ← results.recv | unreachable!
+    let some output := outputs[done]? | unreachable!
+    let some (moduleName, result) ← IO.wait output.result? | unreachable!
     match result with
     | .ok (added, elapsed) =>
       count := count + added
@@ -74,7 +77,7 @@ private unsafe def buildModules (sourcePath : SearchPath) (env : Environment)
       progress moduleName (done + 1)
     | .error error =>
       if failure?.isNone then failure? := some error
-  for task in tasks do IO.ofExcept task.get
+  for task in tasks do IO.ofExcept (← IO.wait task)
   if let some error := failure? then throw error
   return (count, timing)
 
