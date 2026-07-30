@@ -11,6 +11,8 @@ package LeanReach where
   ]
 
 require "leanprover-community" / "mathlib" @ git "v4.32.0"
+require Regex from git "https://github.com/pelicanhere/lean-regex.git" @
+  "e9dcea72668042ff3a2ade88efbc639b1c0fc119" / "regex"
 
 target runtimeDlls pkg : Unit := do
   unless Platform.isWindows do return Job.nil
