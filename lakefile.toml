@@ -12,8 +12,8 @@ rev = "v4.32.0"
 
 [[require]]
 name = "Regex"
-git = "https://github.com/pelicanhere/lean-regex.git"
-rev = "e9dcea72668042ff3a2ade88efbc639b1c0fc119"
+git = "https://github.com/pandaman64/lean-regex.git"
+rev = "v4.32.0"
 subDir = "regex"
 
 [[lean_lib]]
