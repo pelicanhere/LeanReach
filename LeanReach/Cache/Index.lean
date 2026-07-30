@@ -42,23 +42,28 @@ private unsafe def readFragment (moduleName : Name) (olean : System.FilePath) :
   let parts ← unsafe ModuleData.readParts olean
   let some (all, _) := parts.back? |
     throw <| IO.userError s!"empty module data for '{moduleName}'"
-  let source ← sourceNames olean
-  let (constants, internal) := all.constants.foldl
-      (init := (({} : NameMap ConstantInfo), ({} : NameMap NameSet))) fun state info =>
-    let constants := state.1.insert info.name info
-    let internal :=
-      if source.contains info.name && !isBlacklisted info.name then state.2
-      else state.2.insert info.name info.getUsedConstantsAsSet
-    (constants, internal)
-  return ({
-    imports := all.imports.map (·.module)
-    declarations := all.constants.filterMap fun visibleInfo =>
-      let name := visibleInfo.name
-      if source.contains name && !isBlacklisted name then
-        let info := (constants.find? name).getD visibleInfo
-        some (name, collapseInternal internal info.getUsedConstantsAsSet)
-      else none
-  }, parts.map (·.2))
+  let regions := parts.map (·.2)
+  try
+    let source ← sourceNames olean
+    let (constants, internal) := all.constants.foldl
+        (init := (({} : NameMap ConstantInfo), ({} : NameMap NameSet))) fun state info =>
+      let constants := state.1.insert info.name info
+      let internal :=
+        if source.contains info.name && !isBlacklisted info.name then state.2
+        else state.2.insert info.name info.getUsedConstantsAsSet
+      (constants, internal)
+    return ({
+      imports := all.imports.map (·.module)
+      declarations := all.constants.filterMap fun visibleInfo =>
+        let name := visibleInfo.name
+        if source.contains name && !isBlacklisted name then
+          let info := (constants.find? name).getD visibleInfo
+          some (name, collapseInternal internal info.getUsedConstantsAsSet)
+        else none
+    }, regions)
+  catch error =>
+    regions.forM CompactedRegion.free
+    throw error
 
 private unsafe def writeFragment (moduleName : Name) (olean path : System.FilePath)
     (hash : String) : IO Unit := do
@@ -102,7 +107,7 @@ private unsafe def buildIndex (roots : Array Name) : IO Index := do
     let tasks ← batch.mapM fun moduleName => IO.asTask (unsafe loadFragment moduleName)
     for (moduleName, task) in batch.zip tasks do
       let fragment ← IO.ofExcept task.get
-      pending := pending ++ fragment.imports
+      for imported in fragment.imports do pending := pending.push imported
       for (name, dependencies) in fragment.declarations do
         declarations := declarations.push (name, moduleName, dependencies)
   return Index.build declarations

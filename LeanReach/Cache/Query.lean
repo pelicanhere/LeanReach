@@ -45,6 +45,10 @@ private def decodeTarget (modules : Array Name) (name moduleId : String) :
   let some moduleName := moduleId.toNat? >>= fun id => modules[id]? | none
   return { name := name.toName, moduleName }
 
+private def target? (modules : Array Name) (line : String) : Option LocatedName := do
+  let name :: moduleId :: _ := line.splitOn "\t" | none
+  decodeTarget modules name moduleId
+
 private def decodeLocated (modules : Array Name) (fields : List String) :
     Option (Array LocatedName) :=
   go fields #[]
@@ -86,9 +90,10 @@ private unsafe def loadQueries (roots : Array Name) (names : Array Name) :
   for id in shards do
     let some (modules, lines) ← readShard (shardPath olean id) | continue
     for line in lines do
-      if let some query := decode modules line then
-        if wanted.contains query.target.name then
-          result := result.insert query.target.name query
+      if let some target := target? modules line then
+        if wanted.contains target.name then
+          if let some query := decode modules line then
+            result := result.insert query.target.name query
   return result
 
 private def buildShards (index : Index) (start stop : Nat) :
@@ -191,20 +196,6 @@ unsafe def build (roots : Array Name) : IO Nat := do
     return max overlay.size count
   unsafe buildFullCaches roots
 
-private def target? (modules : Array Name) (line : String) : Option LocatedName := do
-  let name :: moduleId :: _ := line.splitOn "\t" | none
-  decodeTarget modules name moduleId
-
-private def exactMatches (modules : Array Name) (lines : List String)
-    (name : Name) : Array CachedQuery := Id.run do
-  let mut results := #[]
-  for line in lines do
-    if let some query := decode modules line then
-      if query.target.name == name ||
-          (!isPrivateName name && privateToUserName query.target.name == name) then
-        results := results.push query
-  return results
-
 private unsafe def loadShard (roots : Array Name) (name : Name) :
     IO (Option (Array Name × List String)) := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
@@ -215,24 +206,28 @@ private unsafe def resolveFull (roots : Array Name) (query : String) :
     IO (Except String (Option CachedQuery)) := do
   let name := query.toName
   let some (modules, lines) ← unsafe loadShard roots name | return .ok none
-  let exact := exactMatches modules lines name
+  let wanted := query.toLower
+  let mut exact := #[]
+  let mut suffix := #[]
+  for line in lines do
+    let some target := target? modules line | continue
+    if target.name == name ||
+        (!isPrivateName name && privateToUserName target.name == name) then
+      if let some cached := decode modules line then exact := exact.push cached
+    else if name.isAtomic &&
+        NameSearch.leafMatches wanted (privateToUserName target.name) then
+      suffix := suffix.push (target, line)
   if exact.size == 1 then return .ok (some exact[0]!)
   if exact.size > 1 then
     let options := exact.take 10 |>.map fun cached =>
       s!"  {privateToUserName cached.target.name} ({cached.target.moduleName})"
     return .error s!"ambiguous declaration '{query}':\n{String.intercalate "\n" options.toList}"
   unless name.isAtomic do return .ok none
-  let wanted := query.toLower
-  let candidates := lines.filterMap fun line => do
-    let some target := target? modules line | none
-    if NameSearch.leafMatches wanted (privateToUserName target.name) then
-      some (target, line)
-    else none
-  if let [(_, line)] := candidates then return .ok (decode modules line)
-  if candidates.isEmpty then return .ok none
-  let options := candidates.take 10 |>.map fun (target, _) =>
+  if suffix.size == 1 then return .ok (decode modules suffix[0]!.2)
+  if suffix.isEmpty then return .ok none
+  let options := suffix.take 10 |>.map fun (target, _) =>
     s!"  {privateToUserName target.name} ({target.moduleName})"
-  return .error s!"ambiguous declaration '{query}':\n{String.intercalate "\n" options}"
+  return .error s!"ambiguous declaration '{query}':\n{String.intercalate "\n" options.toList}"
 
 private unsafe def searchFull (roots : Array Name) (query : String)
     (limit : Nat) : IO (Option (Array LocatedName)) := do
@@ -257,6 +252,15 @@ private def localMatches (overlay : QueryOverlay.Data) (query : String) :
   overlay.localNames.filter fun target =>
     NameSearch.exact wanted target.name ||
       name.isAtomic && NameSearch.leafMatches wanted target.name
+
+private def localSearchMatches (overlay : QueryOverlay.Data) (query : String) :
+    Array LocatedName := Id.run do
+  let query := query.toLower
+  let mut results := #[]
+  for (_, entry) in overlay.entries do
+    if NameSearch.isMatch query entry.target.name then
+      results := results.push entry.target
+  return results
 
 private def mergeMatches (query : String) (limit : Nat)
     (left right : Array LocatedName) : Array LocatedName := Id.run do
@@ -313,9 +317,9 @@ unsafe def search (roots : Array Name) (query : String)
     return ← unsafe searchFull roots query limit
   let some base ← unsafe SearchCache.search #[overlay.baseRoot] query limit |
     let base := (← unsafe searchFull #[overlay.baseRoot] query limit).getD #[]
-    let results := mergeMatches query limit (localMatches overlay query) base
+    let results := mergeMatches query limit (localSearchMatches overlay query) base
     return if results.isEmpty then none else some results
-  let results := mergeMatches query limit overlay.localNames base
+  let results := mergeMatches query limit (localSearchMatches overlay query) base
   return some results
 
 end LeanReach.QueryCache

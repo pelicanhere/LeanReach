@@ -58,13 +58,14 @@ private unsafe def loadConfig (dir sysroot : FilePath) : IO (Option Metadata) :=
   return some (roots, libraries.map (·.srcDir.toString),
     package.depConfigs.any fun dependency => dependency.name == `mathlib, #[])
 
-private partial def builtSubmodules (dir : FilePath) (base : Name) : IO (Array Name) := do
-  unless ← dir.isDir do return #[]
-  let mut modules := #[]
+private partial def builtSubmodules (dir : FilePath) (base : Name)
+    (modules : Array Name := #[]) : IO (Array Name) := do
+  unless ← dir.isDir do return modules
+  let mut modules := modules
   for entry in ← dir.readDir do
     let name := Name.str base (FilePath.withExtension entry.fileName "").toString
     if ← entry.path.isDir then
-      modules := modules ++ (← builtSubmodules entry.path name)
+      modules ← builtSubmodules entry.path name modules
     else if entry.path.extension == some "olean" then
       modules := modules.push name
   return modules
@@ -83,20 +84,21 @@ unsafe def detectRoots (sysroot : FilePath) (refresh := false) : IO (Array Name)
   let buildDir := dir / ".lake" / "build" / "lib" / "lean"
   let mut candidates := roots
   for root in roots do
-    candidates := candidates ++
-      (← builtSubmodules (Lean.modToFilePath buildDir root "") root)
+    candidates ← builtSubmodules (Lean.modToFilePath buildDir root "") root candidates
   let mut built := #[]
+  let mut seen : NameHashSet := {}
   for moduleName in candidates do
-    let mut hasSource := false
-    for sourceDir in sourceDirs do
-      if ← (Lean.modToFilePath (FilePath.mk sourceDir) moduleName "lean").pathExists then
-        hasSource := true
-        break
-    if hasSource && !built.contains moduleName &&
-        (← (Lean.modToFilePath buildDir moduleName "olean").pathExists) then
-      built := built.push moduleName
+    unless seen.contains moduleName do
+      let mut hasSource := false
+      for sourceDir in sourceDirs do
+        if ← (Lean.modToFilePath (FilePath.mk sourceDir) moduleName "lean").pathExists then
+          hasSource := true
+          break
+      if hasSource && (← (Lean.modToFilePath buildDir moduleName "olean").pathExists) then
+        seen := seen.insert moduleName
+        built := built.push moduleName
   built := built.qsort Name.lt
-  if mathlib && !built.contains `Mathlib then built := built.push `Mathlib
+  if mathlib && !seen.contains `Mathlib then built := built.push `Mathlib
   try saveCached cache hash roots sourceDirs mathlib built catch _ => pure ()
   return built
 

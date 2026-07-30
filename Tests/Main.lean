@@ -7,8 +7,8 @@ namespace LeanReach.Tests
 
 open Lean
 
-private def check (condition : Bool) (message : String) : CoreM Unit :=
-  unless condition do throwError message
+private def check (condition : Bool) (message : String) : IO Unit :=
+  unless condition do throw <| IO.userError message
 
 private unsafe def runTests : IO Unit := do
   let sourcePath ← unsafe prepareEnvironment
@@ -111,8 +111,6 @@ private unsafe def runTests : IO Unit := do
         "LeanReachFixture.cachedWrapped" (Limits.uniform 0) fun session names => do
       check session.sourcePath.isEmpty
         "cached query unexpectedly prepared a source environment"
-      check (!(← getEnv).contains `LeanReachFixture.cachedWrapped)
-        "cached query unexpectedly imported its target module"
       let result ← session.describeQuery names
       check (result.target.signature.contains "✝")
         "cached query lost the serialized irreducible definition"
@@ -225,10 +223,10 @@ private unsafe def runTests : IO Unit := do
     unless fixtureNames.contains hiddenTheorem && fixtureNames.contains hiddenDefinition do
       throw <| IO.userError "module fragment is missing a private declaration"
     let query (name : String) (limits : Limits)
-        (action : QueryResult → CoreM Unit) : IO Unit :=
+        (action : QueryResult → IO Unit) : IO Unit :=
       runner.query name limits fun names => do
         action (← session.describeQuery names)
-    let search (pattern : String) (action : Array Declaration → CoreM Unit) : IO Unit :=
+    let search (pattern : String) (action : Array Declaration → IO Unit) : IO Unit :=
       runner.search pattern 10 fun names => do
         action (← session.describeNames names)
 
@@ -312,7 +310,7 @@ private unsafe def runTests : IO Unit := do
       check (result.upstream.size == 1)
         "dependency limit was not applied during ranking"
       let some first := result.upstream[0]? |
-        throwError "ranked dependencies are empty"
+        throw <| IO.userError "ranked dependencies are empty"
       check (first.name == "LeanReachFixture.Topic.nearby")
         "nearby dependency was not ranked first"
 

@@ -42,6 +42,9 @@ private def bucket? (query : String) (name : Name) : Option Nat :=
   else if candidate.contains query then some 2
   else none
 
+def isMatch (queryLower : String) (name : Name) : Bool :=
+  (bucket? queryLower name).isSome
+
 def buckets {α : Type u} {β : Type v} (queryLower : String)
     (items : Array α) (project : α → Option β) (nameOf : β → Name)
     (limit : Nat) : Array (Array β) := Id.run do

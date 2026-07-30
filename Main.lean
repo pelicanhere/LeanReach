@@ -109,11 +109,11 @@ private def printSearch (json : Bool) (query : String) (items : Array Declaratio
       printDeclaration "  " declaration
 
 private def printQueryNames (config : Config) (session : Session)
-    (names : QueryNames) : CoreM Unit := do
+    (names : QueryNames) : IO Unit := do
   printQuery config.json (← session.describeQuery names)
 
 private def printSearchNames (config : Config) (pattern : String)
-    (session : Session) (names : Array Name) : CoreM Unit := do
+    (session : Session) (names : Array Name) : IO Unit := do
   printSearch config.json pattern (← session.describeNames names)
 
 private def Config.limits (config : Config) : Limits :=
@@ -152,30 +152,32 @@ private def parseLine (line : String) : Command :=
   else
     .query line
 
-private partial def runInteractive (session : Session) (runner : InteractiveRunner)
+private def runInteractive (session : Session) (runner : InteractiveRunner)
     (config : Config) : IO Unit := do
-  let line := (← (← IO.getStdin).getLine).trimAscii.copy
-  if line.isEmpty then return
-  let command := parseLine line
-  let label := if command matches .search _ then "search" else "query"
-  profiled config.profile label do
-    try
-      match command with
-      | .query query =>
-        runner.query query config.limits fun names =>
-          printQueryNames config session names
-      | .search pattern =>
-        runner.search pattern config.limits.search fun names =>
-          printSearchNames config pattern session names
-      | .cache _ => unreachable!
-    catch error =>
-      let message := toString error
-      if config.json then
-        IO.println (Json.mkObj [("error", toJson message)]).compress
-      else
-        IO.eprintln s!"leanreach: {message}"
-  (← IO.getStdout).flush
-  runInteractive session runner config
+  let stdin ← IO.getStdin
+  let stdout ← IO.getStdout
+  while true do
+    let line := (← stdin.getLine).trimAscii.copy
+    if line.isEmpty then break
+    let command := parseLine line
+    let label := if command matches .search _ then "search" else "query"
+    profiled config.profile label do
+      try
+        match command with
+        | .query query =>
+          runner.query query config.limits fun names =>
+            printQueryNames config session names
+        | .search pattern =>
+          runner.search pattern config.limits.search fun names =>
+            printSearchNames config pattern session names
+        | .cache _ => unreachable!
+      catch error =>
+        let message := toString error
+        if config.json then
+          IO.println (Json.mkObj [("error", toJson message)]).compress
+        else
+          IO.eprintln s!"leanreach: {message}"
+    stdout.flush
 
 private def validate (config : Config) : CliMainM Unit := do
   if config.limit?.any fun limit => limit == 0 || limit > 1000 then

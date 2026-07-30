@@ -3,7 +3,7 @@ import LeanReach.Search.Index
 
 namespace LeanReach
 
-open Lean Meta
+open Lean
 
 abbrev QueryResult := Neighborhood Declaration
 
@@ -42,9 +42,9 @@ def Session.missing (session : Session) (names : Array Name) : IO (Array Name) :
   let cached ← session.declarations.get
   return names.filter fun name => !cached.contains name
 
-private def describe (session : Session) (name : Name) : CoreM Declaration := do
+private def describe (session : Session) (name : Name) : IO Declaration := do
   let some declaration := (← session.declarations.get).find? name |
-    throwError "declaration '{name}' was not prepared"
+    throw <| IO.userError s!"declaration '{name}' was not prepared"
   return declaration
 
 abbrev QueryNames := Neighborhood Name
@@ -59,7 +59,8 @@ def CachedQuery.queryNames (query : CachedQuery) (limits : Limits) : QueryNames 
 def CachedQuery.moduleOf? (query : CachedQuery) (name : Name) : Option Name :=
   if query.target.name == name then some query.target.moduleName
   else
-    (query.upstream ++ query.downstream).find? (·.name == name) |>.map (·.moduleName)
+    (query.upstream.find? (·.name == name) <|>
+      query.downstream.find? (·.name == name)).map (·.moduleName)
 
 def Index.queryNames (index : Index) (query : String) (limits : Limits := {}) :
     Except String QueryNames := do
@@ -71,11 +72,11 @@ def Index.queryNames (index : Index) (query : String) (limits : Limits := {}) :
   }
 
 def Session.describeNames (session : Session) (items : Array Name) :
-    CoreM (Array Declaration) :=
+    IO (Array Declaration) :=
   items.mapM (describe session)
 
 def Session.describeQuery (session : Session) (names : QueryNames) :
-    CoreM QueryResult := do
+    IO QueryResult := do
   return {
     target := ← describe session names.target
     upstream := ← session.describeNames names.upstream

@@ -6,13 +6,10 @@ namespace LeanReach.Cache
 
 open Lean
 
-/-- Save a compacted Lean object. Adapted from Loogle's `Pickle` module. -/
-def pickle {α : Type} (path : System.FilePath) (value : α) (key : Name) : IO Unit :=
-  saveModuleData path key (unsafe unsafeCast value)
-
+/-- Save a compacted Lean object with its dependency hash. Adapted from Loogle's `Pickle` module. -/
 def savePart {α : Type} (path : System.FilePath) (depHash : String)
     (value : α) (key : Name) : IO Unit :=
-  pickle path (depHash, value) key
+  saveModuleData path key (unsafe unsafeCast (depHash, value))
 
 unsafe def loadPart (α : Type) (path : System.FilePath) (depHash : String) :
     IO (Option α) := do
