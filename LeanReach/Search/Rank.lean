@@ -1,4 +1,5 @@
 import LeanReach.Search.Name
+import LeanReach.Search.TopK
 import LeanReach.Search.Types
 
 namespace LeanReach
@@ -33,53 +34,11 @@ private def localityScore (source : LocatedName) (sourceNameParts sourceModulePa
     2.0 * prefixSimilarity sourceModuleParts candidate.moduleName.components +
     4.0 * tokenSimilarity sourceParts (significantParts candidate.name)
 
-private def heapifyDown {α : Type u} [Inhabited α] (lt : α → α → Bool)
-    (items : Array α) : Array α := Id.run do
-  let mut items := items
-  let mut parent : Nat := 0
-  while 2 * parent + 1 < items.size do
-    let left := 2 * parent + 1
-    let right := left + 1
-    let child :=
-      if right < items.size && lt items[left]! items[right]! then right else left
-    if lt items[parent]! items[child]! then
-      items := items.swapIfInBounds parent child
-      parent := child
-    else break
-  return items
-
-private def heapInsert {α : Type u} [Inhabited α] (lt : α → α → Bool)
-    (items : Array α) (item : α) : Array α := Id.run do
-  let mut items := items.push item
-  let mut child := items.size - 1
-  while child > 0 do
-    let parent := (child - 1) / 2
-    if lt items[parent]! items[child]! then
-      items := items.swapIfInBounds parent child
-      child := parent
-    else break
-  return items
-
 private def rankPositions (size limit : Nat) (score : Nat → Float)
-    (name : Nat → Name) : Array Nat := Id.run do
-  if limit == 0 || size == 0 then return #[]
-  if size == 1 then return #[0]
+    (name : Nat → Name) : Array Nat :=
   let better := fun (scoreA, a) (scoreB, b) =>
     if scoreA != scoreB then scoreA > scoreB else Name.lt (name a) (name b)
-  let best :=
-    if size ≤ limit then
-      (Array.range size).map fun id => (score id, id)
-    else Id.run do
-      let mut heap := #[]
-      for id in [0:size] do
-        let item := (score id, id)
-        if heap.size < limit then
-          heap := heapInsert better heap item
-        else if let some worst := heap[0]? then
-          if better item worst then
-            heap := heapifyDown better (heap.set! 0 item)
-      return heap
-  return (best.qsort better).map (·.2)
+  (TopK.select size limit (fun id => (score id, id)) better).map (·.2)
 
 def prior (total reverseCount forwardCount : Nat) (upstream : Bool) : Float :=
   let df := reverseCount.toFloat
