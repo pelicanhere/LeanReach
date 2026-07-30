@@ -192,7 +192,8 @@ Interactive mode keeps the dependency index and in-memory PP map alive across co
 repeated Lean runtime startup and is the intended interface for agents performing a search chain.
 
 The remaining cold-cache cost is primarily Lean signature delaboration and formatting. Stable
-Mathlib sidecars should be built once and reused; changed local modules are generated incrementally.
+Mathlib sidecars should be built once and reused. Local module fragments and PP sidecars are reused
+per module; the small local overlay and global rank summary are regenerated from those fragments.
 
 ## Source layout
 
@@ -225,8 +226,8 @@ Main.lean                              CLI and output
 ## Benchmark discipline
 
 `Benchmarks/run.py` compares a chain of distinct searches. It does not report repeated lookup of one
-name as first-use latency. The current harness uses the packaged Windows executable; run
-`pwsh scripts/package.ps1` and precompute `leanreach.exe cache` first. A fair cached comparison:
+name as first-use latency. The current harness uses `.lake/build/bin/leanreach.exe`; run
+`lake build` and precompute `leanreach.exe cache` first. A fair cached comparison:
 
 1. builds the complete LeanReach cache beforehand;
 2. primes executable and catalog startup without querying a benchmark declaration;

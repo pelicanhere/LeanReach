@@ -21,12 +21,16 @@ lake exe leanreach_tests
 ```
 
 The native executable is written to `.lake/build/bin/leanreach` (`leanreach.exe` on Windows).
-To create a directly runnable Windows distribution with the required Lean runtime DLLs:
+On Windows, `lake build` also installs the five Lean runtime DLLs beside both executables, so they
+can be launched directly without `lake exe` or a separate packaging step. For example:
 
 ```console
-pwsh scripts/package.ps1
-.lake/build/leanreach-dist/leanreach.exe --help
+.\.lake\build\bin\leanreach.exe --help
+.\.lake\build\bin\leanreach_tests.exe
 ```
+
+`pwsh scripts/package.ps1` remains available when a copied directory containing the executable,
+runtime DLLs, and frontend assets is useful.
 
 ## CLI
 
@@ -84,11 +88,11 @@ loads only relevant PP sidecars, and writes back newly pretty-printed declaratio
 
 ## Local Lake projects
 
-Build LeanReach with the same Lean toolchain as the target project. Then run the packaged executable
+Build LeanReach with the same Lean toolchain as the target project. Then run the built executable
 from the target project or one of its subdirectories:
 
 ```console
-/path/to/LeanReach/.lake/build/leanreach-dist/leanreach.exe search my_theorem
+/path/to/LeanReach/.lake/build/bin/leanreach search my_theorem
 ```
 
 LeanReach walks upward to the nearest `lakefile.toml` or `lakefile.lean`, asks Lake for the local
@@ -99,14 +103,13 @@ directly requires Mathlib, the Mathlib root is included in the same query view.
 project view to avoid recursively scanning `.lake/build` during every process startup.
 
 Caches are stored next to the corresponding `.olean` files and invalidated with Lake dependency
-hashes. Rebuilding one local module reuses unchanged module fragments and PP sidecars; a changed
-module is regenerated at module granularity.
+hashes. Rebuilding one local module reuses unchanged module fragments and PP sidecars. The compact
+local overlay and global rank summary are then regenerated from those cached fragments.
 
 ## Web frontend
 
 The frontend is a Python standard-library HTTP server backed by one long-lived interactive
-LeanReach process. On Windows, run `pwsh scripts/package.ps1` first so the executable has its Lean
-runtime DLLs:
+LeanReach process. After `lake build`, run:
 
 ```console
 python Frontend/server.py --project-dir .
@@ -125,13 +128,12 @@ fresh LeanReach and `rg` processes. It does not count repeated lookup of one dec
 query.
 
 ```console
-pwsh scripts/package.ps1
-.lake/build/leanreach-dist/leanreach.exe cache
+.\.lake\build\bin\leanreach.exe cache
 python Benchmarks/run.py --stage my-change --query-set substring --append-history
 python Benchmarks/plot.py
 ```
 
-The current harness targets the Windows distribution. The history is rendered as
+The current harness targets the lake-built Windows executable. The history is rendered as
 [Benchmarks/history.svg](Benchmarks/history.svg).
 
 ## Design

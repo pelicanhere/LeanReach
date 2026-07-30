@@ -133,10 +133,10 @@ def main() -> None:
     queries = SUBSTRING_QUERIES if args.query_set == "substring" else QUERIES
 
     root = Path(__file__).resolve().parent.parent
-    executable = root / ".lake/build/leanreach-dist/leanreach.exe"
+    executable = root / ".lake/build/bin/leanreach.exe"
     mathlib = root / ".lake/packages/mathlib/Mathlib"
     if not executable.exists():
-        raise SystemExit("Run 'pwsh scripts/package.ps1' first.")
+        raise SystemExit("Run 'lake build' first.")
 
     measure_process([executable, "--help"], args.timeout)
     measure_process(

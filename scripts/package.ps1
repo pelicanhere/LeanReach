@@ -10,16 +10,12 @@ if (!(Test-Path -LiteralPath $exe)) {
   throw "Build LeanReach first with 'lake build leanreach'."
 }
 
-$sysroot = (& lean --print-prefix).Trim()
-$toolchainBin = Join-Path $sysroot "bin"
 $runtime = @(
-  "libc++.dll",
   "libInit_shared.dll",
   "libLake_shared.dll",
   "libleanshared.dll",
   "libleanshared_1.dll",
-  "libleanshared_2.dll",
-  "zlib1.dll"
+  "libleanshared_2.dll"
 )
 
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
@@ -30,8 +26,9 @@ foreach ($asset in @("server.py", "index.html", "app.js", "style.css")) {
   Copy-Item -LiteralPath (Join-Path $root "Frontend/$asset") -Destination $frontendDir -Force
 }
 foreach ($dll in $runtime) {
-  Copy-Item -LiteralPath (Join-Path $toolchainBin $dll) -Destination $outputDir -Force
+  Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $exe) $dll) -Destination $outputDir -Force
 }
+$sysroot = (& lean --print-prefix).Trim()
 [IO.File]::WriteAllText(
   (Join-Path $outputDir "leanreach.sysroot"),
   $sysroot,

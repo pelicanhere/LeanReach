@@ -25,20 +25,10 @@ def default_binary() -> Path:
     packaged = ROOT / "leanreach.exe"
     if packaged.exists():
         return packaged
-    if os.name == "nt":
-        built = ROOT / ".lake/build/bin/leanreach.exe"
-        bundled = ROOT / ".lake/build/leanreach-dist/leanreach.exe"
-        stale = (
-            bundled.exists()
-            and built.exists()
-            and built.stat().st_mtime > bundled.stat().st_mtime
-        )
-        if not bundled.exists() or stale:
-            raise SystemExit("Run 'pwsh scripts/package.ps1' to refresh the Lean runtime bundle.")
-        return bundled
-    built = ROOT / ".lake/build/bin/leanreach"
+    name = "leanreach.exe" if os.name == "nt" else "leanreach"
+    built = ROOT / ".lake/build/bin" / name
     if not built.exists():
-        raise SystemExit("Run 'lake build leanreach' first.")
+        raise SystemExit("Run 'lake build' first.")
     return built
 
 
