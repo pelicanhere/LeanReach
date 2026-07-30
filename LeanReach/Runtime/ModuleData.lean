@@ -22,16 +22,12 @@ private def privateModule? (name : Name) : Option Name :=
   | some (.num p 0) => some (p.replacePrefix privateHeader .anonymous)
   | _ => none
 
-private unsafe def addConstant (env : Environment) (privateNames : NameHashSet)
-    (info : ConstantInfo) : IO (Environment × NameHashSet) := do
-  if env.contains info.name then return (env, privateNames)
-  let isPrivate := isPrivateName info.name
-  let userName := privateToUserName info.name
-  if isPrivate && privateNames.contains userName then return (env, privateNames)
+private unsafe def addConstant (env : Environment) (info : ConstantInfo) : IO Environment := do
+  if env.contains info.name then return env
   let added ← env.addConstAsync info.name (.ofConstantInfo info)
     (exportedKind? := none) (reportExts := false) (checkMayContain := false)
   added.commitConst added.asyncEnv (some info)
-  return (added.mainEnv, if isPrivate then privateNames.insert userName else privateNames)
+  return added.mainEnv
 
 unsafe def withPrivateOverlay {α : Type} (env : Environment) (moduleName : Name)
     (signatureNames bodyNames : Array Name) (moduleOf? : Name → Option Name)
@@ -46,7 +42,6 @@ unsafe def withPrivateOverlay {α : Type} (env : Environment) (moduleName : Name
     let mut modules : NameMap ModuleData := {}
     modules := modules.insert moduleName data
     let mut env := env
-    let mut privateNames : NameHashSet := {}
     let mut pending :=
       signatureNames.map (·, moduleName, false) ++
       bodyNames.map (·, moduleName, true)
@@ -65,7 +60,7 @@ unsafe def withPrivateOverlay {α : Type} (env : Environment) (moduleName : Name
           modules := modules.insert owner data
           pure data
       let some info := data.constants.find? (·.name == name) | continue
-      (env, privateNames) ← unsafe addConstant env privateNames info
+      env ← unsafe addConstant env info
       let dependencies :=
         if scanValue then info.getUsedConstantsAsSet
         else info.type.getUsedConstantsAsSet
