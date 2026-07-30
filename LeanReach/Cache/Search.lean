@@ -1,5 +1,5 @@
-import LeanReach.Cache
-import LeanReach.Index
+import LeanReach.Cache.Storage
+import LeanReach.Search.Index
 
 namespace LeanReach.SearchCache
 

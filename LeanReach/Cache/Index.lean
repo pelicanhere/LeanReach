@@ -1,7 +1,7 @@
-import LeanReach.Cache
-import LeanReach.Index
-import LeanReach.ModuleData
-import LeanReach.SourceInfo
+import LeanReach.Cache.Storage
+import LeanReach.Runtime.ModuleData
+import LeanReach.Runtime.Source
+import LeanReach.Search.Index
 
 namespace LeanReach.Cache
 

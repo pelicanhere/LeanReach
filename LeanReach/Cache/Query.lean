@@ -1,7 +1,7 @@
-import LeanReach.IndexCache
-import LeanReach.QueryOverlay
-import LeanReach.NameSearch
-import LeanReach.SearchCache
+import LeanReach.Cache.Index
+import LeanReach.Cache.Overlay
+import LeanReach.Cache.Search
+import LeanReach.Search.Name
 
 namespace LeanReach.QueryCache
 

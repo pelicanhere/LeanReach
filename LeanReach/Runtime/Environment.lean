@@ -1,5 +1,5 @@
 import Lean.Util.Path
-import LeanReach.Project
+import LeanReach.Runtime.Project
 
 namespace LeanReach
 

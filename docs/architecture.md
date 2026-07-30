@@ -92,7 +92,7 @@ Lake projects.
 
 ### Module fragment
 
-`IndexCache` stores, per module:
+`Cache.Index` stores, per module:
 
 - imports;
 - searchable public declaration names;
@@ -123,7 +123,7 @@ The default Top-10 upstream and downstream results are stored in 1024 exact-quer
 above 10 fall back to the complete relation index.
 
 When a view combines built local modules with Mathlib, Mathlib is the stable base and
-`QueryOverlay` stores only:
+`Cache.Overlay` stores only:
 
 - local declarations and their outgoing edges;
 - reverse edges from base or local declarations into the local layer.
@@ -133,11 +133,11 @@ does not copy the full Mathlib query plan.
 
 ### Pretty-print cache
 
-`PPCache` stores a `NameMap Declaration` per defining module. A root marker records that all modules
+The PP cache stores a `NameMap Declaration` per defining module. A root marker records that all modules
 in a view have complete PP sidecars. A valid partial sidecar can be resumed declaration by
 declaration; changing the module hash invalidates that module as a unit.
 
-`CacheBuild` owns cache construction and worker scheduling. Four persistent workers share one
+`Cache.Build` owns cache construction and worker scheduling. Four persistent workers share one
 immutable imported environment by default. Each completed module is checkpointed immediately.
 
 ## Pretty-printing
@@ -193,23 +193,27 @@ Mathlib sidecars should be built once and reused; changed local modules are gene
 ## Source layout
 
 ```text
-LeanReach/NameSearch.lean   matching primitives and bounded result buckets
-LeanReach/Rank.lean         dependency scoring and Top-K selection
-LeanReach/Index.lean        catalog, direct graph, and in-memory lookup
-LeanReach/Cache.lean        generic persistence and root fingerprints
-LeanReach/IndexCache.lean   module fragments and catalog/relation persistence
-LeanReach/SearchCache.lean  sharded substring-search persistence
-LeanReach/QueryOverlay.lean local graph overlay
-LeanReach/QueryCache.lean   exact-query shards and cached query routing
-LeanReach/PrettyPrint.lean  Lean declaration formatting
-LeanReach/PPCache.lean      module PP sidecars
-LeanReach/CacheBuild.lean   PP/query cache construction and workers
-LeanReach/SourceInfo.lean   `.ilean` locations
-LeanReach/Project.lean      Lake project and built-module discovery
-LeanReach/Runtime.lean      sysroot, search paths, imports, and CoreM execution
-LeanReach/Query.lean        query result construction
-LeanReach.lean              public session orchestration
-Main.lean                   CLI and output
+LeanReach/Search/Name.lean            matching and bounded result buckets
+LeanReach/Search/Rank.lean            dependency scoring and Top-K selection
+LeanReach/Search/Index.lean           catalog, direct graph, and lookup
+LeanReach/Runtime/Project.lean        Lake project and built-module discovery
+LeanReach/Runtime/Environment.lean    search paths, imports, and CoreM execution
+LeanReach/Runtime/ModuleData.lean     `.olean` layers and private overlays
+LeanReach/Runtime/Source.lean         `.ilean` declaration locations
+LeanReach/PrettyPrint/Declaration.lean cached and JSON declaration model
+LeanReach/PrettyPrint/Timing.lean      PP stage measurements
+LeanReach/PrettyPrint/Printer.lean     Lean declaration formatting
+LeanReach/PrettyPrint/Module.lean      module PP environment preparation
+LeanReach/Cache/Storage.lean           persistence and root fingerprints
+LeanReach/Cache/Index.lean             module fragments and graph indexes
+LeanReach/Cache/Search.lean            sharded substring-search persistence
+LeanReach/Cache/Overlay.lean           local graph overlay
+LeanReach/Cache/Query.lean             exact-query shards and routing
+LeanReach/Cache/PrettyPrint.lean       module PP sidecars
+LeanReach/Cache/Build.lean             cache workers and orchestration
+LeanReach/Query.lean                   cross-layer query construction
+LeanReach.lean                         public session orchestration
+Main.lean                              CLI and output
 ```
 
 ## Benchmark discipline

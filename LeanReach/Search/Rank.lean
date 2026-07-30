@@ -1,5 +1,5 @@
 import Lean.Data.Name
-import LeanReach.NameSearch
+import LeanReach.Search.Name
 
 namespace LeanReach
 

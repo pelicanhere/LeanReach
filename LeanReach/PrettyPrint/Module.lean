@@ -1,6 +1,6 @@
-import LeanReach.ModuleData
-import LeanReach.PrettyPrint
-import LeanReach.Runtime
+import LeanReach.PrettyPrint.Printer
+import LeanReach.Runtime.Environment
+import LeanReach.Runtime.ModuleData
 
 namespace LeanReach
 

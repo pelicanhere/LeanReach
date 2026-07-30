@@ -1,5 +1,5 @@
-import LeanReach.Cache
-import LeanReach.Declaration
+import LeanReach.Cache.Storage
+import LeanReach.PrettyPrint.Declaration
 
 namespace LeanReach.Cache
 

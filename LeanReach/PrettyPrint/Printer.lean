@@ -1,8 +1,8 @@
 import Lean.PrettyPrinter.Delaborator.Builtins
 import Lean.Structure
-import LeanReach.Declaration
-import LeanReach.PPTiming
-import LeanReach.SourceInfo
+import LeanReach.PrettyPrint.Declaration
+import LeanReach.PrettyPrint.Timing
+import LeanReach.Runtime.Source
 
 namespace LeanReach
 

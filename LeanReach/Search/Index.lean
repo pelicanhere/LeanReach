@@ -1,7 +1,7 @@
 import Lean.Data.Name
 import Lean.Data.Trie
-import LeanReach.NameSearch
-import LeanReach.Rank
+import LeanReach.Search.Name
+import LeanReach.Search.Rank
 
 namespace LeanReach
 

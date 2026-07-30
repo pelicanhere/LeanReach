@@ -1,5 +1,5 @@
-import LeanReach.Index
-import LeanReach.PrettyPrint
+import LeanReach.PrettyPrint.Printer
+import LeanReach.Search.Index
 
 namespace LeanReach
 

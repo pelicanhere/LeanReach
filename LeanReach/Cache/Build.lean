@@ -1,9 +1,9 @@
 import Std.Sync.Channel
-import LeanReach.IndexCache
-import LeanReach.PPCache
+import LeanReach.Cache.Index
+import LeanReach.Cache.PrettyPrint
+import LeanReach.Cache.Query
 import LeanReach.PrettyPrint.Module
-import LeanReach.QueryCache
-import LeanReach.Runtime
+import LeanReach.Runtime.Environment
 
 namespace LeanReach
 

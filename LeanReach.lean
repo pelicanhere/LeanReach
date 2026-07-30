@@ -1,9 +1,9 @@
-import LeanReach.CacheBuild
-import LeanReach.IndexCache
-import LeanReach.PPCache
+import LeanReach.Cache.Build
+import LeanReach.Cache.Index
+import LeanReach.Cache.PrettyPrint
+import LeanReach.Cache.Query
 import LeanReach.Query
-import LeanReach.QueryCache
-import LeanReach.Runtime
+import LeanReach.Runtime.Environment
 
 namespace LeanReach
 
