@@ -48,7 +48,7 @@ def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
   let mut trigramIndex : Data.Trie (Array UInt32) := {}
   for (entry, id) in entries.zipIdx do
     let mut seen : Std.HashSet String := {}
-    for trigram in NameSearch.trigrams entry.name.toString.toLower do
+    for trigram in NameSearch.trigrams (privateToUserName entry.name).toString.toLower do
       unless seen.contains trigram do
         seen := seen.insert trigram
         trigramIndex := trigramIndex.upsert trigram fun ids =>
@@ -155,7 +155,7 @@ private def Index.matches (index : Index) (query : String) (limit : Nat) :
     Array (Array Name) :=
   let query := query.toLower
   NameSearch.buckets query (index.candidates query)
-    (fun id => index.entries[id.toNat]?.map (·.name)) id limit
+    (fun id => index.entries[id.toNat]?.map (·.name)) privateToUserName limit
 
 def Index.search (index : Index) (query : String) (limit : Nat := 20) : Array Name :=
   (index.matches query limit).flatten.take limit
@@ -168,7 +168,7 @@ def Index.resolve (index : Index) (query : String) : Except String Name := do
   if candidates.size == 1 then return candidates[0]!
   if candidates.isEmpty then throw s!"no declaration name contains '{query}'"
   throw s!"ambiguous declaration '{query}':\n{String.intercalate "\n" <|
-    candidates.toList.map fun name => s!"  {name}"}"
+    candidates.toList.map fun name => s!"  {privateToUserName name}"}"
 
 private def Index.related (index : Index) (name : Name) (upstream : Bool)
     (limit : Nat) : Array Name :=

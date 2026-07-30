@@ -21,7 +21,7 @@ private def prefixSimilarity (left right : List Name) : Float :=
   diceScore left.length right.length (commonPrefixLength left right)
 
 private def significantParts (name : Name) : List String :=
-  ((NameSearch.leaf name).toLower.splitOn "_").filter (·.length ≥ 3)
+  ((NameSearch.leaf (privateToUserName name)).toLower.splitOn "_").filter (·.length ≥ 3)
 
 private def tokenSimilarity (left right : List String) : Float :=
   diceScore left.length right.length (left.countP right.contains)
@@ -29,7 +29,7 @@ private def tokenSimilarity (left right : List String) : Float :=
 private def localityScore (source : LocatedName) (sourceNameParts sourceModuleParts : List Name)
     (sourceParts : List String) (candidate : LocatedName) : Float :=
   (if source.moduleName == candidate.moduleName then 3.0 else 0.0) +
-    3.0 * prefixSimilarity sourceNameParts candidate.name.components +
+    3.0 * prefixSimilarity sourceNameParts (privateToUserName candidate.name).components +
     2.0 * prefixSimilarity sourceModuleParts candidate.moduleName.components +
     4.0 * tokenSimilarity sourceParts (significantParts candidate.name)
 
@@ -99,7 +99,7 @@ def priors (forward reverse : Array (Array UInt32))
 def select {α : Type u} [Inhabited α] (source : LocatedName) (candidates : Array α)
     (located : α → LocatedName) (candidatePrior : α → Float)
     (limit : Nat) : Array α := Id.run do
-  let sourceNameParts := source.name.components
+  let sourceNameParts := (privateToUserName source.name).components
   let sourceModuleParts := source.moduleName.components
   let sourceParts := significantParts source.name
   let candidateAt position := candidates[position]!

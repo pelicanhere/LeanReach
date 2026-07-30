@@ -5,7 +5,7 @@ namespace LeanReach.QueryOverlay
 
 open Lean
 
-private def version := 4
+private def version := 5
 
 structure Entry where
   target : LocatedName

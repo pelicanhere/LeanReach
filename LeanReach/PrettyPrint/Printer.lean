@@ -132,9 +132,10 @@ def prettyPrintDeclaration (sourcePath : SearchPath) (name : Name) :
     CoreM Declaration := do
   let cache ← IO.mkRef {}
   let some moduleName ← findModuleOf? name | throwError "unknown module for '{name}'"
-  let some info := (← getEnv).find? name | throwError "unknown declaration '{name}'"
-  return (← prettyPrintKnownDeclaration cache moduleName
-    (← moduleSource sourcePath moduleName) name (← MetaM.run' (needsBody info))).1
+  withEnv ((← getEnv).setMainModule moduleName) do
+    let some info := (← getEnv).find? name | throwError "unknown declaration '{name}'"
+    return (← prettyPrintKnownDeclaration cache moduleName
+      (← moduleSource sourcePath moduleName) name (← MetaM.run' (needsBody info))).1
 
 def prettyPrintModule (sourcePath : SearchPath) (moduleName : Name)
     (names : Array Name) : CoreM (NameMap Declaration) := do

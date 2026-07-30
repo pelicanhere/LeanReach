@@ -6,18 +6,23 @@ namespace LeanReach.Cache
 open Lean
 
 private def version := 3
+private def rootVersion := 4
 
 unsafe def loadPPModule (moduleName : Name) : IO (NameMap Declaration) := do
   let olean ← findOLean moduleName
   let some depHash ← depHash? olean | return {}
   let path := olean.withExtension s!"leanreach-pp-{version}"
-  return (← unsafe loadPart (NameMap Declaration) path depHash).getD {}
+  let cached := (← unsafe loadPart (NameMap Declaration) path depHash).getD {}
+  return cached.foldl (init := {}) fun reusable name declaration =>
+    if declaration.signature.contains "✝" ||
+        declaration.signature.contains "_private." then reusable
+    else reusable.insert name declaration
 
 private unsafe def ppRootData (roots : Array Name) :
     IO (System.FilePath × String × Name) := do
   let (olean, depHash, root) ← unsafe rootData roots
   let stem := if roots.size == 1 then "root" else "roots"
-  return (olean.withExtension s!"leanreach-pp-{stem}-{version}", depHash, root)
+  return (olean.withExtension s!"leanreach-pp-{stem}-{rootVersion}", depHash, root)
 
 unsafe def isFullyPP (roots : Array Name) : IO Bool := do
   let (path, depHash, _) ← unsafe ppRootData roots

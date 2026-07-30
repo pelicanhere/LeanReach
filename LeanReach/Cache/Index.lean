@@ -15,11 +15,11 @@ Released under the Apache License 2.0.
 
 /-- Hide generated implementation details that can still have source ranges. -/
 private def isBlacklisted (name : Name) : Bool :=
-  name.isInternal || name.isInternalDetail || isPrivateName name
+  (privateToUserName name).isInternalDetail
 
-private def catalogVersion := 6
-private def relationsVersion := 7
-private def fragmentVersion := 6
+private def catalogVersion := 7
+private def relationsVersion := 8
+private def fragmentVersion := 7
 
 private structure ModuleFragment where
   imports : Array Name
@@ -43,25 +43,20 @@ private def collapseInternal (internal : NameMap NameSet) (dependencies : NameSe
 
 private unsafe def readFragment (moduleName : Name) (olean : System.FilePath) :
     IO (ModuleFragment × Array CompactedRegion) := do
-  let (parts, visibleIndex) ← unsafe ModuleData.readParts olean
+  let (parts, _) ← unsafe ModuleData.readParts olean
   let some (all, _) := parts.back? |
     throw <| IO.userError s!"empty module data for '{moduleName}'"
-  let some (visible, _) := parts[visibleIndex]? |
-    throw <| IO.userError s!"missing visible module data for '{moduleName}'"
   let source ← sourceNames olean
-  let visibleNames := visible.constants.foldl (init := ({} : NameHashSet))
-    fun names info => names.insert info.name
   let (constants, internal) := all.constants.foldl
       (init := (({} : NameMap ConstantInfo), ({} : NameMap NameSet))) fun state info =>
     let constants := state.1.insert info.name info
     let internal :=
-      if isBlacklisted info.name || !visibleNames.contains info.name then
-        state.2.insert info.name info.getUsedConstantsAsSet
-      else state.2
+      if source.contains info.name && !isBlacklisted info.name then state.2
+      else state.2.insert info.name info.getUsedConstantsAsSet
     (constants, internal)
   return ({
     imports := all.imports.map (·.module)
-    declarations := visible.constants.filterMap fun visibleInfo =>
+    declarations := all.constants.filterMap fun visibleInfo =>
       let name := visibleInfo.name
       if source.contains name && !isBlacklisted name then
         let info := (constants.find? name).getD visibleInfo

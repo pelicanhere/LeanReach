@@ -11,8 +11,12 @@ structure Declaration where
   column : Nat
 
 instance : Lean.ToJson Declaration where
-  toJson d := Lean.Json.mkObj [
-    ("name", Lean.toJson d.name), ("signature", Lean.toJson d.signature),
+  toJson d :=
+    let queryName := d.name
+    let name := (Lean.privateToUserName queryName.toName).toString
+    Lean.Json.mkObj [
+    ("queryName", Lean.toJson queryName), ("name", Lean.toJson name),
+    ("signature", Lean.toJson d.signature),
     ("source", Lean.Json.mkObj [
       ("moduleName", Lean.toJson d.moduleName), ("file", Lean.toJson d.file),
       ("line", Lean.toJson d.line), ("column", Lean.toJson d.column)

@@ -6,7 +6,7 @@ namespace LeanReach.SearchCache
 
 open Lean
 
-private def version := 3
+private def version := 4
 private def shardCount := 256
 
 private abbrev NameTable := Array Name × Array UInt32 × Array Name
@@ -137,7 +137,8 @@ private def findMatches (table : NameTable) (ids : Array UInt32)
     let owner ← owners[id.toNat]?
     let moduleName ← modules[owner.toNat]?
     return { name, moduleName }
-  return (NameSearch.buckets query ids located? (·.name) limit).flatten.take limit
+  return (NameSearch.buckets query ids located?
+    (privateToUserName ·.name) limit).flatten.take limit
 
 unsafe def search (roots : Array Name) (query : String)
     (limit : Nat) : IO (Option (Array LocatedName)) := do

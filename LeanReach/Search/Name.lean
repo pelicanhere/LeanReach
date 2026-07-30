@@ -1,4 +1,4 @@
-import Lean.Data.Name
+import Lean.PrivateName
 
 namespace LeanReach.NameSearch
 

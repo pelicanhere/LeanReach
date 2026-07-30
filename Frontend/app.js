@@ -33,9 +33,9 @@ function declarationCard(declaration, inspectable = true) {
   const name = element(inspectable ? "button" : "h2", "declaration-name", declaration.name);
   if (inspectable) {
     name.type = "button";
-    name.addEventListener("click", () => inspect(declaration.name));
+    name.addEventListener("click", () => inspect(declaration.queryName));
   }
-  heading.append(name, copyButton(declaration.name));
+  heading.append(name, copyButton(declaration.queryName));
 
   const signature = element("pre", "signature");
   signature.append(element("code", "", declaration.signature));

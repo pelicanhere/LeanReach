@@ -46,6 +46,18 @@ private unsafe def completeTargetModule (moduleOf? : Name → Option Name)
     session.merge declarations
   catch _ => pure ()
 
+private unsafe def prettyPrintMissing (moduleOf? : Name → Option Name)
+    (session : Session) (env : Environment) (names : Array Name) : IO Unit := do
+  let mut byModule : NameMap (Array Name) := {}
+  for name in ← session.missing names do
+    if let some moduleName := moduleOf? name then
+      byModule := byModule.alter moduleName fun names =>
+        some ((names.getD #[]).push name)
+  for (moduleName, names) in byModule do
+    let (declarations, _) ← unsafe prettyPrintModuleIO
+      session.sourcePath env moduleName names moduleOf?
+    session.merge declarations
+
 private unsafe def runSession {α : Type} (moduleOf? : Name → Option Name) (session : Session)
     (names : Array Name) (target? : Option Name) (modules? : Option (Array Name))
     (wholeModules : Bool) (emptyEnv? : Option Environment) (action : CoreM α) : IO α := do
@@ -65,6 +77,7 @@ private unsafe def runSession {α : Type} (moduleOf? : Name → Option Name) (se
     else importEnvironment modules (leakEnv := emptyEnv?.isNone)
   if let some moduleName := targetModule? then
     unsafe completeTargetModule moduleOf? session env moduleName
+  unsafe prettyPrintMissing moduleOf? session env names
   let result ← unsafe runCore env action
   let after ← session.ppCache
   if after.size != before.size then
