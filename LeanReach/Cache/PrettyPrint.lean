@@ -6,7 +6,7 @@ namespace LeanReach.Cache
 open Lean
 
 private def version := 3
-private def rootVersion := 5
+private def rootVersion := 6
 
 unsafe def loadPPModule (moduleName : Name) : IO (NameMap Declaration) := do
   let olean ← findOLean moduleName
