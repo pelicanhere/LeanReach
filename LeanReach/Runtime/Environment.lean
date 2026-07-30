@@ -44,7 +44,7 @@ private def sourceSearchPath (sysroot : System.FilePath)
     if ← source.isDir then fallback := fallback.push source
   fallback := fallback.push (sysroot / "src" / "lean")
   match ← IO.getEnv "LEAN_SRC_PATH" with
-  | some path => return System.SearchPath.parse path ++ fallback.toList
+  | some path => return fallback.toList ++ System.SearchPath.parse path
   | none => return fallback.toList
 
 unsafe def prepareSearchPath : IO Unit := do
