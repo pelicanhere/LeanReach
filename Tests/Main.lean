@@ -5,7 +5,7 @@ import Tests.PrivateB
 
 namespace LeanReach.Tests
 
-open Lean
+open Lean Meta
 
 private def check (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -69,7 +69,7 @@ private unsafe def runTests : IO Unit := do
     `Tests.Fixture fixtureNames fixtureIndex.moduleOf?
   let (monolithic, _) ← unsafe ModuleData.withPrivateOverlay fixtureEnv
       `Tests.Fixture #[] fixtureNames fixtureIndex.moduleOf? fun env =>
-    unsafe runCore (env.setMainModule `Tests.Fixture) do
+    unsafe runCore (env.setMainModule `Tests.Fixture) <| MetaM.run' do
       let source ← moduleSource sourcePath `Tests.Fixture
       let bodies := (← prettyPrintPlan fixtureNames).1.foldl
         (init := ({} : NameHashSet)) fun bodies name => bodies.insert name
@@ -98,7 +98,7 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "selective PP cache load dropped an irreducible definition"
   unless (toJson selectedWrapped).compress == (toJson cachedWrapped).compress do
     throw <| IO.userError "selective PP cache load changed declaration output"
-  let (withoutSource, _) ← unsafe runCore fixtureEnv <|
+  let (withoutSource, _) ← unsafe runCore fixtureEnv <| MetaM.run' <|
     prettyPrintModuleWithBodies `Tests.Fixture (none, {})
       #[`LeanReachFixture.double] {}
   let some withoutSource := withoutSource.find? `LeanReachFixture.double |
@@ -167,7 +167,7 @@ private unsafe def runTests : IO Unit := do
   discard <| unsafe QueryCache.build layeredRoots
   let some overlay ← unsafe QueryOverlay.load layeredRoots |
     throw <| IO.userError "local query overlay is missing"
-  unless overlay.baseRoot == `Mathlib && overlay.size > 0 do
+  unless overlay.baseRoot == `Mathlib && overlay.entries.size > 0 do
     throw <| IO.userError "local query overlay has the wrong base or no declarations"
   unless (overlay.cached? `LeanReachFixture.double).isSome &&
       (overlay.cached? `HAdd.hAdd).isSome do

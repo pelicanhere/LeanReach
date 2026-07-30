@@ -23,14 +23,8 @@ unsafe def load (roots : Array Name) : IO (Option Data) := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
   unsafe Cache.loadPart Data (path olean) depHash
 
-def Data.size (data : Data) : Nat :=
-  data.entries.size
-
 def Data.local? (data : Data) (name : Name) : Option LocatedName :=
   data.entries.find? name |>.map (·.target)
-
-def Data.localNames (data : Data) : Array LocatedName :=
-  data.entries.valuesArray.map (·.target)
 
 def Data.cached? (data : Data) (name : Name) : Option CachedQuery :=
   data.queries.find? name

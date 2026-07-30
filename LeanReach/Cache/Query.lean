@@ -82,10 +82,13 @@ private unsafe def loadQueries (roots : Array Name) (names : Array Name) :
   unless ← ready olean depHash do return {}
   let mut wanted : NameHashSet := {}
   let mut shards := #[]
+  let mut seenShards := Array.replicate shardCount false
   for name in names do
     wanted := wanted.insert name
     let id := shard name
-    unless shards.contains id do shards := shards.push id
+    unless seenShards[id]! do
+      seenShards := seenShards.set! id true
+      shards := shards.push id
   let mut result := {}
   for id in shards do
     let some (modules, lines) ← readShard (shardPath olean id) | continue
@@ -193,7 +196,7 @@ unsafe def build (roots : Array Name) : IO Nat := do
   if let some baseRoot ← unsafe baseRoot? roots then
     let count ← unsafe buildFullCaches #[baseRoot]
     let overlay ← unsafe buildOverlay roots baseRoot
-    return max overlay.size count
+    return max overlay.entries.size count
   unsafe buildFullCaches roots
 
 private unsafe def loadShard (roots : Array Name) (name : Name) :
@@ -245,28 +248,34 @@ private unsafe def searchFull (roots : Array Name) (query : String)
   let results := (exact ++ suffix).take limit
   return if results.isEmpty then none else some results
 
+private def filterLocal (overlay : QueryOverlay.Data)
+    (accept : Name → Bool) : Array LocatedName := Id.run do
+  let mut results := #[]
+  for (_, entry) in overlay.entries do
+    if accept entry.target.name then results := results.push entry.target
+  return results
+
 private def localMatches (overlay : QueryOverlay.Data) (query : String) :
     Array LocatedName :=
   let name := query.toName
   let wanted := query.toLower
-  overlay.localNames.filter fun target =>
-    NameSearch.exact wanted target.name ||
-      name.isAtomic && NameSearch.leafMatches wanted target.name
+  filterLocal overlay fun target =>
+    NameSearch.exact wanted target ||
+      name.isAtomic && NameSearch.leafMatches wanted target
 
 private def localSearchMatches (overlay : QueryOverlay.Data) (query : String) :
-    Array LocatedName := Id.run do
-  let query := query.toLower
-  let mut results := #[]
-  for (_, entry) in overlay.entries do
-    if NameSearch.isMatch query entry.target.name then
-      results := results.push entry.target
-  return results
+    Array LocatedName :=
+  filterLocal overlay (NameSearch.isMatch query.toLower)
 
 private def mergeMatches (query : String) (limit : Nat)
     (left right : Array LocatedName) : Array LocatedName := Id.run do
   let mut seen : NameHashSet := {}
   let mut candidates := #[]
-  for target in left ++ right do
+  for target in left do
+    unless seen.contains target.name do
+      seen := seen.insert target.name
+      candidates := candidates.push target
+  for target in right do
     unless seen.contains target.name do
       seen := seen.insert target.name
       candidates := candidates.push target

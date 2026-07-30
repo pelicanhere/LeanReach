@@ -1,6 +1,5 @@
 import Lake.Build.Common
 import Lean.Environment
-import Lean.Util.Path
 
 namespace LeanReach.Cache
 

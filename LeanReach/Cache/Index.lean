@@ -125,7 +125,7 @@ unsafe def loadIndex (roots : Array Name) (loadRelations := true) : IO Index := 
   let index ← buildIndex roots
   try
     savePart catalogPath depHash index.catalog (Name.str root "_leanreachCatalog")
-    savePart relationsPath depHash index.relations (Name.str root "_leanreachRelations")
+    savePart relationsPath depHash index.toRelations (Name.str root "_leanreachRelations")
   catch _ => IO.eprintln "leanreach: could not write root index cache"
   if loadRelations then return index
   return Index.ofParts index.catalog default

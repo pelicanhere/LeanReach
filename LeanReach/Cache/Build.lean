@@ -86,19 +86,23 @@ private unsafe def timedImport (modules : Array Name) : IO (Environment × Nat) 
   return (env, (← IO.monoNanosNow) - started)
 
 private unsafe def buildInputs (sourcePath : SearchPath) (inputs : Array Input)
+    (imports : Array Name := inputs.map (·.1))
     (moduleOf? : Name → Option Name := fun _ => none)
     (progress : Name → Nat → IO Unit := fun _ _ => pure ()) :
     IO (Nat × PPTiming) := do
   if inputs.isEmpty then return (0, {})
-  let (env, importNanos) ← unsafe timedImport (inputs.map (·.1))
+  let (env, importNanos) ← unsafe timedImport imports
   let (count, timing) ← unsafe buildModules sourcePath env inputs moduleOf? progress
   return (count, { timing with importNanos })
 
 unsafe def buildPPModules (modules : Array Name) : IO (Nat × PPTiming) := do
   let sourcePath ← prepareEnvironment
   let mut inputs : Array Input := #[]
+  let mut seen : NameHashSet := {}
   for moduleName in modules do
-    inputs ← unsafe addMissingInput inputs moduleName (← unsafe Cache.moduleNames moduleName)
+    unless seen.contains moduleName do
+      seen := seen.insert moduleName
+      inputs ← unsafe addMissingInput inputs moduleName (← unsafe Cache.moduleNames moduleName)
   unsafe buildInputs sourcePath inputs
 
 /-- Pretty-print every declaration below a root, checkpointing once per defining module. -/
@@ -139,7 +143,7 @@ unsafe def buildPPRoots (roots : Array Name)
         unsafe buildModules sourcePath env inputs moduleOf? report
       pure (count, { timing with importNanos })
     else
-      unsafe buildInputs sourcePath inputs moduleOf? report
+      unsafe buildInputs sourcePath inputs roots moduleOf? report
   unsafe Cache.markFullyPP roots
   return (count, timing)
 

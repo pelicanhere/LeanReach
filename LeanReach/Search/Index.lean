@@ -71,9 +71,6 @@ def Index.build (declarations : Array (Name × Name × NameSet)) : Index := Id.r
 def Index.catalog (index : Index) : Catalog :=
   (index.entries, index.trigrams)
 
-def Index.relations (index : Index) : Relations :=
-  index.toRelations
-
 def Index.ofParts (catalog : Catalog) (relations : Relations) : Index :=
   {
     entries := catalog.1

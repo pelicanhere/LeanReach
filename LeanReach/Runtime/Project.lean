@@ -59,7 +59,7 @@ private unsafe def loadConfig (dir sysroot : FilePath) : IO (Option Metadata) :=
     package.depConfigs.any fun dependency => dependency.name == `mathlib, #[])
 
 private partial def builtSubmodules (dir : FilePath) (base : Name)
-    (modules : Array Name := #[]) : IO (Array Name) := do
+    (modules : Array Name) : IO (Array Name) := do
   unless ← dir.isDir do return modules
   let mut modules := modules
   for entry in ← dir.readDir do

@@ -42,8 +42,8 @@ def Session.missing (session : Session) (names : Array Name) : IO (Array Name) :
   let cached ← session.declarations.get
   return names.filter fun name => !cached.contains name
 
-private def describe (session : Session) (name : Name) : IO Declaration := do
-  let some declaration := (← session.declarations.get).find? name |
+private def describe (declarations : NameMap Declaration) (name : Name) : IO Declaration := do
+  let some declaration := declarations.find? name |
     throw <| IO.userError s!"declaration '{name}' was not prepared"
   return declaration
 
@@ -72,15 +72,17 @@ def Index.queryNames (index : Index) (query : String) (limits : Limits := {}) :
   }
 
 def Session.describeNames (session : Session) (items : Array Name) :
-    IO (Array Declaration) :=
-  items.mapM (describe session)
+    IO (Array Declaration) := do
+  let declarations ← session.declarations.get
+  items.mapM (describe declarations)
 
 def Session.describeQuery (session : Session) (names : QueryNames) :
     IO QueryResult := do
+  let declarations ← session.declarations.get
   return {
-    target := ← describe session names.target
-    upstream := ← session.describeNames names.upstream
-    downstream := ← session.describeNames names.downstream
+    target := ← describe declarations names.target
+    upstream := ← names.upstream.mapM (describe declarations)
+    downstream := ← names.downstream.mapM (describe declarations)
   }
 
 end LeanReach

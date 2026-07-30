@@ -1,5 +1,4 @@
 import Lean.Environment
-import Lean.Util.Path
 
 namespace LeanReach.ModuleData
 
@@ -54,7 +53,7 @@ unsafe def withPrivateOverlay {α : Type} (env : Environment) (moduleName : Name
         | some constants => pure constants
         | none => do
           let parts ← unsafe readParts (← findOLean owner)
-          regions := regions ++ parts.map (·.2)
+          for (_, region) in parts do regions := regions.push region
           let some (data, _) := parts.back? |
             throw <| IO.userError s!"empty module data for '{owner}'"
           let result := constantMap data

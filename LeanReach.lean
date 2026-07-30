@@ -59,25 +59,14 @@ private unsafe def runSession {α : Type} (moduleOf? : Name → Option Name) (se
 private unsafe def withSessionFor {α β : Type} (roots : Array Name)
     (select : Index → Except String (α × Array Name)) (loadRelations : Bool)
     (action : Session → α → IO β) : IO β := do
-  let sourcePath ← prepareEnvironment
   let index ← unsafe Cache.loadIndex roots loadRelations
   let (plan, names) ← liftStringError (select index)
-  let session ← Session.create sourcePath
+  let session ← unsafe cachedSession index.moduleOf? names
   unsafe runSession index.moduleOf? session names true (action session plan)
-
-private unsafe def runCachedQuery {α : Type} (session : Session)
-    (cached : CachedQuery) (names : QueryNames)
-    (action : QueryNames → IO α) (leakEnv := true) : IO α := do
-  unsafe runSession cached.moduleOf? session names.all leakEnv (action names)
 
 private def cachedSearchPlan (targets : Array LocatedName) : Array Name × NameMap Name :=
   targets.foldl (init := (#[], {})) fun (names, modules) target =>
     (names.push target.name, modules.insert target.name target.moduleName)
-
-private unsafe def runCachedSearch {α : Type} (session : Session)
-    (names : Array Name) (modules : NameMap Name) (action : Array Name → IO α)
-    (leakEnv := true) : IO α := do
-  unsafe runSession modules.find? session names leakEnv (action names)
 
 /-- Use the pre-ranked exact-query shard without loading the complete dependency index. -/
 unsafe def withCachedQueryFor {α : Type} (roots : Array Name) (query : String)
@@ -87,7 +76,8 @@ unsafe def withCachedQueryFor {α : Type} (roots : Array Name) (query : String)
   let some cached ← liftStringError (← unsafe QueryCache.resolve roots query) | return none
   let names := cached.queryNames limits
   let session ← unsafe cachedSession cached.moduleOf? names.all
-  return some (← unsafe runCachedQuery session cached names (action session))
+  return some (← unsafe runSession cached.moduleOf? session names.all true
+    (action session names))
 
 /-- Search complete declaration names from a query shard without loading the catalog. -/
 unsafe def withCachedSearchFor {α : Type} (roots : Array Name) (query : String)
@@ -96,7 +86,8 @@ unsafe def withCachedSearchFor {α : Type} (roots : Array Name) (query : String)
   let some targets ← unsafe QueryCache.search roots query limit | return none
   let (names, modules) := cachedSearchPlan targets
   let session ← unsafe cachedSession modules.find? names
-  return some (← unsafe runCachedSearch session names modules (action session))
+  return some (← unsafe runSession modules.find? session names true
+    (action session names))
 
 /-- Query through a cache shard when available, otherwise load the dependency index. -/
 unsafe def withQueryFor {α : Type} (roots : Array Name) (query : String)
@@ -134,7 +125,7 @@ unsafe def withInteractiveSession {α : Type} (roots : Array Name)
     if limits.usesCachedQuery then
       if let some cached ← liftStringError (← unsafe QueryCache.resolve roots query) then
         let names := cached.queryNames limits
-        discard <| unsafe runCachedQuery session cached names action false
+        discard <| unsafe runSession cached.moduleOf? session names.all false (action names)
         return
     let index ← unsafe loadIndexOnce roots indexCache
     let names ← liftStringError (index.queryNames query limits)
@@ -142,7 +133,7 @@ unsafe def withInteractiveSession {α : Type} (roots : Array Name)
   let search := fun pattern limit action => do
     if let some targets ← unsafe QueryCache.search roots pattern limit then
       let (names, modules) := cachedSearchPlan targets
-      discard <| unsafe runCachedSearch session names modules action false
+      discard <| unsafe runSession modules.find? session names false (action names)
       return
     let index ← unsafe loadIndexOnce roots indexCache
     let names := index.search pattern limit

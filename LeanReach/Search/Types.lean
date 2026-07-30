@@ -18,6 +18,9 @@ structure Neighborhood (α : Type u) where
   deriving Inhabited, BEq
 
 def Neighborhood.all {α : Type u} (items : Neighborhood α) : Array α :=
-  #[items.target] ++ items.upstream ++ items.downstream
+  (Array.mkEmpty (items.upstream.size + items.downstream.size + 1))
+    |>.push items.target
+    |>.append items.upstream
+    |>.append items.downstream
 
 end LeanReach

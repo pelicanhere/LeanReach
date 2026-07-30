@@ -75,14 +75,14 @@ private def needsBody (info : ConstantInfo) : MetaM Bool := do
   if ← try isProp info.type catch _ => pure false then return false
   return info.value? (allowOpaque := true) |>.isSome
 
-def prettyPrintPlan (names : Array Name) : CoreM (Array Name × Array Name) := do
+def prettyPrintPlan (names : Array Name) : MetaM (Array Name × Array Name) := do
   let env ← getEnv
   let mut bodies := #[]
   let mut overlay := #[]
   let mut overlaid : NameHashSet := {}
   for name in names do
     if let some info := env.find? name then
-      if ← MetaM.run' (needsBody info) then
+      if ← needsBody info then
         bodies := bodies.push name
       else
         if info.type.getUsedConstantsAsSet.any fun dependency => !env.contains dependency then
@@ -97,11 +97,11 @@ def prettyPrintPlan (names : Array Name) : CoreM (Array Name × Array Name) := d
 
 private def prettyPrintKnownDeclaration (cache : SignatureCache)
     (moduleName : Name) (source : Option String × NameMap Lsp.Position) (name : Name)
-    (includeBody : Bool) : CoreM (Declaration × PPTiming) := do
+    (includeBody : Bool) : MetaM (Declaration × PPTiming) := do
   let env ← getEnv
   let some info := env.find? name | throwError "unknown declaration '{name}'"
   let position := source.2.find? name
-  let (signature, timing) ← MetaM.run' (prettyPrintConstant cache name info includeBody)
+  let (signature, timing) ← prettyPrintConstant cache name info includeBody
   return ({
       name := name.toString
       signature
@@ -114,7 +114,7 @@ private def prettyPrintKnownDeclaration (cache : SignatureCache)
 def prettyPrintModuleWithBodies (moduleName : Name)
     (source : Option String × NameMap Lsp.Position)
     (names : Array Name) (bodies : NameHashSet) :
-    CoreM (NameMap Declaration × PPTiming) := do
+    MetaM (NameMap Declaration × PPTiming) := do
   let cache ← IO.mkRef {}
   let mut declarations := {}
   let mut timing := {}
