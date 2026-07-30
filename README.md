@@ -1,148 +1,112 @@
 # LeanReach
 
-LeanReach is a Lean-native companion to `rg` for finding declarations and navigating their direct
-dependencies. A query returns:
+LeanReach is a Lean-native companion to `rg` for finding declarations and navigating direct
+dependencies. It reports:
 
-- the declaration's Lean-pretty-printed signature, plus the body for non-Prop definitions;
-- its source file, line, and column;
-- ranked upstream declarations used by its type, proof, or implementation;
-- ranked downstream declarations that use it.
+- Lean-pretty-printed signatures and non-Prop definition bodies;
+- source files, lines, and columns;
+- ranked upstream and downstream declarations.
 
-LeanReach reads already-built `.olean` and `.ilean` files. It works with Mathlib, local `lean_lib`
-modules, and partially built Lake projects without building missing modules.
+It reads built `.olean` and `.ilean` files, including partially built local libraries.
 
-## Build
+## Install
 
-LeanReach currently targets Lean and Mathlib `v4.32.0`.
+Add LeanReach to `lakefile.toml`:
 
-```console
-lake build
-lake exe leanreach_tests
+```toml
+[[require]]
+name = "LeanReach"
+scope = "pelicanhere"
+rev = "main"
 ```
 
-The native executable is written to `.lake/build/bin/leanreach` (`leanreach.exe` on Windows).
-On Windows, `lake build` also installs the five Lean runtime DLLs beside both executables, so they
-can be launched directly without `lake exe` or a separate packaging step. For example:
+Then build it and ask Lake for the executable path:
 
 ```console
-.\.lake\build\bin\leanreach.exe --help
-.\.lake\build\bin\leanreach_tests.exe
+lake update LeanReach
+lake build @LeanReach/leanreach
+lake query '@LeanReach/leanreach' --text
 ```
 
-## CLI
+With the default Lake layout, use:
+
+```text
+.lake/packages/LeanReach/.lake/build/bin/leanreach
+```
+
+`lake exe @LeanReach/leanreach --help` is useful as a build smoke test.
+
+## Usage
 
 ```console
 # Search declaration names with an unanchored regex.
-lake exe leanreach search 'span_(le|eq)'
+./.lake/packages/LeanReach/.lake/build/bin/leanreach search 'span_(le|eq)'
 
 # Match unordered, case-insensitive name tokens.
-lake exe leanreach tokens compact image continuous
+./.lake/packages/LeanReach/.lake/build/bin/leanreach tokens compact image continuous
 
-# Show a declaration and its direct dependencies.
-lake exe leanreach Submodule.span_le
+# Show one declaration and its direct dependencies.
+./.lake/packages/LeanReach/.lake/build/bin/leanreach Submodule.span_le
 
 # Emit JSON.
-lake exe leanreach Submodule.span_le --json
+./.lake/packages/LeanReach/.lake/build/bin/leanreach Submodule.span_le --json
 
-# Build or resume caches for the detected project view.
-lake exe leanreach cache --profile
+# Build or resume caches for the detected project.
+./.lake/packages/LeanReach/.lake/build/bin/leanreach cache
 
-# Cache selected modules only.
-lake exe leanreach cache Mathlib.LinearAlgebra.Span.Defs
-
-# Override automatic project detection.
-lake exe leanreach --module Mathlib.LinearAlgebra.Span.Defs Submodule.span_le
+# Override project detection.
+./.lake/packages/LeanReach/.lake/build/bin/leanreach \
+  --module Mathlib.LinearAlgebra.Span.Defs Submodule.span_le
 ```
 
-Regex search is case-sensitive by default. Use `(?i)` for case-insensitive matching and `^...$`
-for a complete name. Prefix a dash-leading pattern with `--`.
+Regex search is case-sensitive by default; use `(?i)` to ignore case and `^...$` to match the
+complete name. Prefix a dash-leading pattern with `--`.
 
-The default query returns 10 upstream and 10 downstream declarations. Search returns 20 names.
+Queries return 10 upstream and 10 downstream declarations by default. Search returns 20 names.
 
 ```text
 -m, --module MODULE   override automatic project detection
--n, --limit N         override both dependency and search limits
+-n, --limit N         override dependency and search limits
 -i, --interactive     read multiple commands from stdin
--j, --json            emit JSON, or NDJSON in interactive mode
-    --profile         report startup, query, and cache-stage timings
+-j, --json            emit JSON or interactive NDJSON
+    --profile         report timing information
 -h, --help            show help
 ```
 
-Lines and columns are one-based. Source paths are absolute when LeanReach can locate the matching
-source tree.
+## Agent sessions
 
-## Agent session
-
-For a chain of queries, keep one process alive to avoid repeatedly starting the Lean runtime:
+Keep one process alive for a chain of queries:
 
 ```console
-lake exe leanreach --interactive --json
+./.lake/packages/LeanReach/.lake/build/bin/leanreach --interactive --json
 ```
 
-Each input line is a declaration name, `search PATTERN`, or `tokens TOKEN...`:
+Each input line is a declaration name, `search PATTERN`, or `tokens TOKEN...`. The process returns
+and flushes one JSON value per line.
 
-```text
-search ^Submodule\..*span
-tokens localization maximal
-Submodule.span_eq_bot
-```
+## Project detection
 
-The process writes and flushes one compact JSON value per line. It loads the dependency index once,
-loads only relevant PP sidecars, and writes back newly pretty-printed declarations.
+Run LeanReach from the target project or a subdirectory. It discovers built local `lean_lib`
+modules and Mathlib when required. Modules without an `.olean` are skipped; after building more
+modules, run `cache` to refresh the project view.
 
-## Local Lake projects
+Caches live beside the corresponding `.olean` files and are invalidated by Lake dependency hashes.
 
-Build LeanReach with the same Lean toolchain as the target project. Then run the built executable
-from the target project or one of its subdirectories:
+## Build from source
 
 ```console
-/path/to/LeanReach/.lake/build/bin/leanreach search my_theorem
+lake build
+./.lake/build/bin/leanreach --help
+lake exe leanreach_tests
 ```
 
-LeanReach walks upward to the nearest `lakefile.toml` or `lakefile.lean`, asks Lake for the local
-`lean_lib` roots, and includes every source module with an existing `.olean`. If the project
-directly requires Mathlib, the Mathlib root is included in the same query view.
-
-`leanreach cache` refreshes the set of built local modules. Ordinary queries reuse the persisted
-project view to avoid recursively scanning `.lake/build` during every process startup.
-
-Caches are stored next to the corresponding `.olean` files and invalidated with Lake dependency
-hashes. Rebuilding one local module reuses unchanged module fragments and PP sidecars. The compact
-local overlay and global rank summary are then regenerated from those cached fragments.
-
-## Web frontend
-
-The frontend is a Python standard-library HTTP server backed by one long-lived interactive
-LeanReach process. After `lake build`, run:
+## Frontend and benchmarks
 
 ```console
-python Frontend/server.py --project-dir .
-```
-
-Open <http://127.0.0.1:8088>. To pass CLI options to the worker:
-
-```console
-python Frontend/server.py --project-dir . -- --module Mathlib --limit 20
-```
-
-## Benchmarks
-
-The benchmark compares distinct, first-use name searches in a long-lived LeanReach session with
-fresh LeanReach and `rg` processes. It does not count repeated lookup of one declaration as a cold
-query.
-
-```console
-.\.lake\build\bin\leanreach.exe cache
-python Benchmarks/run.py --stage my-change --query-set substring --append-history
+python Frontend/server.py --project-dir /path/to/project
+python Benchmarks/run.py --stage my-change --query-set all --append-history
 python Benchmarks/plot.py
 ```
 
-The current harness targets the lake-built Windows executable. The history is rendered as
-[Benchmarks/history.svg](Benchmarks/history.svg).
-
-## Design
-
-See [docs/architecture.md](docs/architecture.md) for dependency semantics, ranking, persistent cache
-layers, incremental behavior, pretty-printing, and the source layout.
-
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for adapted work and licenses.
+See [docs/architecture.md](docs/architecture.md) for the design and
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for adapted work and licenses.

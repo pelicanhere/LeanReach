@@ -1053,3 +1053,41 @@ rg-semantics-fix,Polynomial\.derivative,rg_process,225.044,40,distinct query wit
 rg-semantics-fix,convexHull,rg_process,284.101,603,distinct query with fully precomputed module PP sidecars
 rg-semantics-fix,AEStrongly,rg_process,231.890,928,distinct query with fully precomputed module PP sidecars
 rg-semantics-fix,integral_comp,rg_process,272.976,417,distinct query with fully precomputed module PP sidecars
+cleanup-1,span_eq_bot,leanreach_session,9.966,2,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,rootSet_derivative_subset_convexHull_rootSet,leanreach_session,2.608,1,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,isCompact_convexHull,leanreach_session,2.624,1,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,ideal_oper_maxTrivSubmodule_eq_bot,leanreach_session,3.995,1,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,spanSingleton_eq_zero_iff,leanreach_session,18.520,1,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,ker_map_of_surjective,leanreach_session,7.011,1,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,krullDimLE_of_isLocalization_maximal,leanreach_session,2.696,1,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,range_asIdeal,leanreach_session,10.601,2,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,coeff_Φ_ne_zero,leanreach_session,13.744,1,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,isDomain_of_atPrime,leanreach_process,219.706,1,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,of_finite_maximals,leanreach_process,238.039,3,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,of_isLocalization_maximal,leanreach_process,220.653,3,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,natDegree_Φ_le,leanreach_process,254.695,1,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,intermediate_value_Icc,leanreach_process,237.917,2,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,AntitoneOn.image_Icc_subset,leanreach_process,233.175,1,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,rootSet_derivative,leanreach_process,244.179,1,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,padicValuation_cast,leanreach_process,215.245,1,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,surjective_padicValuation,leanreach_process,211.324,1,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,stationaryPoint_spec,leanreach_process,239.825,1,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,span_eq_bot,rg_session,252.818,11,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,rootSet_derivative_subset_convexHull_rootSet,rg_session,242.306,2,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,isCompact_convexHull,rg_session,246.253,5,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,ideal_oper_maxTrivSubmodule_eq_bot,rg_session,250.556,3,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,spanSingleton_eq_zero_iff,rg_session,263.597,9,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,ker_map_of_surjective,rg_session,239.221,2,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,krullDimLE_of_isLocalization_maximal,rg_session,250.797,2,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,range_asIdeal,rg_session,252.695,5,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,coeff_Φ_ne_zero,rg_session,235.706,2,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,isDomain_of_atPrime,rg_process,430.274,2,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,of_finite_maximals,rg_process,246.518,8,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,of_isLocalization_maximal,rg_process,269.231,7,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,natDegree_Φ_le,rg_process,231.445,3,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,intermediate_value_Icc,rg_process,239.954,10,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,AntitoneOn.image_Icc_subset,rg_process,232.877,1,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,rootSet_derivative,rg_process,250.104,2,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,padicValuation_cast,rg_process,230.693,7,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,surjective_padicValuation,rg_process,285.231,1,one use per run from a fixed corpus with complete PP sidecars
+cleanup-1,stationaryPoint_spec,rg_process,229.239,10,one use per run from a fixed corpus with complete PP sidecars

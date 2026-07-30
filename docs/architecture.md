@@ -33,20 +33,20 @@ For a declaration `A`, LeanReach calls `ConstantInfo.getUsedConstantsAsSet` on t
 - Upstream of `A` is the set of direct outgoing neighbors.
 - Downstream of `B` is the set of declarations with a direct edge to `B`.
 - Type and value dependencies are intentionally presented as one relation.
-- Compiler-generated or private helpers are transitively collapsed back to their public
-  dependencies.
+- Non-source implementation details are transitively collapsed back to their source declarations.
 
 The complete private `.olean` layer is required while extracting fragments because exported and
-server layers may omit opaque theorem values. Searchable public declarations are filtered with
-`.ilean` definitions and a small generated-name blacklist.
+server layers may omit opaque theorem values. Searchable source declarations, including explicit
+private declarations, are selected from `.ilean` definitions; generated implementation details are
+filtered separately.
 
 This graph is a navigation index, not a runtime call graph and not a transitive proof-dependency DAG.
 
 ## Name matching
 
 `search PATTERN` compiles an unanchored, case-sensitive regex once. `tokens TOKEN...` performs an
-unordered, case-insensitive literal AND over the user-visible declaration name. Cached and
-in-memory execution use the same final matcher.
+unordered, Unicode-simple-case-folded literal AND over the user-visible declaration name. Cached
+and in-memory execution use the same final matcher.
 
 The pattern AST yields only trigrams proven to occur on every successful path. Each regex
 alternative selects its rarest posting, the selected postings are merged, and the complete regex is
@@ -54,8 +54,9 @@ then checked. Token search selects the rarest trigram from all long tokens and c
 Patterns without a safe trigram scan the compact cached name table. Limits are applied only after
 the complete match.
 
-Exact dependency queries first try a case-sensitive complete `Name`. A unique final component can be
-resolved by the separate literal resolver; regex syntax never changes bare declaration queries.
+Exact dependency queries first try a case-sensitive complete `Name`. A separate literal resolver
+then considers exact user names, final components, and substrings; regex syntax never changes bare
+declaration queries.
 
 ## Dependency ranking
 
@@ -169,8 +170,9 @@ Private constants needed by a public signature or body are added to a temporary 
 Structure fields and constructors share a module-local signature memo. Declarations retain source
 order to keep generated meta names as deterministic as Lean permits.
 
-Source positions come from `.ilean` selection ranges. Files are found through the current Lake
-project, dependency source roots, and the Lean sysroot source tree.
+Source positions use Lean declaration ranges when available and `.ilean` selection ranges as a
+fallback. Files are found through the current Lake project, dependency source roots, and the Lean
+sysroot source tree.
 
 `cache --profile` reports:
 
@@ -215,9 +217,11 @@ per module; the small local overlay and global rank summary are regenerated from
 
 ```text
 LeanReach/Search/Types.lean           shared located-name and neighborhood models
-LeanReach/Search/Name.lean            reusable Lean name decomposition
-LeanReach/Search/Match.lean           matching and bounded result buckets
+LeanReach/Search/Match.lean           reusable name normalization and trigrams
+LeanReach/Search/Pattern.lean         regex/token compilation and candidate plans
+LeanReach/Search/Resolve.lean         literal declaration-name resolution
 LeanReach/Search/Rank.lean            dependency scoring and Top-K selection
+LeanReach/Search/TopK.lean            bounded heap selection
 LeanReach/Search/Index.lean           catalog, direct graph, and lookup
 LeanReach/Runtime/Project.lean        Lake project and built-module discovery
 LeanReach/Runtime/Environment.lean    search paths, imports, and CoreM execution
@@ -241,14 +245,14 @@ Main.lean                              CLI and output
 
 ## Benchmark discipline
 
-`Benchmarks/run.py` compares a chain of distinct searches. It does not report repeated lookup of one
-name as first-use latency. The current harness uses `.lake/build/bin/leanreach.exe`; run
-`lake build` and precompute `leanreach.exe cache` first. A fair cached comparison:
+`Benchmarks/run.py` compares a fixed regression corpus. Each pattern occurs once per measured
+process or interactive session, but the corpus intentionally repeats across commits; these numbers
+measure regressions, not globally cold first-use queries. The harness uses
+`.lake/build/bin/leanreach.exe`; run `lake build` and precompute `leanreach.exe cache` first.
 
-1. builds the complete LeanReach cache beforehand;
-2. primes executable and catalog startup without querying a benchmark declaration;
-3. uses distinct names once each;
-4. compares a long-lived LeanReach session, fresh LeanReach processes, and fresh `rg` processes;
-5. records every sample in `Benchmarks/history.csv`.
+It primes both tools without querying a corpus declaration, uses low-cardinality patterns, compares
+a long-lived LeanReach session with fresh LeanReach and `rg` processes, and records every sample in
+`Benchmarks/history.csv`. Separate blind agent trials use previously unqueried theorem prompts to
+measure end-to-end discovery.
 
 `Benchmarks/plot.py` renders the history as a logarithmic scatter plot with median markers.

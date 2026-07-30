@@ -2,6 +2,7 @@ import LeanReach.Cache.Index
 import LeanReach.Cache.Overlay
 import LeanReach.Cache.Search
 import LeanReach.Search.Match
+import LeanReach.Search.Resolve
 
 namespace LeanReach.QueryCache
 
@@ -228,14 +229,10 @@ private unsafe def resolveFull (roots : Array Name) (query : String) :
       suffix := suffix.push (target, line)
   if exact.size == 1 then return .ok (some exact[0]!)
   if exact.size > 1 then
-    let options := exact.take 10 |>.map fun cached =>
-      s!"  {privateToUserName cached.target.name} ({cached.target.moduleName})"
-    return .error s!"ambiguous declaration '{query}':\n{String.intercalate "\n" options.toList}"
+    return .error (NameResolve.ambiguityMessage query (exact.map (·.target)))
   if suffix.size == 1 then return .ok (decode modules suffix[0]!.2)
   if suffix.isEmpty then return .ok none
-  let options := suffix.take 10 |>.map fun (target, _) =>
-    s!"  {privateToUserName target.name} ({target.moduleName})"
-  return .error s!"ambiguous declaration '{query}':\n{String.intercalate "\n" options.toList}"
+  return .error (NameResolve.ambiguityMessage query (suffix.map (·.1)))
 
 private def localResolveMatches (overlay : QueryOverlay.Data) (query : String)
     (limit : Nat) : Array LocatedName :=
@@ -256,12 +253,6 @@ private def mergeSearchResults (localResults baseResults : Array LocatedName)
   for (_, target) in byName do results := results.push target
   return (results.qsort fun left right => Name.lt left.name right.name).take limit
 
-private def ambiguityMessage (query : String)
-    (candidates : Array LocatedName) : String :=
-  let options := candidates.take 10 |>.map fun target =>
-    s!"  {privateToUserName target.name} ({target.moduleName})"
-  s!"ambiguous declaration '{query}':\n{String.intercalate "\n" options.toList}"
-
 private unsafe def resolveFromLookup (roots : Array Name) (query : String) :
     IO (Except String (Option CachedQuery)) := do
   let some results ← unsafe SearchCache.lookup roots query 11 | return .ok none
@@ -271,7 +262,7 @@ private unsafe def resolveFromLookup (roots : Array Name) (query : String) :
   if candidates.size == 1 then
     return ← unsafe resolveFull roots candidates[0]!.name.toString
   if candidates.isEmpty then return .ok none
-  return .error (ambiguityMessage query candidates)
+  return .error (NameResolve.ambiguityMessage query candidates)
 
 private unsafe def overlayQuery? (overlay : QueryOverlay.Data)
     (target : LocatedName) : IO (Option CachedQuery) := do
@@ -303,7 +294,7 @@ unsafe def resolve (roots : Array Name) (query : String) :
   if candidates.size == 1 then
     return .ok (← unsafe overlayQuery? overlay candidates[0]!)
   if candidates.isEmpty then return .ok none
-  return .error (ambiguityMessage query candidates)
+  return .error (NameResolve.ambiguityMessage query candidates)
 
 unsafe def search (roots : Array Name) (pattern : SearchPattern)
     (limit : Nat) : IO (Option (Array LocatedName)) := do

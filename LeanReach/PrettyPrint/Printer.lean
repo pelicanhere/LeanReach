@@ -1,4 +1,5 @@
 import Lean.PrettyPrinter.Delaborator.Builtins
+import Lean.PrettyPrinter
 import Lean.Structure
 import LeanReach.PrettyPrint.Declaration
 import LeanReach.PrettyPrint.Timing

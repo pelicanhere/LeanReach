@@ -1,4 +1,5 @@
-import Lean
+import Lean.Data.Json
+import Lean.PrivateName
 
 namespace LeanReach
 

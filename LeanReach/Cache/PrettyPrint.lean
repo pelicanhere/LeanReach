@@ -7,12 +7,14 @@ open Lean
 
 abbrev PPBatch := NameMap (NameMap Declaration)
 
+private def ppPath (olean : System.FilePath) : System.FilePath :=
+  -- Module PP cache format 3.
+  olean.withExtension "leanreach-pp-3"
+
 unsafe def loadPPModule (moduleName : Name) : IO (NameMap Declaration) := do
   let olean ← findOLean moduleName
   let some depHash ← depHash? olean | return {}
-  -- Module PP cache format 3.
-  let path := olean.withExtension "leanreach-pp-3"
-  return (← unsafe loadPart (NameMap Declaration) path depHash).getD {}
+  return (← unsafe loadPart (NameMap Declaration) (ppPath olean) depHash).getD {}
 
 private unsafe def ppRootData (roots : Array Name) :
     IO (System.FilePath × String × Name) := do
@@ -41,8 +43,7 @@ unsafe def savePPModule (moduleName : Name) (declarations : NameMap Declaration)
     IO Unit := do
   let olean ← findOLean moduleName
   let some depHash ← depHash? olean | return
-  let path := olean.withExtension "leanreach-pp-3"
-  savePart path depHash declarations (Name.str moduleName "_leanreachPP")
+  savePart (ppPath olean) depHash declarations (Name.str moduleName "_leanreachPP")
 
 unsafe def savePP (additions : PPBatch) : IO Unit := do
   for (moduleName, added) in additions do

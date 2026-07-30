@@ -38,6 +38,11 @@ def collect {α : Type u} {β : Type v} (queryLower : String)
 def bestBucket {α : Type u} (buckets : Array (Array α)) : Array α :=
   buckets.find? (not ∘ Array.isEmpty) |>.getD #[]
 
+def ambiguityMessage (query : String) (candidates : Array LocatedName) : String :=
+  let options := candidates.take 10 |>.map fun target =>
+    s!"  {privateToUserName target.name} ({target.moduleName})"
+  s!"ambiguous declaration '{query}':\n{String.intercalate "\n" options.toList}"
+
 def mergeBuckets (queryLower : String) (limit : Nat)
     (left right : Array LocatedName) : Array (Array LocatedName) := Id.run do
   let mut seen : NameHashSet := {}

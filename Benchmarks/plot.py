@@ -103,7 +103,7 @@ def main() -> None:
     target.write_text(
         f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}">
 <rect width="100%" height="100%" fill="white"/>
-<text x="{left}" y="28" font-size="18" font-family="sans-serif">Distinct-query latency samples (log scale)</text>
+<text x="{left}" y="28" font-size="18" font-family="sans-serif">Search latency samples (log scale)</text>
 {grid_svg}
 <line x1="{left}" y1="{top+plot_height}" x2="{width-right}" y2="{top+plot_height}" stroke="#444"/>
 {points_svg}

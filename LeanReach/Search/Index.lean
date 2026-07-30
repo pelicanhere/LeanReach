@@ -167,9 +167,7 @@ def Index.resolve (index : Index) (query : String) : Except String Name := do
   let candidates := NameResolve.bestBucket (index.resolveMatches query 10)
   if candidates.size == 1 then return candidates[0]!.name
   if candidates.isEmpty then throw s!"no declaration name contains '{query}'"
-  throw s!"ambiguous declaration '{query}':\n{String.intercalate "\n" <|
-    candidates.toList.map fun entry =>
-      s!"  {privateToUserName entry.name} ({entry.moduleName})"}"
+  throw <| NameResolve.ambiguityMessage query candidates
 
 private def Index.related (index : Index) (name : Name) (upstream : Bool)
     (limit : Nat) : Array Name :=

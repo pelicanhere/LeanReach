@@ -11,28 +11,43 @@ from pathlib import Path
 
 
 SESSION_QUERIES = (
-    ("padicValuation_cast", "padicValuation_cast"),
-    ("surjective_padicValuation", "surjective_padicValuation"),
-    ("stationaryPoint_spec", "stationaryPoint_spec"),
-    ("equiv_zero_of_val_eq_of_equiv_zero", "equiv_zero_of_val_eq_of_equiv_zero"),
-    ("norm_eq_zpow_neg_valuation", "norm_eq_zpow_neg_valuation"),
-    ("norm_values_discrete", "norm_values_discrete"),
-    ("eq_padic_norm'", "eq_padic_norm'"),
-    ("exi_rat_seq_conv_cauchy", "exi_rat_seq_conv_cauchy"),
-    ("norm_intCast_lt_one_iff", "norm_intCast_lt_one_iff"),
+    ("span_eq_bot", "span_eq_bot"),
+    (
+        "rootSet_derivative_subset_convexHull_rootSet",
+        "rootSet_derivative_subset_convexHull_rootSet",
+    ),
+    ("isCompact_convexHull", "isCompact_convexHull"),
+    (
+        "ideal_oper_maxTrivSubmodule_eq_bot",
+        "ideal_oper_maxTrivSubmodule_eq_bot",
+    ),
+    (
+        "spanSingleton_eq_zero_iff",
+        "spanSingleton_eq_zero_iff",
+    ),
+    ("ker_map_of_surjective", "ker_map_of_surjective"),
+    (
+        "krullDimLE_of_isLocalization_maximal",
+        "krullDimLE_of_isLocalization_maximal",
+    ),
+    ("range_asIdeal", "range_asIdeal"),
+    ("coeff_Φ_ne_zero", "coeff_Φ_ne_zero"),
 )
 
 PROCESS_QUERIES = (
-    ("span_image", "span_image"),
-    ("localization_.*maximal", "localization_maximal"),
-    ("OrderIso", "OrderIso"),
-    ("measurable_equiv", "measurable_equiv"),
-    ("ContinuousLinearMap", "ContinuousLinearMap"),
-    ("finite_dimensional", "finite_dimensional"),
-    (r"Polynomial\.derivative", "Polynomial.derivative"),
-    ("convexHull", "convexHull"),
-    ("AEStrongly", "AEStrongly"),
-    ("integral_comp", "integral_comp"),
+    ("isDomain_of_atPrime", "isDomain_of_atPrime"),
+    ("of_finite_maximals", "of_finite_maximals"),
+    ("of_isLocalization_maximal", "of_isLocalization_maximal"),
+    ("natDegree_Φ_le", "natDegree_Φ_le"),
+    ("intermediate_value_Icc", "intermediate_value_Icc'"),
+    ("AntitoneOn.image_Icc_subset", "AntitoneOn.image_Icc_subset"),
+    (
+        "rootSet_derivative",
+        "rootSet_derivative_subset_convexHull_rootSet",
+    ),
+    ("padicValuation_cast", "padicValuation_cast"),
+    ("surjective_padicValuation", "surjective_padicValuation"),
+    ("stationaryPoint_spec", "stationaryPoint_spec"),
 )
 
 
@@ -40,23 +55,21 @@ def elapsed_ms(started: float) -> float:
     return (time.perf_counter() - started) * 1000
 
 
-def measure_process(
-    command: list[str], timeout: float, capture: bool = True
-) -> tuple[float, str]:
+def measure_process(command: list[str | Path], timeout: float) -> tuple[float, str]:
     started = time.perf_counter()
     result = subprocess.run(
         command,
         text=True,
         encoding="utf-8",
         errors="replace",
-        stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         timeout=timeout,
         check=False,
     )
     elapsed = elapsed_ms(started)
     if result.returncode:
-        raise RuntimeError(f"{' '.join(command)} failed:\n{result.stderr}")
+        raise RuntimeError(f"{' '.join(map(str, command))} failed:\n{result.stderr}")
     return elapsed, result.stdout or ""
 
 
@@ -124,7 +137,7 @@ def measure_session(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Benchmark a chain of distinct, first-use declaration searches."
+        description="Benchmark a fixed corpus of distinct declaration searches."
     )
     parser.add_argument("--stage", default="baseline")
     parser.add_argument("--output", default="Benchmarks/latest.csv")
@@ -158,6 +171,17 @@ def main() -> None:
         args.timeout,
     )
     measure_process(["rg", "--version"], args.timeout)
+    measure_process(
+        [
+            "rg",
+            "--count-matches",
+            "--glob",
+            "*.lean",
+            "theorem|lemma|def",
+            mathlib,
+        ],
+        args.timeout,
+    )
     rows = []
     if run_session:
         session = measure_session(executable, SESSION_QUERIES, args.timeout)
@@ -208,7 +232,7 @@ def main() -> None:
             "tool": tool,
             "latency_ms": f"{latency:.3f}",
             "found": found,
-            "note": "distinct query with fully precomputed module PP sidecars",
+            "note": "one use per run from a fixed corpus with complete PP sidecars",
         }
         for query, tool, latency, found in rows
     ]

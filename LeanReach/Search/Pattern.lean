@@ -163,32 +163,31 @@ lean-regex folds literal characters under `(?i)`, but not explicit character
 classes. Close those classes under the same Unicode simple-fold relation while
 preserving the parser's scoped flag state.
 -/
-private partial def foldCaseInsensitiveClasses (caseInsensitive : Bool) :
-    Ast → Bool × Ast
+private partial def foldCaseInsensitiveClasses : Ast → StateM (Bool × Bool) Ast
   | .group child =>
-      let (_, child) := foldCaseInsensitiveClasses caseInsensitive child
-      (caseInsensitive, .group child)
-  | .alternate left right =>
-      let (caseInsensitive, left) :=
-        foldCaseInsensitiveClasses caseInsensitive left
-      let (caseInsensitive, right) :=
-        foldCaseInsensitiveClasses caseInsensitive right
-      (caseInsensitive, .alternate left right)
-  | .concat left right =>
-      let (caseInsensitive, left) :=
-        foldCaseInsensitiveClasses caseInsensitive left
-      let (caseInsensitive, right) :=
-        foldCaseInsensitiveClasses caseInsensitive right
-      (caseInsensitive, .concat left right)
+      do
+        let (caseInsensitive, _) ← get
+        let child ← foldCaseInsensitiveClasses child
+        modify fun (_, changed) => (caseInsensitive, changed)
+        return .group child
+  | .alternate left right => do
+      return .alternate (← foldCaseInsensitiveClasses left)
+        (← foldCaseInsensitiveClasses right)
+  | .concat left right => do
+      return .concat (← foldCaseInsensitiveClasses left)
+        (← foldCaseInsensitiveClasses right)
   | .repeat min upper greedy child =>
-      let (caseInsensitive, child) :=
-        foldCaseInsensitiveClasses caseInsensitive child
-      (caseInsensitive, .repeat min upper greedy child)
-  | .classes classes =>
-      (caseInsensitive,
-        .classes (if caseInsensitive then caseFoldClasses classes else classes))
-  | .flags enabled => (enabled, .flags enabled)
-  | ast => (caseInsensitive, ast)
+      return .repeat min upper greedy (← foldCaseInsensitiveClasses child)
+  | .classes classes => do
+      let (caseInsensitive, _) ← get
+      if caseInsensitive then
+        modify fun state => (state.1, true)
+        return .classes (caseFoldClasses classes)
+      return .classes classes
+  | .flags enabled => do
+      modify fun state => (enabled, state.2)
+      return .flags enabled
+  | ast => return ast
 
 private def simpleCaseFold (value : String) : String :=
   value.map fun char =>
@@ -289,8 +288,8 @@ def compileRegex (source : String) : Except String SearchPattern := do
     | .ok ast => pure ast
     | .error error => throw s!"invalid regex: {error}"
   discard <| astCost ast
-  let ast := (foldCaseInsensitiveClasses false ast).2
-  discard <| astCost ast
+  let (ast, _, changed) := (foldCaseInsensitiveClasses ast).run (false, false)
+  if changed then discard <| astCost ast
   return .regex (Regex.fromExpr (Ast.toRegex (.group ast))) (candidatePlanFor ast)
 
 def compileTokens (tokens : Array String) : Except String SearchPattern := do
@@ -329,11 +328,14 @@ def CandidatePlan.select (plan : CandidatePlan)
       let mut selected := #[]
       for grams in alternatives do
         if let some gram := NameSearch.rarestTrigram? grams count? then
-          selected := selected.push #[gram]
+          unless selected.any (·[0]? == some gram) do
+            selected := selected.push #[gram]
       return if selected.isEmpty then .empty else .postings selected
   | plan => plan
 
 def unionIds (left right : Array UInt32) : Array UInt32 := Id.run do
+  if left.isEmpty then return right
+  if right.isEmpty then return left
   let mut result := #[]
   let mut i := 0
   let mut j := 0

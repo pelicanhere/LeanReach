@@ -86,9 +86,6 @@ unsafe def moduleData (moduleName : Name) :
   let fragment ← unsafe loadFragment moduleName
   return (fragment.imports, fragment.declarations)
 
-unsafe def moduleDeclarations (moduleName : Name) : IO (Array (Name × NameSet)) :=
-  return (← unsafe moduleData moduleName).2
-
 unsafe def moduleNames (moduleName : Name) : IO (Array Name) :=
   return (← unsafe moduleData moduleName).2.map (·.1)
 

@@ -62,9 +62,17 @@ private unsafe def runTests : IO Unit := do
       String.ofList (List.replicate 130 ']')
   check (SearchPattern.compileRegex deeplyNestedClass |>.toOption |>.isNone)
     "deeply nested regex character class was accepted"
-  check (SearchPattern.unionIds #[1, 2, 4, 4] #[2, 3, 4] ==
-      #[1, 2, 3, 4])
+  check (SearchPattern.unionIds #[] #[1, 2] == #[1, 2] &&
+      SearchPattern.unionIds #[1, 2] #[] == #[1, 2] &&
+      SearchPattern.unionIds #[1, 2, 4, 4] #[2, 3, 4] == #[1, 2, 3, 4])
     "sorted posting union changed ordering or deduplication"
+  let selectedPlan := SearchPattern.CandidatePlan.postings #[
+    #["abc"], #["abc", "def"]
+  ] |>.select fun gram => if gram == "abc" then some 1 else some 2
+  let .postings selected := selectedPlan |
+    throw <| IO.userError "candidate planning discarded a valid posting"
+  check (selected == #[#["abc"]])
+    "candidate planning retained a duplicate posting"
   let sourcePath ← unsafe prepareEnvironment
   let duplicateIndex := Index.build #[
     (`LeanReachFixture.a, `Tests.Fixture, ({} : NameSet).insert `LeanReachFixture.b),
