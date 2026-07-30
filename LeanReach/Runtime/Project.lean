@@ -6,7 +6,7 @@ namespace LeanReach.Project
 
 open Lean Lake System
 
-private def cacheVersion := 6
+private def cacheVersion := 7
 
 private abbrev Metadata := Array Name × Array String × Bool × Array Name
 
@@ -96,6 +96,7 @@ unsafe def detectRoots (sysroot : FilePath) (refresh := false) : IO (Array Name)
     if hasSource && !built.contains moduleName &&
         (← (Lean.modToFilePath buildDir moduleName "olean").pathExists) then
       built := built.push moduleName
+  built := built.qsort Name.lt
   if mathlib && !built.contains `Mathlib then built := built.push `Mathlib
   try saveCached cache hash roots sourceDirs mathlib built catch _ => pure ()
   return built

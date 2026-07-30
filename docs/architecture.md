@@ -180,7 +180,8 @@ The current granularity is:
 
 The detected built-module list is persisted under the target project's `.lake`. Running
 `leanreach cache` refreshes it; ordinary queries reuse it for fast process startup. Consequently, a
-newly built module may require one `cache` command before automatic detection includes it.
+newly built module may require one `cache` command before automatic detection includes it. Local
+roots are stored in a canonical order so filesystem enumeration cannot invalidate aggregate caches.
 
 ## Runtime model
 

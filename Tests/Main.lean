@@ -24,6 +24,9 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "built local modules were not detected"
   unless roots.contains `Mathlib do
     throw <| IO.userError "required Mathlib was not detected"
+  let localRoots := roots.filter (· != `Mathlib)
+  unless localRoots == localRoots.qsort Name.lt do
+    throw <| IO.userError "built local modules were not detected deterministically"
   let mathlibIndex ← unsafe Cache.loadIndex #[`Mathlib] true
   let intervalRank := mathlibIndex.upstream
     `ContinuousOn.image_Icc_of_antitoneOn 10
