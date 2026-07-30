@@ -5,13 +5,13 @@ namespace LeanReach
 
 open Lean
 
-private def workspaceRoots : IO (List System.FilePath) := do
+private def workspaceRoots : IO (Array System.FilePath) := do
   let cwd ← (← Project.findDir?).getDM IO.currentDir
   let packages := cwd / ".lake" / "packages"
-  let mut roots := [cwd]
+  let mut roots := #[cwd]
   if ← packages.isDir then
     for entry in ← packages.readDir do
-      if ← entry.path.isDir then roots := roots.concat entry.path
+      if ← entry.path.isDir then roots := roots.push entry.path
   return roots
 
 private def leanSysroot : IO System.FilePath := do
@@ -25,27 +25,27 @@ private def leanSysroot : IO System.FilePath := do
   findSysroot
 
 private def initializeSearchPath (sysroot : System.FilePath)
-    (roots : List System.FilePath) : IO Unit := do
+    (roots : Array System.FilePath) : IO Unit := do
   match ← IO.getEnv "LEAN_PATH" with
   | some path => searchPathRef.set (System.SearchPath.parse path)
   | none =>
-    let mut paths := []
+    let mut paths := #[]
     for root in roots do
       let path := root / ".lake" / "build" / "lib" / "lean"
-      if ← path.isDir then paths := paths.concat path
-    initSearchPath sysroot paths
+      if ← path.isDir then paths := paths.push path
+    initSearchPath sysroot paths.toList
 
 private def sourceSearchPath (sysroot : System.FilePath)
-    (roots : List System.FilePath) : IO SearchPath := do
-  let mut fallback := []
+    (roots : Array System.FilePath) : IO SearchPath := do
+  let mut fallback := #[]
   for root in roots do
-    fallback := fallback.concat root
+    fallback := fallback.push root
     let source := root / "src"
-    if ← source.isDir then fallback := fallback.concat source
-  fallback := fallback.concat (sysroot / "src" / "lean")
+    if ← source.isDir then fallback := fallback.push source
+  fallback := fallback.push (sysroot / "src" / "lean")
   match ← IO.getEnv "LEAN_SRC_PATH" with
-  | some path => return System.SearchPath.parse path ++ fallback
-  | none => return fallback
+  | some path => return System.SearchPath.parse path ++ fallback.toList
+  | none => return fallback.toList
 
 unsafe def prepareSearchPath : IO Unit := do
   let roots ← workspaceRoots

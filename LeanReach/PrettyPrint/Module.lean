@@ -10,10 +10,10 @@ open Lean Meta
 unsafe def prettyPrintModuleIO (sourcePath : SearchPath) (env : Environment)
     (moduleName : Name) (names : Array Name) (moduleOf? : Name → Option Name) :
     IO (NameMap Declaration × PPTiming) := do
-  let sourceStarted ← IO.monoNanosNow
-  let source ← moduleSource sourcePath moduleName names
-  let sourceNanos := (← IO.monoNanosNow) - sourceStarted
   let env := env.setMainModule moduleName
+  let sourceStarted ← IO.monoNanosNow
+  let source ← unsafe moduleSource sourcePath env moduleName names
+  let sourceNanos := (← IO.monoNanosNow) - sourceStarted
   let print := fun env => do
     let planStarted ← IO.monoNanosNow
     let (bodies, signatureOverlay) ←

@@ -15,10 +15,16 @@ def normalizedName (name : Name) : String :=
 
 def trigrams (value : String) : Array String := Id.run do
   let mut result := #[]
-  let length := value.length
-  for offset in [0:length] do
-    if length < offset + 3 then break
-    result := result.push ((value.drop offset).take 3).copy
+  let mut start := value.startPos
+  let mut stop := start
+  for _ in [0:3] do
+    let some next := stop.next? | return result
+    stop := next
+  while true do
+    result := result.push (value.extract start stop)
+    let some nextStop := stop.next? | break
+    start := start.next!
+    stop := nextStop
   return result
 
 def rarestTrigram? (grams : Array String)
@@ -28,9 +34,6 @@ def rarestTrigram? (grams : Array String)
     let count := (count? gram).getD 0
     if selected.all (count < ·.2) then selected := some (gram, count)
   return selected.bind fun (gram, count) => if count == 0 then none else some gram
-
-def exact (query : String) (name : Name) : Bool :=
-  normalizedName name == query
 
 def leafMatches (query : String) (name : Name) : Bool :=
   (leaf (privateToUserName name)).toLower == query
@@ -42,17 +45,13 @@ private def bucket? (query suffix : String) (name : Name) : Option Nat :=
   else if candidate.contains query then some 2
   else none
 
-def matchName (queryLower : String) : Name → Bool :=
-  let suffix := "." ++ queryLower
-  fun name => (bucket? queryLower suffix name).isSome
-
 def buckets {α : Type u} {β : Type v} (queryLower : String)
-    (items : Array α) (project : α → Option β) (nameOf : β → Name)
+    (size : Nat) (itemAt : Nat → α) (project : α → Option β) (nameOf : β → Name)
     (limit : Nat) : Array (Array β) := Id.run do
   let mut buckets : Array (Array β) := #[#[], #[], #[]]
   let suffix := "." ++ queryLower
-  for item in items do
-    let some item := project item | continue
+  for position in [0:size] do
+    let some item := project (itemAt position) | continue
     let name := nameOf item
     if let some bucket := bucket? queryLower suffix name then
       if buckets[bucket]!.size < limit then
@@ -60,8 +59,11 @@ def buckets {α : Type u} {β : Type v} (queryLower : String)
   return buckets
 
 def collect {α : Type u} {β : Type v} (queryLower : String)
-    (items : Array α) (project : α → Option β) (nameOf : β → Name)
+    (size : Nat) (itemAt : Nat → α) (project : α → Option β) (nameOf : β → Name)
     (limit : Nat) : Array β :=
-  (buckets queryLower items project nameOf limit).flatten.take limit
+  (buckets queryLower size itemAt project nameOf limit).flatten.take limit
+
+def bestBucket {α : Type u} (buckets : Array (Array α)) : Array α :=
+  buckets.find? (not ∘ Array.isEmpty) |>.getD #[]
 
 end LeanReach.NameSearch

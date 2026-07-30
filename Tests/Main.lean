@@ -11,6 +11,10 @@ private def check (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 
 private unsafe def runTests : IO Unit := do
+  unless NameSearch.trigrams "abcd" == #["abc", "bcd"] &&
+      NameSearch.trigrams "αβγδ" == #["αβγ", "βγδ"] &&
+      (NameSearch.trigrams "ab").isEmpty do
+    throw <| IO.userError "trigram generation changed character-window semantics"
   let sourcePath ← unsafe prepareEnvironment
   let duplicateIndex := Index.build #[
     (`LeanReachFixture.a, `Tests.Fixture, ({} : NameSet).insert `LeanReachFixture.b),
@@ -67,10 +71,17 @@ private unsafe def runTests : IO Unit := do
   let fixtureEnv ← importEnvironment #[`Tests.Fixture]
   let (planned, _) ← unsafe prettyPrintModuleIO sourcePath fixtureEnv
     `Tests.Fixture fixtureNames fixtureIndex.moduleOf?
+  let some publicPosition := planned.find? `LeanReachFixture.double |
+    throw <| IO.userError "public position fixture is missing"
+  let some privatePosition := planned.find? hiddenTheorem |
+    throw <| IO.userError "private position fixture is missing"
+  unless publicPosition.line == 5 && publicPosition.column == 5 &&
+      privatePosition.line == 13 && privatePosition.column == 17 do
+    throw <| IO.userError "native declaration ranges changed source positions"
   let (monolithic, _) ← unsafe ModuleData.withPrivateOverlay fixtureEnv
       `Tests.Fixture #[] fixtureNames fixtureIndex.moduleOf? fun env =>
     unsafe runCore (env.setMainModule `Tests.Fixture) <| MetaM.run' do
-      let source ← moduleSource sourcePath `Tests.Fixture fixtureNames
+      let source ← unsafe moduleSource sourcePath env `Tests.Fixture fixtureNames
       let bodies := (← prettyPrintPlan fixtureNames).1.foldl
         (init := ({} : NameHashSet)) fun bodies name => bodies.insert name
       return (← prettyPrintModuleWithBodies
@@ -142,6 +153,12 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "unique short query did not resolve from its shard"
   unless shortQuery.target.name == `LeanReachFixture.doubleViaPrivate do
     throw <| IO.userError "short query resolved to the wrong declaration"
+  let .ok (some mathlibSubstring) ← unsafe QueryCache.resolve #[`Mathlib]
+      "isPrincipalIdealRing_of_isPrincipalIdealRing_isLocalization_maxima" |
+    throw <| IO.userError "Mathlib substring query did not use its search cache"
+  unless mathlibSubstring.target.name ==
+      `isPrincipalIdealRing_of_isPrincipalIdealRing_isLocalization_maximal do
+    throw <| IO.userError "Mathlib substring query resolved the wrong declaration"
   let .ok (some privateQuery) ← unsafe QueryCache.resolve #[`Tests.Fixture]
       "LeanReachFixture.hidden_double_zero" |
     throw <| IO.userError "private declaration did not resolve from its user name"
@@ -192,6 +209,11 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "local declaration did not resolve through the overlay"
   unless layeredLocal.target.name == `LeanReachFixture.doubleViaPrivate do
     throw <| IO.userError "overlay resolved the wrong local declaration"
+  let .ok (some layeredSubstring) ← unsafe QueryCache.resolve layeredRoots
+      "cachedWrap" |
+    throw <| IO.userError "local substring did not resolve through the overlay"
+  unless layeredSubstring.target.name == `LeanReachFixture.cachedWrapped do
+    throw <| IO.userError "overlay substring resolved the wrong local declaration"
   let .ok (some layeredRelations) ← unsafe QueryCache.resolve layeredRoots
       "LeanReachFixture.double" |
     throw <| IO.userError "local overlay relations are missing"
@@ -218,10 +240,10 @@ private unsafe def runTests : IO Unit := do
       throw <| IO.userError s!"Mathlib search cache is missing for '{pattern}'"
     unless cached.map (·.name) == mathlibIndex.search pattern limit do
       throw <| IO.userError s!"cached search differs for '{pattern}'"
-  let lazyRoots := #[`Tests.Main, `Tests.Fixture, `Mathlib]
+  let lazyRoots := #[`Tests.Main, `Mathlib]
   let .ok (some lazyLocal) ← unsafe QueryCache.resolve lazyRoots
       "LeanReachFixture.double" |
-    throw <| IO.userError "query did not recover a missing local overlay"
+    throw <| IO.userError "query did not include an imported local module"
   unless lazyLocal.target.name == `LeanReachFixture.double do
     throw <| IO.userError "recovered overlay resolved the wrong local declaration"
   unless lazyLocal.downstream.any (·.name == `LeanReachFixture.double_eq_add) do

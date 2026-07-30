@@ -81,11 +81,16 @@ private unsafe def loadFragment (moduleName : Name) : IO ModuleFragment := do
     catch _ => pure ()
   return (← readFragment moduleName olean).1
 
-unsafe def moduleNames (moduleName : Name) : IO (Array Name) := do
-  return (← unsafe loadFragment moduleName).declarations.map (·.1)
+unsafe def moduleData (moduleName : Name) :
+    IO (Array Name × Array (Name × NameSet)) := do
+  let fragment ← unsafe loadFragment moduleName
+  return (fragment.imports, fragment.declarations)
 
-unsafe def moduleDeclarations (moduleName : Name) : IO (Array (Name × NameSet)) := do
-  return (← unsafe loadFragment moduleName).declarations
+unsafe def moduleDeclarations (moduleName : Name) : IO (Array (Name × NameSet)) :=
+  return (← unsafe moduleData moduleName).2
+
+unsafe def moduleNames (moduleName : Name) : IO (Array Name) :=
+  return (← unsafe moduleData moduleName).2.map (·.1)
 
 private unsafe def buildIndex (roots : Array Name) : IO Index := do
   let mut pending := #[]
@@ -101,14 +106,14 @@ private unsafe def buildIndex (roots : Array Name) : IO Index := do
       let some moduleName := pending.back? | break
       pending := pending.pop
       batch := batch.push moduleName
-    let tasks ← batch.mapM fun moduleName => IO.asTask (unsafe loadFragment moduleName)
+    let tasks ← batch.mapM fun moduleName => IO.asTask (unsafe moduleData moduleName)
     for (moduleName, task) in batch.zip tasks do
-      let fragment ← IO.ofExcept task.get
-      for imported in fragment.imports do
+      let (imports, moduleDeclarations) ← IO.ofExcept task.get
+      for imported in imports do
         unless seen.contains imported do
           seen := seen.insert imported
           pending := pending.push imported
-      for (name, dependencies) in fragment.declarations do
+      for (name, dependencies) in moduleDeclarations do
         declarations := declarations.push (name, moduleName, dependencies)
   return Index.build declarations
 

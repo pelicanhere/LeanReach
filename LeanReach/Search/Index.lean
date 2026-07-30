@@ -125,19 +125,19 @@ def Index.cachedQueryAt! (index : Index) (id : Nat) : CachedQuery :=
     downstream := (index.relatedIds id false cachedQueryLimit).map index.locatedAt
   }
 
-private def Index.candidates (index : Index) (query : String) : Array UInt32 :=
-  if query.length < 3 then
-    index.entries.mapIdx fun id _ => id.toUInt32
-  else
-    let gram? := NameSearch.rarestTrigram? (NameSearch.trigrams query)
-      (index.trigrams.find? · |>.map (·.size))
-    gram?.bind index.trigrams.find? |>.getD #[]
-
 private def Index.matches (index : Index) (query : String) (limit : Nat) :
     Array (Array LocatedName) :=
   let query := query.toLower
-  NameSearch.buckets query (index.candidates query)
-    (fun id => index.entries[id.toNat]?) (·.name) limit
+  let find size candidateAt :=
+    NameSearch.buckets query size candidateAt
+      (fun id => index.entries[id.toNat]?) (·.name) limit
+  if query.length < 3 then
+    find index.entries.size (fun id => id.toUInt32)
+  else
+    let gram? := NameSearch.rarestTrigram? (NameSearch.trigrams query)
+      (index.trigrams.find? · |>.map (·.size))
+    let candidates := gram?.bind index.trigrams.find? |>.getD #[]
+    find candidates.size (fun id => candidates[id]!)
 
 def Index.search (index : Index) (query : String) (limit : Nat := 20) : Array Name :=
   (index.matches query limit).flatten.take limit |>.map (·.name)
@@ -145,8 +145,7 @@ def Index.search (index : Index) (query : String) (limit : Nat := 20) : Array Na
 def Index.resolve (index : Index) (query : String) : Except String Name := do
   let exact := query.toName
   if index.findId? exact |>.isSome then return exact
-  let candidates := (index.matches query 10).find?
-    (not ∘ Array.isEmpty) |>.getD #[]
+  let candidates := NameSearch.bestBucket (index.matches query 10)
   if candidates.size == 1 then return candidates[0]!.name
   if candidates.isEmpty then throw s!"no declaration name contains '{query}'"
   throw s!"ambiguous declaration '{query}':\n{String.intercalate "\n" <|

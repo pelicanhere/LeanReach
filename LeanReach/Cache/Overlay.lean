@@ -7,17 +7,18 @@ open Lean
 
 structure Entry where
   target : LocatedName
-  dependencies : Array Name
+  dependencies : NameSet
 
 structure Data where
   baseRoot : Name
   entries : NameMap Entry
+  localNames : Array LocatedName
   reverse : NameMap (Array LocatedName)
   queries : NameMap CachedQuery
 
 private def path (olean : System.FilePath) : System.FilePath :=
-  -- Overlay cache format 6.
-  olean.withExtension "leanreach-query-overlay-6"
+  -- Overlay cache format 8.
+  olean.withExtension "leanreach-query-overlay-8"
 
 private initialize loadedCache : IO.Ref (Std.HashMap String Data) ← IO.mkRef {}
 
@@ -54,7 +55,7 @@ def Data.queryFromBase (data : Data) (base : Index) (target : LocatedName)
     (cached? : Option CachedQuery) : CachedQuery :=
   let upstream :=
     match data.entries.find? target.name with
-    | some entry => entry.dependencies.filterMap (data.moduleOf? base)
+    | some entry => entry.dependencies.toArray.filterMap (data.moduleOf? base)
     | none => cached?.map (·.upstream) |>.getD #[]
   let downstream :=
     (cached?.map (·.downstream) |>.getD #[]) ++
@@ -65,9 +66,7 @@ def Data.queryFromBase (data : Data) (base : Index) (target : LocatedName)
       (fun candidate =>
         let (baseReverse, baseForward) := base.relationCounts candidate.name
         let reverseCount := baseReverse +
-          if data.entries.contains candidate.name then
-            data.reverse.find? candidate.name |>.map (·.size) |>.getD 0
-          else 0
+          ((data.reverse.find? candidate.name).map (·.size)).getD 0
         let forwardCount := data.entries.find? candidate.name
           |>.map (·.dependencies.size) |>.getD baseForward
         Rank.prior base.size reverseCount forwardCount upstream)
@@ -78,22 +77,34 @@ def Data.queryFromBase (data : Data) (base : Index) (target : LocatedName)
     downstream := rank false downstream
   }
 
-unsafe def buildGraph (roots : Array Name) (baseRoot : Name) : IO Data := do
+unsafe def buildGraph (roots : Array Name) (baseRoot : Name)
+    (baseModules : Array Name) : IO Data := do
+  let mut seen := baseModules.foldl
+    (init := ({} : NameHashSet)) (·.insert ·)
+  seen := seen.insert baseRoot
+  let mut pending := roots
   let mut entries : NameMap Entry := {}
-  for moduleName in roots do
-    unless moduleName == baseRoot do
-      for (name, dependencies) in ← unsafe Cache.moduleDeclarations moduleName do
-        let mut merged := entries.find? name |>.map (·.dependencies) |>.getD #[]
-        for dependency in dependencies do
-          if dependency != name && !merged.contains dependency then
-            merged := merged.push dependency
-        entries := entries.insert name { target := { name, moduleName }, dependencies := merged }
+  while let some moduleName := pending.back? do
+    pending := pending.pop
+    if seen.contains moduleName then continue
+    seen := seen.insert moduleName
+    let (imports, declarations) ← unsafe Cache.moduleData moduleName
+    for imported in imports do
+      unless seen.contains imported do pending := pending.push imported
+    for (name, dependencies) in declarations do
+      entries := entries.alter name fun previous => some {
+        target := { name, moduleName }
+        dependencies :=
+          ((previous.map (·.dependencies)).getD {} ++ dependencies).erase name
+      }
   let mut reverse : NameMap (Array LocatedName) := {}
+  let mut localNames := #[]
   for (_, entry) in entries do
+    localNames := localNames.push entry.target
     for dependency in entry.dependencies do
       reverse := reverse.alter dependency fun targets =>
         some ((targets.getD #[]).push entry.target)
-  return { baseRoot, entries, reverse, queries := {} }
+  return { baseRoot, entries, localNames, reverse, queries := {} }
 
 unsafe def save (roots : Array Name) (data : Data) : IO Unit := do
   let (olean, depHash, root) ← unsafe Cache.rootData roots
