@@ -157,13 +157,20 @@ private def parseLine (line : String) : Command :=
   else
     .query line
 
-private partial def runInteractive (session : Session) (run : SessionRunner)
+private partial def runInteractive (session : Session) (runner : InteractiveRunner)
     (config : Config) : IO Unit := do
   let line := (← (← IO.getStdin).getLine).trimAscii.copy
   if line.isEmpty then return
   let command := parseLine line
   try
-    run (prepare config command) (runTimed session config)
+    match command with
+    | .query query =>
+      runner.query query config.limits fun names =>
+        runTimed session config (.query names)
+    | .search pattern =>
+      runner.search pattern config.limits.search fun names =>
+        runTimed session config (.search pattern names)
+    | .cache _ => unreachable!
   catch error =>
     let message := toString error
     if config.json then
@@ -171,7 +178,7 @@ private partial def runInteractive (session : Session) (run : SessionRunner)
     else
       IO.eprintln s!"leanreach: {message}"
   (← IO.getStdout).flush
-  runInteractive session run config
+  runInteractive session runner config
 
 private def validate (config : Config) : CliMainM Unit := do
   if let some limit := config.limit? then
@@ -205,7 +212,8 @@ private unsafe def execute (config : Config) (command? : Option Command) : IO UI
         runTimed session config (.search pattern names)).isNone then
       withSessionFor roots (prepare config (.search pattern)) false (runTimed · config)
   | none =>
-    withLazySession (← config.roots) fun session run => runInteractive session run config
+    withInteractiveSession (← config.roots) fun session runner =>
+      runInteractive session runner config
   if config.profile then
     IO.eprintln s!"leanreach: elapsed={(← IO.monoMsNow) - started}ms"
   return 0

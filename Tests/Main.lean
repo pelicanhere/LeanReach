@@ -322,18 +322,15 @@ private unsafe def runTests : IO Unit := do
         item.name == "LeanReachFixture.Box.value")
       "structure projection was blacklisted"
 
-  withLazySession #[`Tests.Fixture] fun session run => do
+  withInteractiveSession #[`Definitely.Missing] fun _ _ => pure ()
+  withInteractiveSession #[`Tests.Fixture] fun session runner => do
     for query in #["double_eq", "double_zero_again"] do
-      run (fun index =>
-        let names := index.search query 10
-        pure (names, names, none)) fun names => do
+      runner.search query 10 fun names => do
         check (!((← session.describeNames names).isEmpty))
-          "lazy session search is missing"
-    run (fun index => do
-      let names ← index.queryNames "LeanReachFixture.Topic.ranked" (Limits.uniform 1)
-      pure (names, names.all, some names.target)) fun names => do
+          "interactive session search is missing"
+    runner.query "LeanReachFixture.Topic.ranked" (Limits.uniform 1) fun names => do
         check ((← session.describeQuery names).upstream.size == 1)
-          "prepared lazy query is missing"
+          "interactive cached query is missing"
 
 unsafe def main : IO UInt32 := do
   try

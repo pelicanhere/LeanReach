@@ -146,20 +146,45 @@ unsafe def withSession {α : Type} (roots : Array Name)
   withIndexSession roots true (fun _ => pure ((), #[], none)) true fun index session _ =>
     action index session
 
-abbrev SessionRunner :=
-  {α : Type} → (Index → Except String (SessionPlan α)) →
-    (α → CoreM Unit) → IO Unit
+structure InteractiveRunner where
+  query : String → Limits → (QueryNames → CoreM Unit) → IO Unit
+  search : String → Nat → (Array Name → CoreM Unit) → IO Unit
 
-unsafe def withLazySession {α : Type} (roots : Array Name)
-    (action : Session → SessionRunner → IO α) : IO α := do
-  let sourcePath ← prepareEnvironment
+private unsafe def loadIndexOnce (roots : Array Name)
+    (cached : IO.Ref (Option Index)) : IO Index := do
+  if let some index ← cached.get then return index
   let index ← unsafe Cache.loadIndex roots true
+  cached.set (some index)
+  return index
+
+unsafe def withInteractiveSession {α : Type} (roots : Array Name)
+    (action : Session → InteractiveRunner → IO α) : IO α := do
+  let sourcePath ← prepareEnvironment
   let session ← Session.create sourcePath
   let emptyEnv ← mkEmptyEnvironment
-  let run : SessionRunner := fun select query => do
-    let (plan, names, target?) ← selectPlan index select
-    discard <| unsafe runSession index.moduleOf? session names target? none true
-      (some emptyEnv) (query plan)
-  action session run
+  let indexCache ← IO.mkRef none
+  let query := fun query limits action => do
+    if roots.size == 1 && limits.usesCachedQuery then
+      match ← unsafe QueryCache.resolve roots query with
+      | .error message => throw <| IO.userError message
+      | .ok (some cached) =>
+        discard <| unsafe runCachedQuery session cached limits action
+        return
+      | .ok none => pure ()
+    let index ← unsafe loadIndexOnce roots indexCache
+    let names ← match index.queryNames query limits with
+      | .ok names => pure names
+      | .error message => throw <| IO.userError message
+    discard <| unsafe runSession index.moduleOf? session names.all
+      (some names.target) none false (some emptyEnv) (action names)
+  let search := fun pattern limit action => do
+    if let some targets ← unsafe QueryCache.search roots pattern limit then
+      discard <| unsafe runCachedSearch session targets action
+      return
+    let index ← unsafe loadIndexOnce roots indexCache
+    let names := index.search pattern limit
+    discard <| unsafe runSession index.moduleOf? session names none none false
+      (some emptyEnv) (action names)
+  action session { query, search }
 
 end LeanReach
