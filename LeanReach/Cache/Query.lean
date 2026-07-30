@@ -7,17 +7,17 @@ namespace LeanReach.QueryCache
 
 open Lean
 
-private def version := 10
 private def shardCount := 1024
 
 private def shard (name : Name) : Nat :=
   (hash (NameSearch.leaf name).toLower % UInt64.ofNat shardCount).toNat
 
 private def shardPath (olean : System.FilePath) (id : Nat) : System.FilePath :=
-  olean.withExtension s!"leanreach-query-{version}-{id}"
+  -- Query-shard format 10.
+  olean.withExtension s!"leanreach-query-10-{id}"
 
 private def markerPath (olean : System.FilePath) : System.FilePath :=
-  olean.withExtension s!"leanreach-query-root-{version}"
+  olean.withExtension "leanreach-query-root-10"
 
 private def ready (olean : System.FilePath) (depHash : String) : IO Bool :=
   Cache.markerMatches (markerPath olean) depHash

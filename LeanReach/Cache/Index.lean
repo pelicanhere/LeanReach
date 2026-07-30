@@ -17,10 +17,6 @@ Released under the Apache License 2.0.
 private def isBlacklisted (name : Name) : Bool :=
   (privateToUserName name).isInternalDetail
 
-private def catalogVersion := 7
-private def relationsVersion := 8
-private def fragmentVersion := 7
-
 private structure ModuleFragment where
   imports : Array Name
   declarations : Array (Name × NameSet)
@@ -75,7 +71,8 @@ private unsafe def writeFragment (moduleName : Name) (olean path : System.FilePa
 private unsafe def loadFragment (moduleName : Name) : IO ModuleFragment := do
   let olean ← findOLean moduleName
   let hash? ← depHash? olean
-  let path := olean.withExtension s!"leanreach-module-{fragmentVersion}"
+  -- Module-fragment cache format 7.
+  let path := olean.withExtension "leanreach-module-7"
   if let some hash := hash? then
     if let some fragment ← unsafe loadPart ModuleFragment path hash then return fragment
     try
@@ -113,8 +110,9 @@ private unsafe def buildIndex (roots : Array Name) : IO Index := do
 unsafe def loadIndex (roots : Array Name) (loadRelations := true) : IO Index := do
   let (olean, depHash, root) ← unsafe rootData roots
   let stem := if roots.size == 1 then "leanreach" else "leanreach-roots"
-  let catalogPath := olean.withExtension s!"{stem}-catalog-{catalogVersion}"
-  let relationsPath := olean.withExtension s!"{stem}-relations-{relationsVersion}"
+  -- Root catalog format 7; relation-index format 8.
+  let catalogPath := olean.withExtension s!"{stem}-catalog-7"
+  let relationsPath := olean.withExtension s!"{stem}-relations-8"
   if let some catalog ← unsafe loadPart Catalog catalogPath depHash then
     if !loadRelations then return Index.ofParts catalog default
     if let some relations ← unsafe loadPart Relations relationsPath depHash then

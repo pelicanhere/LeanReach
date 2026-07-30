@@ -6,7 +6,6 @@ namespace LeanReach.SearchCache
 
 open Lean
 
-private def version := 4
 private def shardCount := 256
 
 private abbrev NameTable := Array Name × Array UInt32 × Array Name
@@ -15,7 +14,8 @@ private def stem (roots : Array Name) :=
   if roots.size == 1 then "leanreach-search" else "leanreach-roots-search"
 
 private def path (roots : Array Name) (olean : System.FilePath) (part : String) :=
-  olean.withExtension s!"{stem roots}-{version}-{part}"
+  -- Search cache format 4.
+  olean.withExtension s!"{stem roots}-4-{part}"
 
 private def markerPath (roots : Array Name) (olean : System.FilePath) :=
   path roots olean "root"

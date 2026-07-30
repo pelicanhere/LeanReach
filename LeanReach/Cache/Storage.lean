@@ -6,8 +6,6 @@ namespace LeanReach.Cache
 
 open Lean
 
-private def rootHashVersion := 1
-
 /-- Save a compacted Lean object. Adapted from Loogle's `Pickle` module. -/
 def pickle {α : Type} (path : System.FilePath) (value : α) (key : Name) : IO Unit :=
   saveModuleData path key (unsafe unsafeCast value)
@@ -59,7 +57,8 @@ unsafe def rootData (roots : Array Name) : IO (System.FilePath × String × Name
   let stamps ← oleans.mapM rootStamp
   let stamp := String.intercalate "\u0001" <| (roots.zip stamps).toList.map fun (name, value) =>
     s!"{name}\t{value}"
-  let cache := olean.withExtension s!"leanreach-root-hash-{rootHashVersion}"
+  -- Root-hash cache format 1.
+  let cache := olean.withExtension "leanreach-root-hash-1"
   if ← cache.pathExists then
     try
       let storedStamp :: depHash :: _ := (← IO.FS.readFile cache).splitOn "\n" | pure ()

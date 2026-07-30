@@ -6,8 +6,6 @@ namespace LeanReach.Project
 
 open Lean Lake System
 
-private def cacheVersion := 7
-
 private abbrev Metadata := Array Name × Array String × Bool × Array Name
 
 private def configFile? (dir : FilePath) : IO (Option FilePath) := do
@@ -75,7 +73,8 @@ unsafe def detectRoots (sysroot : FilePath) (refresh := false) : IO (Array Name)
   let some dir ← findDir? | return #[]
   let some config ← configFile? dir | return #[]
   let hash := toString (← Lake.computeFileHash config)
-  let cache := dir / ".lake" / s!"leanreach-project-{cacheVersion}"
+  -- Project-metadata cache format 7.
+  let cache := dir / ".lake" / "leanreach-project-7"
   let cached ← loadCached cache hash
   if !refresh then
     if let some (_, _, _, built) := cached then return built

@@ -5,8 +5,6 @@ namespace LeanReach.QueryOverlay
 
 open Lean
 
-private def version := 6
-
 structure Entry where
   target : LocatedName
   dependencies : Array Name
@@ -18,7 +16,8 @@ structure Data where
   queries : NameMap CachedQuery
 
 private def path (olean : System.FilePath) : System.FilePath :=
-  olean.withExtension s!"leanreach-query-overlay-{version}"
+  -- Overlay cache format 6.
+  olean.withExtension "leanreach-query-overlay-6"
 
 unsafe def load (roots : Array Name) : IO (Option Data) := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
