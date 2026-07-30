@@ -1,4 +1,4 @@
-import LeanReach.PrettyPrint.Printer
+import LeanReach.PrettyPrint.Declaration
 import LeanReach.Search.Index
 
 namespace LeanReach
@@ -43,10 +43,8 @@ def Session.missing (session : Session) (names : Array Name) : IO (Array Name) :
   return names.filter fun name => !cached.contains name
 
 private def describe (session : Session) (name : Name) : CoreM Declaration := do
-  if let some declaration := (← session.declarations.get).find? name then
-    return declaration
-  let declaration ← prettyPrintDeclaration session.sourcePath name
-  session.declarations.modify (·.insert name declaration)
+  let some declaration := (← session.declarations.get).find? name |
+    throwError "declaration '{name}' was not prepared"
   return declaration
 
 abbrev QueryNames := Neighborhood Name
@@ -83,15 +81,5 @@ def Session.describeQuery (session : Session) (names : QueryNames) :
     upstream := ← session.describeNames names.upstream
     downstream := ← session.describeNames names.downstream
   }
-
-def Session.query (session : Session) (index : Index) (query : String)
-    (limits : Limits := {}) :
-    CoreM QueryResult := do
-  session.describeQuery (← Lean.ofExcept (index.queryNames query limits))
-
-def Session.search (session : Session) (index : Index) (query : String)
-    (limit : Nat := 20) :
-    CoreM (Array Declaration) :=
-  session.describeNames (index.search query limit)
 
 end LeanReach

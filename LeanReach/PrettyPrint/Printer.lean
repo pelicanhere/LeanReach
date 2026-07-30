@@ -2,7 +2,6 @@ import Lean.PrettyPrinter.Delaborator.Builtins
 import Lean.Structure
 import LeanReach.PrettyPrint.Declaration
 import LeanReach.PrettyPrint.Timing
-import LeanReach.Runtime.Source
 
 namespace LeanReach
 
@@ -127,21 +126,5 @@ def prettyPrintModuleWithBodies (moduleName : Name)
     declarations := declarations.insert name declaration
     timing := timing + elapsed
   return (declarations, timing)
-
-def prettyPrintDeclaration (sourcePath : SearchPath) (name : Name) :
-    CoreM Declaration := do
-  let cache ← IO.mkRef {}
-  let some moduleName ← findModuleOf? name | throwError "unknown module for '{name}'"
-  withEnv ((← getEnv).setMainModule moduleName) do
-    let some info := (← getEnv).find? name | throwError "unknown declaration '{name}'"
-    return (← prettyPrintKnownDeclaration cache moduleName
-      (← moduleSource sourcePath moduleName) name (← MetaM.run' (needsBody info))).1
-
-def prettyPrintModule (sourcePath : SearchPath) (moduleName : Name)
-    (names : Array Name) : CoreM (NameMap Declaration) := do
-  let source ← moduleSource sourcePath moduleName
-  let bodies := (← prettyPrintPlan names).1.foldl
-    (init := ({} : NameHashSet)) fun bodies name => bodies.insert name
-  return (← prettyPrintModuleWithBodies moduleName source names bodies).1
 
 end LeanReach

@@ -59,19 +59,13 @@ private unsafe def prettyPrintMissing (moduleOf? : Name → Option Name)
     session.merge declarations
 
 private unsafe def runSession {α : Type} (moduleOf? : Name → Option Name) (session : Session)
-    (names : Array Name) (target? : Option Name) (modules? : Option (Array Name))
-    (wholeModules : Bool) (emptyEnv? : Option Environment) (action : CoreM α) : IO α := do
-  let missing ← session.missing names
-  if wholeModules then
-    for moduleName in modulesFor moduleOf? missing do
-      session.merge (← unsafe Cache.loadPPModule moduleName)
-  else
-    session.merge (← unsafe Cache.loadPP moduleOf? missing)
+    (names : Array Name) (target? : Option Name) (emptyEnv? : Option Environment)
+    (action : CoreM α) : IO α := do
+  session.merge (← unsafe Cache.loadPP moduleOf? (← session.missing names))
   let before ← session.ppCache
   let targetModule? := target?.bind fun target =>
     if before.contains target then none else moduleOf? target
-  let modules := modules?.getD <|
-    modulesFor moduleOf? (← session.missing names)
+  let modules := modulesFor moduleOf? (← session.missing names)
   let env ←
     if modules.isEmpty then emptyEnv?.getDM mkEmptyEnvironment
     else importEnvironment modules (leakEnv := emptyEnv?.isNone)
@@ -85,36 +79,28 @@ private unsafe def runSession {α : Type} (moduleOf? : Name → Option Name) (se
     catch _ => IO.eprintln "leanreach: could not write PP sidecar"
   return result
 
-private unsafe def withIndexSession {α β : Type} (roots : Array Name)
-    (loadRelations : Bool)
-    (select : Index → Except String (SessionPlan α))
-    (forceRootImport : Bool)
-    (action : Index → Session → α → CoreM β) : IO β := do
+/-- Import only the modules needed to pretty-print the selected declarations. -/
+unsafe def withSessionFor {α β : Type} (roots : Array Name)
+    (select : Index → Except String (SessionPlan α)) (loadRelations : Bool)
+    (action : Session → α → CoreM β) : IO β := do
   let sourcePath ← prepareEnvironment
   let index ← unsafe Cache.loadIndex roots loadRelations
   let (plan, names, target?) ← selectPlan index select
   let session ← Session.create sourcePath
-  unsafe runSession index.moduleOf? session names target?
-    (if forceRootImport then some roots else none) false none (action index session plan)
-
-/-- Import only the modules needed to pretty-print the selected declarations. -/
-unsafe def withSessionFor {α β : Type} (roots : Array Name)
-    (select : Index → Except String (SessionPlan α)) (loadRelations : Bool)
-    (action : Session → α → CoreM β) : IO β :=
-  withIndexSession roots loadRelations select false fun _ => action
+  unsafe runSession index.moduleOf? session names target? none (action session plan)
 
 private unsafe def runCachedQuery {α : Type} (session : Session)
     (cached : CachedQuery) (limits : Limits)
     (action : QueryNames → CoreM α) : IO α := do
   let names := cached.queryNames limits
   unsafe runSession cached.moduleOf? session names.all
-    (some names.target) none false none (action names)
+    (some names.target) none (action names)
 
 private unsafe def runCachedSearch {α : Type} (session : Session)
     (targets : Array LocatedName) (action : Array Name → CoreM α) : IO α := do
   let names := targets.map (·.name)
   let moduleOf? name := targets.find? (·.name == name) |>.map (·.moduleName)
-  unsafe runSession moduleOf? session names none none false none (action names)
+  unsafe runSession moduleOf? session names none none (action names)
 
 /-- Use the pre-ranked exact-query shard without loading the complete dependency index. -/
 unsafe def withCachedQueryFor {α : Type} (roots : Array Name) (query : String)
@@ -139,12 +125,6 @@ unsafe def withCachedSearchFor {α : Type} (roots : Array Name) (query : String)
   let moduleOf? name := targets.find? (·.name == name) |>.map (·.moduleName)
   let session ← unsafe cachedSession moduleOf? names
   return some (← unsafe runCachedSearch session targets (action session))
-
-/-- Import the root modules once and reuse their environment and index for the entire action. -/
-unsafe def withSession {α : Type} (roots : Array Name)
-    (action : Index → Session → CoreM α) : IO α :=
-  withIndexSession roots true (fun _ => pure ((), #[], none)) true fun index session _ =>
-    action index session
 
 structure InteractiveRunner where
   query : String → Limits → (QueryNames → CoreM Unit) → IO Unit
@@ -176,14 +156,14 @@ unsafe def withInteractiveSession {α : Type} (roots : Array Name)
       | .ok names => pure names
       | .error message => throw <| IO.userError message
     discard <| unsafe runSession index.moduleOf? session names.all
-      (some names.target) none false (some emptyEnv) (action names)
+      (some names.target) (some emptyEnv) (action names)
   let search := fun pattern limit action => do
     if let some targets ← unsafe QueryCache.search roots pattern limit then
       discard <| unsafe runCachedSearch session targets action
       return
     let index ← unsafe loadIndexOnce roots indexCache
     let names := index.search pattern limit
-    discard <| unsafe runSession index.moduleOf? session names none none false
+    discard <| unsafe runSession index.moduleOf? session names none
       (some emptyEnv) (action names)
   action session { query, search }
 

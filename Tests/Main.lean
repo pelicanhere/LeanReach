@@ -69,8 +69,12 @@ private unsafe def runTests : IO Unit := do
     `Tests.Fixture fixtureNames fixtureIndex.moduleOf?
   let (monolithic, _) ← unsafe ModuleData.withPrivateOverlay fixtureEnv
       `Tests.Fixture #[] fixtureNames fixtureIndex.moduleOf? fun env =>
-    unsafe runCore (env.setMainModule `Tests.Fixture)
-      (prettyPrintModule sourcePath `Tests.Fixture fixtureNames)
+    unsafe runCore (env.setMainModule `Tests.Fixture) do
+      let source ← moduleSource sourcePath `Tests.Fixture
+      let bodies := (← prettyPrintPlan fixtureNames).1.foldl
+        (init := ({} : NameHashSet)) fun bodies name => bodies.insert name
+      return (← prettyPrintModuleWithBodies
+        `Tests.Fixture source fixtureNames bodies).1
   unless fixtureNames.all fun name =>
       match planned.find? name, monolithic.find? name with
       | some left, some right => (toJson left).compress == (toJson right).compress
@@ -211,131 +215,128 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "recovered overlay resolved the wrong local declaration"
   unless lazyLocal.downstream.any (·.name == `LeanReachFixture.double_eq_add) do
     throw <| IO.userError "recovered overlay lost local reverse dependencies"
-  withSession #[`Tests.Fixture] fun index session => do
-    let fixtureNames ← unsafe Cache.moduleNames `Tests.Fixture
-    check (fixtureNames.contains `LeanReachFixture.double)
-      "module fragment is missing a source declaration"
-    check (!fixtureNames.any (·.toString.contains "noConfusion"))
-      "module fragment contains a generated declaration"
-    check (fixtureNames.contains hiddenTheorem && fixtureNames.contains hiddenDefinition)
-      "module fragment is missing a private declaration"
-    let result ← session.query index "LeanReachFixture.double" (Limits.uniform 100)
-    check result.target.file.isSome
-      "local declaration has no source file"
-    check (result.target.line == 5)
-      "local declaration has the wrong source line"
-    check (result.target.signature.contains ":=\n")
-      "non-Prop declaration body is missing"
-    check (result.target.signature.contains "n + n")
-      "definition body was not pretty-printed with notation"
-    check (result.upstream.any fun declaration => declaration.name == "HAdd.hAdd")
-      "implementation-only upstream relation is missing"
-    check
-      (result.downstream.any fun declaration =>
-        declaration.name == "LeanReachFixture.double_eq_add")
-      "downstream relation is missing"
-
-    let privateBodyResult ← session.query index "LeanReachFixture.doubleViaPrivate"
-    check (privateBodyResult.target.signature.contains "hiddenDouble")
-      "definition body through a private constant was not pretty-printed"
-
-    let hiddenBodyResult ← session.query index "LeanReachFixture.hiddenDouble"
-    check (hiddenBodyResult.target.name == hiddenDefinition.toString)
-      "private definition lost its stable query name"
-    check (hiddenBodyResult.target.line == 17)
-      "private definition has the wrong source line"
-    check (hiddenBodyResult.target.signature.contains ":=\n")
-      "private definition body is missing"
-    check (!hiddenBodyResult.target.signature.contains "_private" &&
-        !hiddenBodyResult.target.signature.contains "✝")
-      s!"private definition signature was not printed as a user name:\n\
-        {hiddenBodyResult.target.signature}"
-    check
-      (hiddenBodyResult.downstream.any fun declaration =>
-        declaration.name == "LeanReachFixture.doubleViaPrivate")
-      "private definition downstream relation is missing"
-
-    let hiddenTheoremResult ←
-      session.query index "LeanReachFixture.hidden_double_zero" (Limits.uniform 100)
-    check (hiddenTheoremResult.target.name == hiddenTheorem.toString)
-      "private theorem lost its stable query name"
-    check (hiddenTheoremResult.target.line == 13)
-      "private theorem has the wrong source line"
-    check (!hiddenTheoremResult.target.signature.contains ":=\n")
-      "private theorem proof body was printed"
-    check
-      (hiddenTheoremResult.upstream.any fun declaration =>
-        declaration.name == "LeanReachFixture.double_zero")
-      "private theorem proof dependency is missing"
-    check
-      (hiddenTheoremResult.downstream.any fun declaration =>
-        declaration.name == "LeanReachFixture.double_zero_via_private")
-      "private theorem downstream relation is missing"
-
-    let theoremResult ← session.query index "LeanReachFixture.double_eq_add" (Limits.uniform 100)
-    check (theoremResult.target.signature.contains "n + n")
-      "theorem signature was not pretty-printed with notation"
-    check
-      (theoremResult.upstream.any fun declaration =>
-        declaration.name == "LeanReachFixture.double")
-      "upstream relation is missing"
-
-    let proofResult ← session.query index "LeanReachFixture.double_zero_again" (Limits.uniform 100)
-    check
-      (proofResult.upstream.any fun declaration =>
-        declaration.name == "LeanReachFixture.double_zero")
-      "proof-only upstream relation is missing"
-
-    let usedResult ← session.query index "LeanReachFixture.double_zero" (Limits.uniform 100)
-    check
-      (usedResult.downstream.any fun declaration =>
-        declaration.name == "LeanReachFixture.double_zero_again")
-      "proof-only downstream relation is missing"
-    check
-      (usedResult.downstream.any fun declaration =>
-        declaration.name == hiddenTheorem.toString)
-      "private proof helper dependency is missing"
-
-    let rankedResult ← session.query index "LeanReachFixture.Topic.ranked" (Limits.uniform 1)
-    check (rankedResult.upstream.size == 1)
-      "dependency limit was not applied during ranking"
-    let some first := rankedResult.upstream[0]? |
-      throwError "ranked dependencies are empty"
-    check (first.name == "LeanReachFixture.Topic.nearby")
-      "nearby dependency was not ranked first"
-
-    let classResult ← session.query index "Add"
-    check (classResult.target.signature.contains "fields:")
-      "class fields are missing"
-    check (classResult.target.signature.contains "Add.add")
-      "class field signature is missing"
-
-    let searchResult ← session.search index "double_eq" 10
-    check
-      (searchResult.any fun item =>
-        item.name == "LeanReachFixture.double_eq_add")
-      "local name search is missing"
-    check
-      ((← session.search index "hidden_double" 10).any fun item =>
-        item.name == hiddenTheorem.toString)
-      "private name search is missing"
-
-    check (← session.search index "LeanReachFixture.Color.noConfusion" 10).isEmpty
-      "generated declaration was not blacklisted"
-    check
-      ((← session.search index "LeanReachFixture.Box.value" 10).any fun item =>
-        item.name == "LeanReachFixture.Box.value")
-      "structure projection was blacklisted"
-
   withInteractiveSession #[`Definitely.Missing] fun _ _ => pure ()
   withInteractiveSession #[`Tests.Fixture] fun session runner => do
-    for query in #["double_eq", "double_zero_again"] do
-      runner.search query 10 fun names => do
-        check (!((← session.describeNames names).isEmpty))
-          "interactive session search is missing"
-    runner.query "LeanReachFixture.Topic.ranked" (Limits.uniform 1) fun names => do
-        check ((← session.describeQuery names).upstream.size == 1)
-          "interactive cached query is missing"
+    let fixtureNames ← unsafe Cache.moduleNames `Tests.Fixture
+    unless fixtureNames.contains `LeanReachFixture.double do
+      throw <| IO.userError "module fragment is missing a source declaration"
+    unless !fixtureNames.any (·.toString.contains "noConfusion") do
+      throw <| IO.userError "module fragment contains a generated declaration"
+    unless fixtureNames.contains hiddenTheorem && fixtureNames.contains hiddenDefinition do
+      throw <| IO.userError "module fragment is missing a private declaration"
+    let query (name : String) (limits : Limits)
+        (action : QueryResult → CoreM Unit) : IO Unit :=
+      runner.query name limits fun names => do
+        action (← session.describeQuery names)
+    let search (pattern : String) (action : Array Declaration → CoreM Unit) : IO Unit :=
+      runner.search pattern 10 fun names => do
+        action (← session.describeNames names)
+
+    query "LeanReachFixture.double" (Limits.uniform 100) fun result => do
+      check result.target.file.isSome
+        "local declaration has no source file"
+      check (result.target.line == 5)
+        "local declaration has the wrong source line"
+      check (result.target.signature.contains ":=\n")
+        "non-Prop declaration body is missing"
+      check (result.target.signature.contains "n + n")
+        "definition body was not pretty-printed with notation"
+      check (result.upstream.any fun declaration => declaration.name == "HAdd.hAdd")
+        "implementation-only upstream relation is missing"
+      check
+        (result.downstream.any fun declaration =>
+          declaration.name == "LeanReachFixture.double_eq_add")
+        "downstream relation is missing"
+
+    query "LeanReachFixture.doubleViaPrivate" {} fun result => do
+      check (result.target.signature.contains "hiddenDouble")
+        "definition body through a private constant was not pretty-printed"
+
+    query "LeanReachFixture.hiddenDouble" {} fun result => do
+      check (result.target.name == hiddenDefinition.toString)
+        "private definition lost its stable query name"
+      check (result.target.line == 17)
+        "private definition has the wrong source line"
+      check (result.target.signature.contains ":=\n")
+        "private definition body is missing"
+      check (!result.target.signature.contains "_private" &&
+          !result.target.signature.contains "✝")
+        s!"private definition signature was not printed as a user name:\n\
+          {result.target.signature}"
+      check
+        (result.downstream.any fun declaration =>
+          declaration.name == "LeanReachFixture.doubleViaPrivate")
+        "private definition downstream relation is missing"
+
+    query "LeanReachFixture.hidden_double_zero" (Limits.uniform 100) fun result => do
+      check (result.target.name == hiddenTheorem.toString)
+        "private theorem lost its stable query name"
+      check (result.target.line == 13)
+        "private theorem has the wrong source line"
+      check (!result.target.signature.contains ":=\n")
+        "private theorem proof body was printed"
+      check
+        (result.upstream.any fun declaration =>
+          declaration.name == "LeanReachFixture.double_zero")
+        "private theorem proof dependency is missing"
+      check
+        (result.downstream.any fun declaration =>
+          declaration.name == "LeanReachFixture.double_zero_via_private")
+        "private theorem downstream relation is missing"
+
+    query "LeanReachFixture.double_eq_add" (Limits.uniform 100) fun result => do
+      check (result.target.signature.contains "n + n")
+        "theorem signature was not pretty-printed with notation"
+      check
+        (result.upstream.any fun declaration =>
+          declaration.name == "LeanReachFixture.double")
+        "upstream relation is missing"
+
+    query "LeanReachFixture.double_zero_again" (Limits.uniform 100) fun result => do
+      check
+        (result.upstream.any fun declaration =>
+          declaration.name == "LeanReachFixture.double_zero")
+        "proof-only upstream relation is missing"
+
+    query "LeanReachFixture.double_zero" (Limits.uniform 100) fun result => do
+      check
+        (result.downstream.any fun declaration =>
+          declaration.name == "LeanReachFixture.double_zero_again")
+        "proof-only downstream relation is missing"
+      check
+        (result.downstream.any fun declaration =>
+          declaration.name == hiddenTheorem.toString)
+        "private proof helper dependency is missing"
+
+    query "LeanReachFixture.Topic.ranked" (Limits.uniform 1) fun result => do
+      check (result.upstream.size == 1)
+        "dependency limit was not applied during ranking"
+      let some first := result.upstream[0]? |
+        throwError "ranked dependencies are empty"
+      check (first.name == "LeanReachFixture.Topic.nearby")
+        "nearby dependency was not ranked first"
+
+    query "Add" {} fun result => do
+      check (result.target.signature.contains "fields:")
+        "class fields are missing"
+      check (result.target.signature.contains "Add.add")
+        "class field signature is missing"
+
+    search "double_eq" fun result => do
+      check
+        (result.any fun item =>
+          item.name == "LeanReachFixture.double_eq_add")
+        "local name search is missing"
+    search "hidden_double" fun result => do
+      check (result.any fun item => item.name == hiddenTheorem.toString)
+        "private name search is missing"
+    search "LeanReachFixture.Color.noConfusion" fun result => do
+      check result.isEmpty "generated declaration was not blacklisted"
+    search "LeanReachFixture.Box.value" fun result => do
+      check (result.any fun item => item.name == "LeanReachFixture.Box.value")
+        "structure projection was blacklisted"
+    search "double_zero_again" fun result => do
+      check (!result.isEmpty) "interactive session search is missing"
 
 unsafe def main : IO UInt32 := do
   try
