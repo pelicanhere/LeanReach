@@ -28,6 +28,9 @@ private unsafe def runTests : IO Unit := do
     "regex anchor was ignored"
   check ((← regex "(?i)SPAN_LE").isMatch `Submodule.span_le)
     "case-insensitive regex did not match"
+  let acceleratedCaseFold ← regex "(?i)DOUBLE_EQ"
+  let .postings _ := acceleratedCaseFold.candidatePlan |
+    throw <| IO.userError "safe case-insensitive regex did not use postings"
   check ((← regex "(?i)^LeanReachFixture\\.[D]ouble$").isMatch
       `LeanReachFixture.double)
     "case-insensitive regex did not fold an explicit character class"
@@ -64,7 +67,7 @@ private unsafe def runTests : IO Unit := do
     "deeply nested regex character class was accepted"
   check (SearchPattern.unionIds #[] #[1, 2] == #[1, 2] &&
       SearchPattern.unionIds #[1, 2] #[] == #[1, 2] &&
-      SearchPattern.unionIds #[1, 2, 4, 4] #[2, 3, 4] == #[1, 2, 3, 4])
+      SearchPattern.unionIds #[1, 2, 4] #[2, 3, 4] == #[1, 2, 3, 4])
     "sorted posting union changed ordering or deduplication"
   let selectedPlan := SearchPattern.CandidatePlan.postings #[
     #["abc"], #["abc", "def"]
@@ -92,6 +95,11 @@ private unsafe def runTests : IO Unit := do
       unicodeCandidateIndex.searchAll unsafeGramTokens 10 &&
       unicodeCandidateIndex.searchAll unsafeGramTokens 10 == #[longSName] do
     throw <| IO.userError "token prefilter dropped a Unicode fold equivalent"
+  let unsafeGramRegex ← regex "(?i)ski"
+  unless unicodeCandidateIndex.search unsafeGramRegex 10 ==
+      unicodeCandidateIndex.searchAll unsafeGramRegex 10 &&
+      unicodeCandidateIndex.searchAll unsafeGramRegex 10 == #[longSName] do
+    throw <| IO.userError "regex prefilter dropped a Unicode fold equivalent"
   let privateA := mkPrivateNameCore `Tests.PrivateA `LeanReachDuplicate.hidden
   let privateB := mkPrivateNameCore `Tests.PrivateB `LeanReachDuplicate.hidden
   let privateIndex := Index.build #[

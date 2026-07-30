@@ -22,10 +22,10 @@ ASSETS = {
 
 
 def default_binary() -> Path:
-    packaged = ROOT / "leanreach.exe"
+    name = "leanreach.exe" if os.name == "nt" else "leanreach"
+    packaged = ROOT / name
     if packaged.exists():
         return packaged
-    name = "leanreach.exe" if os.name == "nt" else "leanreach"
     built = ROOT / ".lake/build/bin" / name
     if not built.exists():
         raise SystemExit("Run 'lake build' first.")
@@ -48,6 +48,11 @@ class Worker:
             stdout=subprocess.PIPE,
             bufsize=0,
         )
+        try:
+            self._exchange("search __leanreach_frontend_ready__")
+        except Exception:
+            self.close()
+            raise
 
     def close(self) -> None:
         if self.process is None:
@@ -131,6 +136,9 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.json(400, {"error": "expected one 'q' or 'name' parameter"})
             return
+        if not command:
+            self.json(400, {"error": "query is empty"})
+            return
         if any(character in command for character in "\r\n\0"):
             self.json(400, {"error": "query contains an invalid line break"})
             return
@@ -148,19 +156,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="LeanReach HTTP frontend")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8088)
-    parser.add_argument("--leanreach-bin", type=Path, default=default_binary())
+    parser.add_argument("--leanreach-bin", type=Path)
     parser.add_argument("--project-dir", type=Path, default=Path.cwd())
     args, extra = parser.parse_known_args()
     if extra[:1] == ["--"]:
         extra = extra[1:]
-    binary = args.leanreach_bin.resolve()
+    binary = (args.leanreach_bin or default_binary()).resolve()
     worker = Worker(
         [str(binary), "--interactive", "--json", *extra],
         args.project_dir.resolve(),
     )
     server = Server((args.host, args.port), worker)
-    print(f"LeanReach frontend: http://{args.host}:{args.port}", flush=True)
     try:
+        worker.start()
+        print(f"LeanReach frontend: http://{args.host}:{args.port}", flush=True)
         server.serve_forever()
     except KeyboardInterrupt:
         pass

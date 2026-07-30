@@ -3,6 +3,7 @@ const input = document.querySelector("#query");
 const status = document.querySelector("#status");
 const results = document.querySelector("#results");
 const detail = document.querySelector("#detail");
+let activeRequest;
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -52,12 +53,23 @@ function emptyState(message) {
 }
 
 async function request(parameters) {
+  activeRequest?.abort();
+  const controller = new AbortController();
+  activeRequest = controller;
   status.textContent = "Loading…";
-  const response = await fetch(`/json?${new URLSearchParams(parameters)}`);
-  const data = await response.json();
-  if (!response.ok || data.error) throw new Error(data.error || `HTTP ${response.status}`);
-  status.textContent = "";
-  return data;
+  try {
+    const response = await fetch(`/json?${new URLSearchParams(parameters)}`, {
+      signal: controller.signal,
+    });
+    const data = await response.json();
+    if (!response.ok || data.error) throw new Error(data.error || `HTTP ${response.status}`);
+    return data;
+  } finally {
+    if (activeRequest === controller) {
+      activeRequest = undefined;
+      status.textContent = "";
+    }
+  }
 }
 
 async function search(query) {
@@ -82,7 +94,7 @@ async function search(query) {
     data.items.forEach(item => list.append(declarationCard(item)));
     results.append(list);
   } catch (error) {
-    status.textContent = "";
+    if (error.name === "AbortError") return;
     results.append(emptyState(error.message));
   }
 }
@@ -115,7 +127,7 @@ async function inspect(name) {
     );
     detail.append(target, relations);
   } catch (error) {
-    status.textContent = "";
+    if (error.name === "AbortError") return;
     detail.append(emptyState(error.message));
   }
 }

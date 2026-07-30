@@ -264,22 +264,22 @@ private def enablesCaseInsensitive : Ast → Bool
   | _ => false
 
 private def candidatePlanFor (ast : Ast) : CandidatePlan :=
-  if enablesCaseInsensitive ast then .all
-  else
-    match requiredLiterals ast with
-    | none => .all
-    | some alternatives => Id.run do
-      if alternatives.isEmpty then return .empty
-      let mut postingAlternatives := #[]
-      for literals in alternatives do
-        let mut grams := #[]
-        for literal in literals do
-          for gram in NameSearch.trigrams literal.toLower do
-            if grams.size < maxGramsPerAlternative && !grams.contains gram then
-              grams := grams.push gram
-        if grams.isEmpty then return .all
-        postingAlternatives := postingAlternatives.push grams
-      return .postings postingAlternatives
+  match requiredLiterals ast with
+  | none => .all
+  | some alternatives => Id.run do
+    if alternatives.isEmpty then return .empty
+    let caseInsensitive := enablesCaseInsensitive ast
+    let mut postingAlternatives := #[]
+    for literals in alternatives do
+      let mut grams := #[]
+      for literal in literals do
+        for gram in NameSearch.trigrams literal.toLower do
+          if (!caseInsensitive || isCacheFoldSafe gram) &&
+              grams.size < maxGramsPerAlternative && !grams.contains gram then
+            grams := grams.push gram
+      if grams.isEmpty then return .all
+      postingAlternatives := postingAlternatives.push grams
+    return .postings postingAlternatives
 
 def compileRegex (source : String) : Except String SearchPattern := do
   if source.utf8ByteSize > maxPatternBytes then
@@ -333,6 +333,7 @@ def CandidatePlan.select (plan : CandidatePlan)
       return if selected.isEmpty then .empty else .postings selected
   | plan => plan
 
+/-- Unions sorted, duplicate-free declaration ID arrays. -/
 def unionIds (left right : Array UInt32) : Array UInt32 := Id.run do
   if left.isEmpty then return right
   if right.isEmpty then return left

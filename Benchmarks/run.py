@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import statistics
 import subprocess
 import threading
@@ -153,7 +154,9 @@ def main() -> None:
     run_process = args.query_set in ("all", "process")
 
     root = Path(__file__).resolve().parent.parent
-    executable = root / ".lake/build/bin/leanreach.exe"
+    executable = root / ".lake/build/bin" / (
+        "leanreach.exe" if os.name == "nt" else "leanreach"
+    )
     mathlib = root / ".lake/packages/mathlib/Mathlib"
     if not executable.exists():
         raise SystemExit("Run 'lake build' first.")

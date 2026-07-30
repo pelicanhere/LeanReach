@@ -26,6 +26,11 @@ def main() -> None:
     )
     for row in csv.DictReader(source.open(encoding="utf-8")):
         samples[row["stage"]][row["tool"]].append(float(row["latency_ms"]))
+    unknown = {
+        tool for stage in samples.values() for tool in stage if tool not in COLORS
+    }
+    if unknown:
+        raise SystemExit(f"unknown benchmark tools: {', '.join(sorted(unknown))}")
 
     stages = list(samples)
     values = [
