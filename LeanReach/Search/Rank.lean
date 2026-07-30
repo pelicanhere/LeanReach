@@ -27,12 +27,12 @@ private def significantParts (name : Name) : List String :=
 private def tokenSimilarity (left right : List String) : Float :=
   diceScore left.length right.length (left.countP right.contains)
 
-private def localityScore (source : LocatedName) (sourceNameParts sourceModuleParts : List Name)
+private def affinity (source : LocatedName) (sourceName sourceModule : List Name)
     (sourceParts : List String) (candidate : LocatedName) : Float :=
-  (if source.moduleName == candidate.moduleName then 3.0 else 0.0) +
-    3.0 * prefixSimilarity sourceNameParts (privateToUserName candidate.name).components +
-    2.0 * prefixSimilarity sourceModuleParts candidate.moduleName.components +
-    4.0 * tokenSimilarity sourceParts (significantParts candidate.name)
+  ((if source.moduleName == candidate.moduleName then 3.0 else 0.0) +
+    3.0 * prefixSimilarity sourceName (privateToUserName candidate.name).components +
+    2.0 * prefixSimilarity sourceModule candidate.moduleName.components +
+    4.0 * tokenSimilarity sourceParts (significantParts candidate.name)) / 8.0
 
 private def rankPositions (size limit : Nat) (score : Nat → Float)
     (name : Nat → Name) : Array Nat :=
@@ -41,34 +41,34 @@ private def rankPositions (size limit : Nat) (score : Nat → Float)
   (TopK.select size limit (fun id => (score id, id)) better).map (·.2)
 
 def prior (total reverseCount forwardCount : Nat) (upstream : Bool) : Float :=
-  let df := reverseCount.toFloat
+  let users := reverseCount.toFloat
+  let dependencies := forwardCount.toFloat
   let specificity :=
-    Float.log (1.0 + (total.toFloat - df + 0.5) / (df + 0.5))
-  let support := df / (df + 0.5)
-  let out := forwardCount.toFloat
-  let substance := 4.0 * out / (out + df + 8.0)
-  if upstream then specificity * support + substance
-  else Float.log (1.0 + df) + substance
+    Float.log (1.0 + (total.toFloat - users + 0.5) / (users + 0.5))
+  let confidence := users / (users + 0.5)
+  let substance := 4.0 * dependencies / (dependencies + users + 8.0)
+  (if upstream then specificity * confidence else Float.log (1.0 + users)) +
+    substance
 
 def priors (forward reverse : Array (Array UInt32))
     (upstream : Bool) : Array Float :=
-  forward.mapIdx fun id outgoing =>
-    prior forward.size reverse[id]!.size outgoing.size upstream
+  forward.mapIdx fun id dependencies =>
+    prior forward.size reverse[id]!.size dependencies.size upstream
 
 def select {α : Type u} [Inhabited α] (source : LocatedName) (candidates : Array α)
     (located : α → LocatedName) (candidatePrior : α → Float)
-    (limit : Nat) : Array α := Id.run do
-  let sourceNameParts := (privateToUserName source.name).components
-  let sourceModuleParts := source.moduleName.components
+    (limit : Nat) : Array α :=
+  let sourceName := (privateToUserName source.name).components
+  let sourceModule := source.moduleName.components
   let sourceParts := significantParts source.name
   let candidateAt position := candidates[position]!
   let positions := rankPositions candidates.size limit
     (fun position =>
       let candidate := candidateAt position
-      candidatePrior candidate * (1.0 + localityScore source sourceNameParts
-        sourceModuleParts sourceParts (located candidate) / 8.0))
+      candidatePrior candidate *
+        (1.0 + affinity source sourceName sourceModule sourceParts (located candidate)))
     (fun position => (located (candidateAt position)).name)
-  return positions.map candidateAt
+  positions.map candidateAt
 
 end Rank
 end LeanReach

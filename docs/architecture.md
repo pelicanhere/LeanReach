@@ -62,21 +62,30 @@ reporting.
 Ranking operates only on the direct neighbors of the target. It does not inspect declaration kinds
 and has no theorem, instance, projection, or name blacklist branches.
 
-For a candidate used by `df` of `N` indexed declarations and itself using `out` declarations:
+For a candidate used by `users` of `N` indexed declarations and itself using `dependencies`
+declarations, the graph prior has three named components:
 
 ```text
-specificity = log(1 + (N - df + 0.5) / (df + 0.5))
-substance   = 4 out / (out + df + 8)
-upstream    = specificity · df / (df + 0.5) + substance
-downstream  = log(1 + df) + substance
+specificity = log(1 + (N - users + 0.5) / (users + 0.5))
+confidence  = users / (users + 0.5)
+substance   = 4 dependencies / (dependencies + users + 8)
+
+upstreamPrior   = specificity · confidence + substance
+downstreamPrior = log(1 + users) + substance
 ```
 
-The graph prior is multiplied by `1 + locality / 8`. Locality combines:
+The source affinity is normalized once:
 
-- the same defining module;
-- common declaration namespace;
-- common module namespace;
-- Dice similarity between underscore-separated final-name tokens of length at least three.
+```text
+affinity =
+  (3 sameModule + 3 declarationNamespace + 2 moduleNamespace + 4 leafTokens) / 8
+
+score = graphPrior · (1 + affinity)
+```
+
+The three similarities are Dice scores. `leafTokens` compares underscore-separated final-name
+tokens of length at least three. Keeping the graph prior and affinity separate makes the formula
+and its cache boundary explicit.
 
 Candidate priors are computed with the relation index. A bounded binary heap selects the requested
 Top-K without sorting a widely used declaration's entire reverse posting. Equal scores are ordered
@@ -85,7 +94,14 @@ by Lean `Name`.
 The relevance design draws on Lean's
 [MePo implementation](https://github.com/leanprover/lean4/blob/master/src/Lean/LibrarySuggestions/MePo.lean),
 the [Meng–Paulson relevance filter](https://www.cl.cam.ac.uk/~lp15/papers/Automation/filtering-jal.pdf),
-and [Lucene's smoothed IDF](https://lucene.apache.org/core/9_4_2/core/org/apache/lucene/search/similarities/BM25Similarity.html).
+the [probabilistic IDF derivation behind BM25](https://www.staff.city.ac.uk/~sbrp622/papers/foundations_bm25_review.pdf),
+and [Lean premise-selection experiments](https://arxiv.org/abs/2304.00994).
+
+A 20-query graded ablation also tested log-frequency-only priors, normalized IDF, direct-dependency
+symbol overlap, the original MePo quotient, equal-weight affinity, and locally tuned affinity
+weights. Several improved development-set Recall@5, but every simplified replacement reduced
+held-out NDCG or Recall@10. The production formula therefore keeps the validated signals without
+adding theorem/instance branches, name blacklists, a second-order graph pass, or learned state.
 
 ## Persistent cache layers
 
