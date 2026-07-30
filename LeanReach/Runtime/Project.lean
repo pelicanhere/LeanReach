@@ -24,7 +24,7 @@ partial def findDir? : IO (Option FilePath) := do
 
 private def loadCached (path : FilePath) (hash : String) : IO (Option Metadata) := do
   unless ← path.pathExists do return none
-  let content ← IO.FS.readFile path
+  let content ← try IO.FS.readFile path catch _ => return none
   let parsed : Except String Metadata := do
     let json ← Json.parse content
     unless (← json.getObjValAs? String "hash") == hash do

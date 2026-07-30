@@ -42,13 +42,12 @@ unsafe def savePPModule (moduleName : Name) (declarations : NameMap Declaration)
   let path := olean.withExtension "leanreach-pp-3"
   savePart path depHash declarations (Name.str moduleName "_leanreachPP")
 
-unsafe def savePP (before after : NameMap Declaration) : IO Unit := do
+unsafe def savePP (declarations : NameMap Declaration) : IO Unit := do
   let mut additions : NameMap (NameMap Declaration) := {}
-  for (name, declaration) in after do
-    unless before.contains name do
-      let moduleName := declaration.moduleName.toName
-      additions := additions.alter moduleName fun declarations =>
-        some ((declarations.getD {}).insert name declaration)
+  for (name, declaration) in declarations do
+    let moduleName := declaration.moduleName.toName
+    additions := additions.alter moduleName fun declarations =>
+      some ((declarations.getD {}).insert name declaration)
   for (moduleName, added) in additions do
     unsafe savePPModule moduleName
       (Std.TreeMap.union (← unsafe loadPPModule moduleName) added)

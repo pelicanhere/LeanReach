@@ -14,9 +14,12 @@ unsafe def loadPart (α : Type) (path : System.FilePath) (depHash : String) :
     IO (Option α) := do
   unless ← path.pathExists do return none
   try
-    let (raw, _) ← readModuleData path
-    let (storedHash, value) : String × α := unsafeCast raw
-    if storedHash == depHash then return some value
+    let (raw, region) ← readModuleData path
+    try
+      let (storedHash, value) : String × α := unsafeCast raw
+      if storedHash == depHash then return some value
+    catch _ => pure ()
+    region.free
   catch _ => pure ()
   return none
 

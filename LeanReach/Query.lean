@@ -32,9 +32,6 @@ structure Session where
 def Session.create (sourcePath : SearchPath) : IO Session :=
   return { sourcePath, declarations := ← IO.mkRef {} }
 
-def Session.ppCache (session : Session) : IO (NameMap Declaration) :=
-  session.declarations.get
-
 def Session.merge (session : Session) (declarations : NameMap Declaration) : IO Unit := do
   session.declarations.modify fun current => Std.TreeMap.union current declarations
 

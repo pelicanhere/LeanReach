@@ -35,24 +35,26 @@ def exact (query : String) (name : Name) : Bool :=
 def leafMatches (query : String) (name : Name) : Bool :=
   (leaf (privateToUserName name)).toLower == query
 
-private def bucket? (query : String) (name : Name) : Option Nat :=
+private def bucket? (query suffix : String) (name : Name) : Option Nat :=
   let candidate := normalizedName name
   if candidate == query then some 0
-  else if candidate.endsWith ("." ++ query) then some 1
+  else if candidate.endsWith suffix then some 1
   else if candidate.contains query then some 2
   else none
 
-def isMatch (queryLower : String) (name : Name) : Bool :=
-  (bucket? queryLower name).isSome
+def matchName (queryLower : String) : Name → Bool :=
+  let suffix := "." ++ queryLower
+  fun name => (bucket? queryLower suffix name).isSome
 
 def buckets {α : Type u} {β : Type v} (queryLower : String)
     (items : Array α) (project : α → Option β) (nameOf : β → Name)
     (limit : Nat) : Array (Array β) := Id.run do
   let mut buckets : Array (Array β) := #[#[], #[], #[]]
+  let suffix := "." ++ queryLower
   for item in items do
     let some item := project item | continue
     let name := nameOf item
-    if let some bucket := bucket? queryLower name then
+    if let some bucket := bucket? queryLower suffix name then
       if buckets[bucket]!.size < limit then
         buckets := buckets.modify bucket (·.push item)
   return buckets

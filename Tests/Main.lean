@@ -70,7 +70,7 @@ private unsafe def runTests : IO Unit := do
   let (monolithic, _) ← unsafe ModuleData.withPrivateOverlay fixtureEnv
       `Tests.Fixture #[] fixtureNames fixtureIndex.moduleOf? fun env =>
     unsafe runCore (env.setMainModule `Tests.Fixture) <| MetaM.run' do
-      let source ← moduleSource sourcePath `Tests.Fixture
+      let source ← moduleSource sourcePath `Tests.Fixture fixtureNames
       let bodies := (← prettyPrintPlan fixtureNames).1.foldl
         (init := ({} : NameHashSet)) fun bodies name => bodies.insert name
       return (← prettyPrintModuleWithBodies
@@ -98,6 +98,19 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "selective PP cache load dropped an irreducible definition"
   unless (toJson selectedWrapped).compress == (toJson cachedWrapped).compress do
     throw <| IO.userError "selective PP cache load changed declaration output"
+  try
+    unsafe Cache.savePPModule `Tests.Fixture
+      (planned.erase `LeanReachFixture.cachedWrapped)
+    try
+      discard <| unsafe withCachedQueryFor #[`Tests.Fixture]
+        "LeanReachFixture.cachedWrapped" (Limits.uniform 0) fun _ _ =>
+          (throw <| IO.userError "injected output failure" : IO Unit)
+    catch _ => pure ()
+    unless (← unsafe Cache.loadPPModule `Tests.Fixture).contains
+        `LeanReachFixture.cachedWrapped do
+      throw <| IO.userError "PP result was not cached before output failure"
+  finally
+    unsafe Cache.savePPModule `Tests.Fixture planned
   let (withoutSource, _) ← unsafe runCore fixtureEnv <| MetaM.run' <|
     prettyPrintModuleWithBodies `Tests.Fixture (none, {})
       #[`LeanReachFixture.double] {}

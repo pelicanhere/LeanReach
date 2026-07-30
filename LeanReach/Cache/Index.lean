@@ -45,20 +45,15 @@ private unsafe def readFragment (moduleName : Name) (olean : System.FilePath) :
   let regions := parts.map (·.2)
   try
     let source ← sourceNames olean
-    let (constants, internal) := all.constants.foldl
-        (init := (({} : NameMap ConstantInfo), ({} : NameMap NameSet))) fun state info =>
-      let constants := state.1.insert info.name info
-      let internal :=
-        if source.contains info.name && !isBlacklisted info.name then state.2
-        else state.2.insert info.name info.getUsedConstantsAsSet
-      (constants, internal)
+    let internal := all.constants.foldl (init := ({} : NameMap NameSet)) fun result info =>
+      if source.contains info.name && !isBlacklisted info.name then result
+      else result.insert info.name info.getUsedConstantsAsSet
     return ({
       imports := all.imports.map (·.module)
       declarations := all.constants.filterMap fun visibleInfo =>
         let name := visibleInfo.name
         if source.contains name && !isBlacklisted name then
-          let info := (constants.find? name).getD visibleInfo
-          some (name, collapseInternal internal info.getUsedConstantsAsSet)
+          some (name, collapseInternal internal visibleInfo.getUsedConstantsAsSet)
         else none
     }, regions)
   catch error =>
@@ -93,21 +88,26 @@ unsafe def moduleDeclarations (moduleName : Name) : IO (Array (Name × NameSet))
   return (← unsafe loadFragment moduleName).declarations
 
 private unsafe def buildIndex (roots : Array Name) : IO Index := do
-  let mut pending := roots
+  let mut pending := #[]
   let mut seen : NameHashSet := {}
+  for root in roots do
+    unless seen.contains root do
+      seen := seen.insert root
+      pending := pending.push root
   let mut declarations := #[]
   while !pending.isEmpty do
     let mut batch := #[]
     while batch.size < 32 do
       let some moduleName := pending.back? | break
       pending := pending.pop
-      unless seen.contains moduleName do
-        seen := seen.insert moduleName
-        batch := batch.push moduleName
+      batch := batch.push moduleName
     let tasks ← batch.mapM fun moduleName => IO.asTask (unsafe loadFragment moduleName)
     for (moduleName, task) in batch.zip tasks do
       let fragment ← IO.ofExcept task.get
-      for imported in fragment.imports do pending := pending.push imported
+      for imported in fragment.imports do
+        unless seen.contains imported do
+          seen := seen.insert imported
+          pending := pending.push imported
       for (name, dependencies) in fragment.declarations do
         declarations := declarations.push (name, moduleName, dependencies)
   return Index.build declarations

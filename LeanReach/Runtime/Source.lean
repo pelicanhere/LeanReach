@@ -24,13 +24,14 @@ def sourceNames (olean : System.FilePath) : IO NameHashSet := do
   let some ilean ← loadIlean? olean | return {}
   return foldDefinitions ilean {} fun names name _ => names.insert name
 
-def moduleSource (sourcePath : SearchPath) (moduleName : Name) :
+def moduleSource (sourcePath : SearchPath) (moduleName : Name) (names : Array Name) :
     IO (Option String × NameMap Lsp.Position) := do
   let olean ← findOLean moduleName
+  let wanted := names.foldl (init := ({} : NameHashSet)) (·.insert ·)
   let positions ← match ← loadIlean? olean with
     | none => pure {}
     | some ilean => pure <| foldDefinitions ilean {} fun positions name position =>
-        positions.insert name position
+        if wanted.contains name then positions.insert name position else positions
   return ((← sourcePath.findModuleWithExt "lean" moduleName).map (·.toString), positions)
 
 end LeanReach

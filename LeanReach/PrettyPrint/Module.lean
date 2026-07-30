@@ -11,7 +11,7 @@ unsafe def prettyPrintModuleIO (sourcePath : SearchPath) (env : Environment)
     (moduleName : Name) (names : Array Name) (moduleOf? : Name → Option Name) :
     IO (NameMap Declaration × PPTiming) := do
   let sourceStarted ← IO.monoNanosNow
-  let source ← moduleSource sourcePath moduleName
+  let source ← moduleSource sourcePath moduleName names
   let sourceNanos := (← IO.monoNanosNow) - sourceStarted
   let env := env.setMainModule moduleName
   let print := fun env => do
