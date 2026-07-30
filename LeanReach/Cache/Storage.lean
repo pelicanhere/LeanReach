@@ -35,8 +35,10 @@ private def oleanParts (olean : System.FilePath) : Array System.FilePath :=
 def depHash? (olean : System.FilePath) : IO (Option String) := do
   let path := olean.withExtension "trace"
   if ← path.pathExists then
-    return (Lake.BuildMetadata.parse (← IO.FS.readFile path)).toOption.map
-      (toString ·.depHash)
+    try
+      if let .ok metadata := Lake.BuildMetadata.parse (← IO.FS.readFile path) then
+        return some (toString metadata.depHash)
+    catch _ => pure ()
   let hashes ← (← (oleanParts olean).filterM (·.pathExists)).mapM fun path =>
     toString <$> Lake.computeFileHash path
   return if hashes.isEmpty then none else some (String.intercalate ":" hashes.toList)
@@ -51,8 +53,14 @@ private def rootStamp (olean : System.FilePath) : IO String := do
     return s!"{path}:{metadata.modified.sec}:{metadata.modified.nsec}:{metadata.byteSize}"
   return String.intercalate "|" stamps.toList
 
+private abbrev RootInfo := System.FilePath × String × Name
+
+private initialize rootInfoCache : IO.Ref (Std.HashMap String RootInfo) ← IO.mkRef {}
+
 unsafe def rootData (roots : Array Name) : IO (System.FilePath × String × Name) := do
   let some root := roots[0]? | throw <| IO.userError "no root modules"
+  let key := String.intercalate "\u0000" (roots.toList.map toString)
+  if let some info := (← rootInfoCache.get).get? key then return info
   let oleans ← roots.mapM findOLean
   let olean := oleans[0]!
   let stamps ← oleans.mapM rootStamp
@@ -63,7 +71,10 @@ unsafe def rootData (roots : Array Name) : IO (System.FilePath × String × Name
   if ← cache.pathExists then
     try
       let storedStamp :: depHash :: _ := (← IO.FS.readFile cache).splitOn "\n" | pure ()
-      if storedStamp == stamp then return (olean, depHash, root)
+      if storedStamp == stamp then
+        let info := (olean, depHash, root)
+        rootInfoCache.modify (·.insert key info)
+        return info
     catch _ => pure ()
   let hashes ← (roots.zip oleans).mapM fun (name, path) => do
     let some hash ← depHash? path |
@@ -72,6 +83,8 @@ unsafe def rootData (roots : Array Name) : IO (System.FilePath × String × Name
   let depHash := String.intercalate ":" hashes.toList
   try IO.FS.writeFile cache (stamp ++ "\n" ++ depHash)
   catch _ => pure ()
-  return (olean, depHash, root)
+  let info := (olean, depHash, root)
+  rootInfoCache.modify (·.insert key info)
+  return info
 
 end LeanReach.Cache

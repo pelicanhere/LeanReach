@@ -5,6 +5,8 @@ namespace LeanReach.Cache
 
 open Lean
 
+abbrev PPBatch := NameMap (NameMap Declaration)
+
 unsafe def loadPPModule (moduleName : Name) : IO (NameMap Declaration) := do
   let olean ← findOLean moduleName
   let some depHash ← depHash? olean | return {}
@@ -42,12 +44,7 @@ unsafe def savePPModule (moduleName : Name) (declarations : NameMap Declaration)
   let path := olean.withExtension "leanreach-pp-3"
   savePart path depHash declarations (Name.str moduleName "_leanreachPP")
 
-unsafe def savePP (declarations : NameMap Declaration) : IO Unit := do
-  let mut additions : NameMap (NameMap Declaration) := {}
-  for (name, declaration) in declarations do
-    let moduleName := declaration.moduleName.toName
-    additions := additions.alter moduleName fun declarations =>
-      some ((declarations.getD {}).insert name declaration)
+unsafe def savePP (additions : PPBatch) : IO Unit := do
   for (moduleName, added) in additions do
     unsafe savePPModule moduleName
       (Std.TreeMap.union (← unsafe loadPPModule moduleName) added)

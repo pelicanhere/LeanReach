@@ -96,7 +96,7 @@ def prettyPrintPlan (names : Array Name) : MetaM (Array Name × Array Name) := d
   return (bodies, overlay)
 
 private def prettyPrintKnownDeclaration (cache : SignatureCache)
-    (moduleName : Name) (source : Option String × NameMap Lsp.Position) (name : Name)
+    (moduleName : String) (source : Option String × NameMap Lsp.Position) (name : Name)
     (includeBody : Bool) : MetaM (Declaration × PPTiming) := do
   let env ← getEnv
   let some info := env.find? name | throwError "unknown declaration '{name}'"
@@ -105,7 +105,7 @@ private def prettyPrintKnownDeclaration (cache : SignatureCache)
   return ({
       name := name.toString
       signature
-      moduleName := moduleName.toString
+      moduleName
       file := source.1
       line := position.map (·.line + 1) |>.getD 0
       column := position.map (·.character + 1) |>.getD 0
@@ -116,11 +116,12 @@ def prettyPrintModuleWithBodies (moduleName : Name)
     (names : Array Name) (bodies : NameHashSet) :
     MetaM (NameMap Declaration × PPTiming) := do
   let cache ← IO.mkRef {}
+  let moduleNameString := moduleName.toString
   let mut declarations := {}
   let mut timing := {}
   for name in names do
     let (declaration, elapsed) ←
-      try prettyPrintKnownDeclaration cache moduleName source name (bodies.contains name)
+      try prettyPrintKnownDeclaration cache moduleNameString source name (bodies.contains name)
       catch error =>
         throwError m!"could not pretty-print '{name}' from '{moduleName}': {error.toMessageData}"
     declarations := declarations.insert name declaration

@@ -19,9 +19,18 @@ private def path (olean : System.FilePath) : System.FilePath :=
   -- Overlay cache format 6.
   olean.withExtension "leanreach-query-overlay-6"
 
+private initialize loadedCache : IO.Ref (Std.HashMap String Data) ← IO.mkRef {}
+
+private def loadedKey (olean : System.FilePath) (depHash : String) : String :=
+  s!"{path olean}\u0000{depHash}"
+
 unsafe def load (roots : Array Name) : IO (Option Data) := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
-  unsafe Cache.loadPart Data (path olean) depHash
+  let key := loadedKey olean depHash
+  if let some data := (← loadedCache.get).get? key then return some data
+  let data? ← unsafe Cache.loadPart Data (path olean) depHash
+  if let some data := data? then loadedCache.modify (·.insert key data)
+  return data?
 
 def Data.local? (data : Data) (name : Name) : Option LocatedName :=
   data.entries.find? name |>.map (·.target)
@@ -89,5 +98,6 @@ unsafe def buildGraph (roots : Array Name) (baseRoot : Name) : IO Data := do
 unsafe def save (roots : Array Name) (data : Data) : IO Unit := do
   let (olean, depHash, root) ← unsafe Cache.rootData roots
   Cache.savePart (path olean) depHash data (Name.str root "_leanreachQueryOverlay")
+  loadedCache.modify (·.insert (loadedKey olean depHash) data)
 
 end LeanReach.QueryOverlay

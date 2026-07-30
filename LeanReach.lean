@@ -16,20 +16,9 @@ private def modulesFor (moduleOf? : Name → Option Name) (names : Array Name) :
     Array Name :=
   (names.toList.filterMap moduleOf?).eraseDups.toArray
 
-private unsafe def cachedSession (moduleOf? : Name → Option Name)
-    (names : Array Name) : IO (Session × Array Name) := do
-  let declarations ← unsafe Cache.loadPP moduleOf? names
-  let missing := names.filter fun name => !declarations.contains name
-  let sourcePath ←
-    if missing.isEmpty then pure []
-    else prepareEnvironment
-  let session ← Session.create sourcePath
-  session.merge declarations
-  return (session, missing)
-
 private unsafe def prettyPrintMissing (moduleOf? : Name → Option Name)
-    (session : Session) (env : Environment) (names : Array Name) :
-    IO (NameMap Declaration) := do
+    (sourcePath : SearchPath) (env : Environment) (names : Array Name) :
+    IO Cache.PPBatch := do
   let mut byModule : NameMap (Array Name) := {}
   for name in names do
     if let some moduleName := moduleOf? name then
@@ -38,9 +27,8 @@ private unsafe def prettyPrintMissing (moduleOf? : Name → Option Name)
   let mut added := {}
   for (moduleName, names) in byModule do
     let (declarations, _) ← unsafe prettyPrintModuleIO
-      session.sourcePath env moduleName names moduleOf?
-    session.merge declarations
-    added := Std.TreeMap.union added declarations
+      sourcePath env moduleName names moduleOf?
+    added := added.insert moduleName declarations
   return added
 
 private unsafe def runPreparedSession {α : Type} (moduleOf? : Name → Option Name)
@@ -51,8 +39,9 @@ private unsafe def runPreparedSession {α : Type} (moduleOf? : Name → Option N
     let modules := modulesFor moduleOf? missing
     unless modules.isEmpty do
       let env ← importEnvironment modules (leakEnv := leakEnv)
-      added ← unsafe prettyPrintMissing moduleOf? session env missing
+      added ← unsafe prettyPrintMissing moduleOf? session.sourcePath env missing
   unless added.isEmpty do
+    for (_, declarations) in added do session.merge declarations
     try unsafe Cache.savePP added
     catch _ => IO.eprintln "leanreach: could not write PP sidecar"
   action
@@ -62,14 +51,22 @@ private unsafe def runSession {α : Type} (moduleOf? : Name → Option Name) (se
   session.merge (← unsafe Cache.loadPP moduleOf? (← session.missing names))
   unsafe runPreparedSession moduleOf? session (← session.missing names) leakEnv action
 
+private unsafe def withFreshSession {α : Type} (moduleOf? : Name → Option Name)
+    (names : Array Name) (action : Session → IO α) : IO α := do
+  let declarations ← unsafe Cache.loadPP moduleOf? names
+  let missing := names.filter fun name => !declarations.contains name
+  let sourcePath ← if missing.isEmpty then pure [] else prepareEnvironment
+  let session ← Session.create sourcePath
+  session.merge declarations
+  unsafe runPreparedSession moduleOf? session missing true (action session)
+
 /-- Import only the modules needed to pretty-print the selected declarations. -/
 private unsafe def withSessionFor {α β : Type} (roots : Array Name)
     (select : Index → Except String (α × Array Name)) (loadRelations : Bool)
     (action : Session → α → IO β) : IO β := do
   let index ← unsafe Cache.loadIndex roots loadRelations
   let (plan, names) ← liftStringError (select index)
-  let (session, missing) ← unsafe cachedSession index.moduleOf? names
-  unsafe runPreparedSession index.moduleOf? session missing true (action session plan)
+  unsafe withFreshSession index.moduleOf? names fun session => action session plan
 
 private def cachedSearchPlan (targets : Array LocatedName) : Array Name × NameMap Name :=
   targets.foldl (init := (#[], {})) fun (names, modules) target =>
@@ -82,9 +79,8 @@ unsafe def withCachedQueryFor {α : Type} (roots : Array Name) (query : String)
   unsafe prepareSearchPath
   let some cached ← liftStringError (← unsafe QueryCache.resolve roots query) | return none
   let names := cached.queryNames limits
-  let (session, missing) ← unsafe cachedSession cached.moduleOf? names.all
-  return some (← unsafe runPreparedSession cached.moduleOf? session missing true
-    (action session names))
+  return some (← unsafe withFreshSession cached.moduleOf? names.all fun session =>
+    action session names)
 
 /-- Search complete declaration names from a query shard without loading the catalog. -/
 unsafe def withCachedSearchFor {α : Type} (roots : Array Name) (query : String)
@@ -92,9 +88,8 @@ unsafe def withCachedSearchFor {α : Type} (roots : Array Name) (query : String)
   unsafe prepareSearchPath
   let some targets ← unsafe QueryCache.search roots query limit | return none
   let (names, modules) := cachedSearchPlan targets
-  let (session, missing) ← unsafe cachedSession modules.find? names
-  return some (← unsafe runPreparedSession modules.find? session missing true
-    (action session names))
+  return some (← unsafe withFreshSession modules.find? names fun session =>
+    action session names)
 
 /-- Query through a cache shard when available, otherwise load the dependency index. -/
 unsafe def withQueryFor {α : Type} (roots : Array Name) (query : String)

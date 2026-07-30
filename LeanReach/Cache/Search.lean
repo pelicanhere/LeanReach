@@ -10,6 +10,16 @@ private def shardCount := 256
 
 private abbrev NameTable := Array Name × Array UInt32 × Array Name
 
+private structure View where
+  roots : Array Name
+  olean : System.FilePath
+  depHash : String
+  table : IO.Ref (Option NameTable)
+  directory : IO.Ref (Option (Data.Trie UInt32))
+  postings : IO.Ref (Array (Option (Data.Trie ByteArray)))
+
+private initialize viewCache : IO.Ref (Std.HashMap String View) ← IO.mkRef {}
+
 private def stem (roots : Array Name) :=
   if roots.size == 1 then "leanreach-search" else "leanreach-roots-search"
 
@@ -25,6 +35,47 @@ private def shardPath (roots : Array Name) (olean : System.FilePath) (id : Nat) 
 
 private def shard (trigram : String) : Nat :=
   (hash trigram % UInt64.ofNat shardCount).toNat
+
+private def viewKey (roots : Array Name) (olean : System.FilePath)
+    (depHash : String) : String :=
+  s!"{markerPath roots olean}\u0000{depHash}"
+
+private def loadView (roots : Array Name) (olean : System.FilePath)
+    (depHash : String) : IO View := do
+  let key := viewKey roots olean depHash
+  if let some view := (← viewCache.get).get? key then return view
+  let view := {
+    roots, olean, depHash
+    table := ← IO.mkRef none
+    directory := ← IO.mkRef none
+    postings := ← IO.mkRef (Array.replicate shardCount none)
+  }
+  viewCache.modify (·.insert key view)
+  return view
+
+private def memoize {α : Type} (slot : IO.Ref (Option α))
+    (action : IO (Option α)) : IO (Option α) := do
+  if let some value ← slot.get then return some value
+  let some value ← action | return none
+  slot.set (some value)
+  return some value
+
+private unsafe def loadTable (view : View) : IO (Option NameTable) :=
+  memoize view.table <| unsafe Cache.loadPart NameTable
+    (path view.roots view.olean "names") view.depHash
+
+private unsafe def loadDirectory (view : View) :
+    IO (Option (Data.Trie UInt32)) :=
+  memoize view.directory <| unsafe Cache.loadPart (Data.Trie UInt32)
+    (path view.roots view.olean "directory") view.depHash
+
+private unsafe def loadPostings (view : View) (id : Nat) :
+    IO (Option (Data.Trie ByteArray)) := do
+  if let some postings := (← view.postings.get)[id]! then return some postings
+  let some postings ← unsafe Cache.loadPart (Data.Trie ByteArray)
+      (shardPath view.roots view.olean id) view.depHash | return none
+  view.postings.modify (·.set! id (some postings))
+  return some postings
 
 private def ready (roots : Array Name) (olean : System.FilePath)
     (depHash : String) : IO Bool :=
@@ -143,22 +194,19 @@ unsafe def search (roots : Array Name) (query : String)
     (limit : Nat) : IO (Option (Array LocatedName)) := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
   unless ← ready roots olean depHash do return none
+  let view ← loadView roots olean depHash
   let query := query.toLower
   if query.length < 3 then
-    let some table ← unsafe Cache.loadPart NameTable
-        (path roots olean "names") depHash | return none
+    let some table ← unsafe loadTable view | return none
     return some (findMatches table
       (Array.range table.1.size |>.map UInt32.ofNat) query limit)
-  let some directory ← unsafe Cache.loadPart (Data.Trie UInt32)
-      (path roots olean "directory") depHash | return none
+  let some directory ← unsafe loadDirectory view | return none
   let some trigram := NameSearch.rarestTrigram? (NameSearch.trigrams query)
       (directory.find? · |>.map (·.toNat)) | return some #[]
-  let some postings ← unsafe Cache.loadPart (Data.Trie ByteArray)
-      (shardPath roots olean (shard trigram)) depHash | return none
+  let some postings ← unsafe loadPostings view (shard trigram) | return none
   let ids := (postings.find? trigram).map unpackIds |>.getD #[]
   if ids.isEmpty then return some #[]
-  let some table ← unsafe Cache.loadPart NameTable
-      (path roots olean "names") depHash | return none
+  let some table ← unsafe loadTable view | return none
   return some (findMatches table ids query limit)
 
 end LeanReach.SearchCache

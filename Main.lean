@@ -191,11 +191,12 @@ private unsafe def execute (config : Config) (command? : Option Command) : IO UI
   | some (.cache modules) =>
     profiled config.profile "cache" do
       if modules.isEmpty then
-        let result ← buildPPRoots (← config.roots true) fun moduleName done total =>
+        let roots ← config.roots true
+        let result ← buildPPRoots roots fun moduleName done total =>
           unless config.json do
             if done == total || done % 100 == 0 then
               IO.eprintln s!"leanreach: pretty-printed modules {done}/{total} ({moduleName})"
-        printPP config modules result
+        printPP config roots result
       else
         printPP config modules (← buildPPModules modules)
   | some (.query query) =>
