@@ -1,5 +1,6 @@
 import Lean.Environment
 import LeanReach.Runtime.Project
+import Lake.Load.Manifest
 
 namespace LeanReach
 
@@ -8,10 +9,20 @@ open Lean
 private def workspaceRoots : IO (Array System.FilePath) := do
   let cwd ← (← Project.findDir?).getDM IO.currentDir
   let packages := cwd / ".lake" / "packages"
+  let manifest ←
+    try Lake.Manifest.load? (cwd / Lake.defaultManifestFile)
+    catch _ => pure none
   let mut roots := #[cwd]
   if ← packages.isDir then
     for entry in ← packages.readDir do
-      if ← entry.path.isDir then roots := roots.push entry.path
+      if ← entry.path.isDir then
+        let root := if let some package := manifest >>= fun manifest =>
+            manifest.packages.find? (Lake.PackageEntry.dirName · == entry.fileName) then
+          match package.src with
+          | .git (subDir? := some subDir) .. => entry.path / subDir
+          | _ => entry.path
+        else entry.path
+        roots := roots.push root
   return roots
 
 private def leanSysroot : IO System.FilePath := do

@@ -28,14 +28,40 @@ private unsafe def runTests : IO Unit := do
     "regex anchor was ignored"
   check ((← regex "(?i)SPAN_LE").isMatch `Submodule.span_le)
     "case-insensitive regex did not match"
+  check ((← regex "(?i)^LeanReachFixture\\.[D]ouble$").isMatch
+      `LeanReachFixture.double)
+    "case-insensitive regex did not fold an explicit character class"
+  check ((← regex "(?i)^LeanReachFixture\\.[A-Z]ouble$").isMatch
+      `LeanReachFixture.double)
+    "case-insensitive regex did not fold a character range"
+  check (!(← regex "(?i)^LeanReachFixture\\.[^D]ouble$").isMatch
+      `LeanReachFixture.double)
+    "case-insensitive regex changed a negated character class"
+  check ((← regex "(?i)^LeanReachFixture\\.[^D]ouble$").isMatch
+      `LeanReachFixture.xouble)
+    "case-insensitive regex rejected a valid negated character class"
+  check ((← regex "(?i)^WeierstrassCurve\\.[φ]_ne_zero$").isMatch
+      `WeierstrassCurve.Φ_ne_zero)
+    "case-insensitive regex did not fold a Unicode character class"
   check ((← regex r"Submodule\.span_le").isMatch `Submodule.span_le)
     "escaped regex punctuation did not match literally"
   check ((← tokens #["LE", "submodule", "le"]).isMatch `Submodule.span_le)
     "unordered token search did not normalize or deduplicate tokens"
+  check ((← tokens #["φ_NE_ZERO"]).isMatch `WeierstrassCurve.Φ_ne_zero)
+    "unordered token search did not apply Unicode simple case folding"
   check (SearchPattern.compileRegex "(" |>.toOption |>.isNone)
     "invalid regex was accepted"
   check (SearchPattern.compileRegex "a{1025}" |>.toOption |>.isNone)
     "oversized regex repetition was accepted"
+  let oversizedClass :=
+    "[" ++ String.ofList (List.replicate 3000 'a') ++ "]"
+  check (SearchPattern.compileRegex oversizedClass |>.toOption |>.isNone)
+    "oversized regex character class was accepted"
+  let deeplyNestedClass :=
+    (List.replicate 130 "[^").foldl (· ++ ·) "" ++ "a" ++
+      String.ofList (List.replicate 130 ']')
+  check (SearchPattern.compileRegex deeplyNestedClass |>.toOption |>.isNone)
+    "deeply nested regex character class was accepted"
   check (SearchPattern.unionIds #[1, 2, 4, 4] #[2, 3, 4] ==
       #[1, 2, 3, 4])
     "sorted posting union changed ordering or deduplication"
@@ -49,6 +75,15 @@ private unsafe def runTests : IO Unit := do
   unless duplicateIndex.size == 3 &&
       (duplicateIndex.upstream `LeanReachFixture.a 10).size == 2 do
     throw <| IO.userError "index did not merge duplicate declarations"
+  let longSName := Name.str `LeanReachFixture "ſki"
+  let unicodeCandidateIndex := Index.build #[
+    (longSName, `Tests.Fixture, {})
+  ]
+  let unsafeGramTokens ← tokens #["ski"]
+  unless unicodeCandidateIndex.search unsafeGramTokens 10 ==
+      unicodeCandidateIndex.searchAll unsafeGramTokens 10 &&
+      unicodeCandidateIndex.searchAll unsafeGramTokens 10 == #[longSName] do
+    throw <| IO.userError "token prefilter dropped a Unicode fold equivalent"
   let privateA := mkPrivateNameCore `Tests.PrivateA `LeanReachDuplicate.hidden
   let privateB := mkPrivateNameCore `Tests.PrivateB `LeanReachDuplicate.hidden
   let privateIndex := Index.build #[
@@ -228,6 +263,8 @@ private unsafe def runTests : IO Unit := do
       (r"LeanReachFixture\.hidden_double_zero", 10),
       (r"^LeanReachFixture\.", 10),
       ("(?i)DOUBLE_EQ", 10),
+      ("(?i)[D]OUBLE_EQ", 10),
+      ("(?i)[A-Z]ouble_eq", 10),
       ("definitely_missing_literal", 10)] do
     let pattern ← regex source
     let expected := fixtureIndex.searchAll pattern limit
@@ -314,6 +351,22 @@ private unsafe def runTests : IO Unit := do
       throw <| IO.userError s!"Mathlib search cache is missing for '{source}'"
     unless cached.map (·.name) == mathlibIndex.search pattern limit do
       throw <| IO.userError s!"cached search differs for '{source}'"
+  let unicodeTokens ← tokens #["WEIERSTRASSCURVE.φ_NE_ZERO"]
+  let unicodeExpected := mathlibIndex.searchAll unicodeTokens 10
+  let some unicodeCached ← unsafe QueryCache.search #[`Mathlib]
+      unicodeTokens 10 |
+    throw <| IO.userError "Mathlib Unicode token search cache is missing"
+  unless unicodeCached.map (·.name) == unicodeExpected &&
+      unicodeExpected == #[`WeierstrassCurve.Φ_ne_zero] do
+    throw <| IO.userError "Unicode token prefilter changed search results"
+  let unicodeClass ← regex "(?i)^WeierstrassCurve\\.[φ]_ne_zero$"
+  let unicodeClassExpected := mathlibIndex.searchAll unicodeClass 10
+  let some unicodeClassCached ← unsafe QueryCache.search #[`Mathlib]
+      unicodeClass 10 |
+    throw <| IO.userError "Mathlib Unicode class search cache is missing"
+  unless unicodeClassCached.map (·.name) == unicodeClassExpected &&
+      unicodeClassExpected == #[`WeierstrassCurve.Φ_ne_zero] do
+    throw <| IO.userError "Unicode class prefilter changed search results"
   let lazyRoots := #[`Tests.Main, `Mathlib]
   let .ok (some lazyLocal) ← unsafe QueryCache.resolve lazyRoots
       "LeanReachFixture.double" |
