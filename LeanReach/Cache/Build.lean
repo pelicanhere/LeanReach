@@ -67,9 +67,8 @@ private unsafe def buildModules (sourcePath : SearchPath) (env : Environment)
   let mut count := 0
   let mut timing := {}
   let mut failure? := none
-  for done in [0:inputs.size] do
-    let some output := outputs[done]? | unreachable!
-    let some (moduleName, result) ← IO.wait output.result? | unreachable!
+  for (output, done) in outputs.zipIdx do
+    let (moduleName, result) ← IO.wait output.result!
     match result with
     | .ok (added, elapsed) =>
       count := count + added

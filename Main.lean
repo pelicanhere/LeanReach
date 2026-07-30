@@ -28,8 +28,7 @@ private def takeArg (option : String) : CliM String := do
   return value
 
 private def takeNat (option : String) : CliM Nat := do
-  let value ← takeArg option
-  let some number := value.toNat? |
+  let some number := (← takeArg option).toNat? |
     throw <| Lake.CliError.invalidOptArg option "a natural number"
   return number
 
@@ -109,6 +108,14 @@ private def printSearch (json : Bool) (query : String) (items : Array Declaratio
     for declaration in items do
       printDeclaration "  " declaration
 
+private def printQueryNames (config : Config) (session : Session)
+    (names : QueryNames) : CoreM Unit := do
+  printQuery config.json (← session.describeQuery names)
+
+private def printSearchNames (config : Config) (pattern : String)
+    (session : Session) (names : Array Name) : CoreM Unit := do
+  printSearch config.json pattern (← session.describeNames names)
+
 private def Config.limits (config : Config) : Limits :=
   config.limit?.map Limits.uniform |>.getD {}
 
@@ -124,26 +131,6 @@ private def printPP (config : Config) (modules : Array Name)
     IO.println s!"pretty-printed {count} declarations"
   if config.profile then IO.eprintln s!"leanreach: pp {timing.profile}"
 
-private inductive Prepared where
-  | query (names : QueryNames)
-  | search (pattern : String) (names : Array Name)
-
-private def prepare (config : Config) (command : Command) (index : Index) :
-    Except String (SessionPlan Prepared) :=
-  match command with
-    | .query query => do
-      let names ← index.queryNames query config.limits
-      return (.query names, names.all, some names.target)
-    | .search pattern =>
-      let names := index.search pattern config.limits.search
-      return (.search pattern names, names, none)
-    | .cache _ => throw "cache is not an interactive query"
-
-private def runPrepared (session : Session) (config : Config) : Prepared → CoreM Unit
-  | .query names => do printQuery config.json (← session.describeQuery names)
-  | .search pattern names => do
-    printSearch config.json pattern (← session.describeNames names)
-
 private def profiled {α : Type} (enabled : Bool) (label : String)
     (action : IO α) : IO α := do
   unless enabled do return ← action
@@ -155,12 +142,9 @@ private def profiled {α : Type} (enabled : Bool) (label : String)
       else s!"{elapsed / 1000000}ms"
     IO.eprintln s!"leanreach: {label}={duration}"
   try
-    let result ← action
+    action
+  finally
     report
-    return result
-  catch error =>
-    report
-    throw error
 
 private def parseLine (line : String) : Command :=
   if let some pattern := line.dropPrefix? "search " then
@@ -179,10 +163,10 @@ private partial def runInteractive (session : Session) (runner : InteractiveRunn
       match command with
       | .query query =>
         runner.query query config.limits fun names =>
-          runPrepared session config (.query names)
+          printQueryNames config session names
       | .search pattern =>
         runner.search pattern config.limits.search fun names =>
-          runPrepared session config (.search pattern names)
+          printSearchNames config pattern session names
       | .cache _ => unreachable!
     catch error =>
       let message := toString error
@@ -194,9 +178,8 @@ private partial def runInteractive (session : Session) (runner : InteractiveRunn
   runInteractive session runner config
 
 private def validate (config : Config) : CliMainM Unit := do
-  if let some limit := config.limit? then
-    if limit == 0 || limit > 1000 then
-      throw <| Lake.CliError.invalidOptArg "--limit" "an integer from 1 to 1000"
+  if config.limit?.any fun limit => limit == 0 || limit > 1000 then
+    throw <| Lake.CliError.invalidOptArg "--limit" "an integer from 1 to 1000"
 
 private unsafe def Config.roots (config : Config) (refresh := false) : IO (Array Name) :=
   config.root?.map (#[·]) |>.getDM (detectRoots refresh)
@@ -216,18 +199,11 @@ private unsafe def execute (config : Config) (command? : Option Command) : IO UI
   | some (.query query) =>
     profiled config.profile "query" do
       let roots ← config.roots
-      let limits := config.limits
-      if (← withCachedQueryFor roots query limits fun session names =>
-          runPrepared session config (.query names)).isNone then
-        withSessionFor roots (prepare config (.query query)) true
-          (runPrepared · config)
+      withQueryFor roots query config.limits (printQueryNames config)
   | some (.search pattern) =>
     profiled config.profile "search" do
       let roots ← config.roots
-      if (← withCachedSearchFor roots pattern config.limits.search fun session names =>
-          runPrepared session config (.search pattern names)).isNone then
-        withSessionFor roots (prepare config (.search pattern)) false
-          (runPrepared · config)
+      withSearchFor roots pattern config.limits.search (printSearchNames config pattern)
   | none =>
     withInteractiveSession (← config.roots) fun session runner =>
       runInteractive session runner config

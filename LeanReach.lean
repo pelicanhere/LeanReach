@@ -9,13 +9,8 @@ namespace LeanReach
 
 open Lean
 
-abbrev SessionPlan (α : Type) := α × Array Name × Option Name
-
-private def selectPlan {α : Type} (index : Index)
-    (select : Index → Except String (SessionPlan α)) : IO (SessionPlan α) :=
-  match select index with
-  | .ok plan => pure plan
-  | .error message => throw <| IO.userError message
+private def liftStringError {α : Type} (result : Except String α) : IO α :=
+  IO.ofExcept (result.mapError IO.userError)
 
 private def modulesFor (moduleOf? : Name → Option Name) (names : Array Name) :
     Array Name :=
@@ -80,19 +75,18 @@ private unsafe def runSession {α : Type} (moduleOf? : Name → Option Name) (se
   return result
 
 /-- Import only the modules needed to pretty-print the selected declarations. -/
-unsafe def withSessionFor {α β : Type} (roots : Array Name)
-    (select : Index → Except String (SessionPlan α)) (loadRelations : Bool)
+private unsafe def withSessionFor {α β : Type} (roots : Array Name)
+    (select : Index → Except String (α × Array Name × Option Name)) (loadRelations : Bool)
     (action : Session → α → CoreM β) : IO β := do
   let sourcePath ← prepareEnvironment
   let index ← unsafe Cache.loadIndex roots loadRelations
-  let (plan, names, target?) ← selectPlan index select
+  let (plan, names, target?) ← liftStringError (select index)
   let session ← Session.create sourcePath
   unsafe runSession index.moduleOf? session names target? none (action session plan)
 
 private unsafe def runCachedQuery {α : Type} (session : Session)
-    (cached : CachedQuery) (limits : Limits)
+    (cached : CachedQuery) (names : QueryNames)
     (action : QueryNames → CoreM α) : IO α := do
-  let names := cached.queryNames limits
   unsafe runSession cached.moduleOf? session names.all
     (some names.target) none (action names)
 
@@ -107,14 +101,10 @@ unsafe def withCachedQueryFor {α : Type} (roots : Array Name) (query : String)
     (limits : Limits) (action : Session → QueryNames → CoreM α) : IO (Option α) := do
   unless limits.usesCachedQuery do return none
   unsafe prepareSearchPath
-  let cached? ← unsafe QueryCache.resolve roots query
-  let cached ← match cached? with
-    | .ok (some cached) => pure cached
-    | .ok none => return none
-    | .error message => throw <| IO.userError message
+  let some cached ← liftStringError (← unsafe QueryCache.resolve roots query) | return none
   let names := cached.queryNames limits
   let session ← unsafe cachedSession cached.moduleOf? names.all
-  return some (← unsafe runCachedQuery session cached limits (action session))
+  return some (← unsafe runCachedQuery session cached names (action session))
 
 /-- Search complete declaration names from a query shard without loading the catalog. -/
 unsafe def withCachedSearchFor {α : Type} (roots : Array Name) (query : String)
@@ -125,6 +115,22 @@ unsafe def withCachedSearchFor {α : Type} (roots : Array Name) (query : String)
   let moduleOf? name := targets.find? (·.name == name) |>.map (·.moduleName)
   let session ← unsafe cachedSession moduleOf? names
   return some (← unsafe runCachedSearch session targets (action session))
+
+/-- Query through a cache shard when available, otherwise load the dependency index. -/
+unsafe def withQueryFor {α : Type} (roots : Array Name) (query : String)
+    (limits : Limits) (action : Session → QueryNames → CoreM α) : IO α := do
+  if let some result ← unsafe withCachedQueryFor roots query limits action then return result
+  unsafe withSessionFor roots (fun index => do
+    let names ← index.queryNames query limits
+    return (names, names.all, some names.target)) true action
+
+/-- Search through cache shards when available, otherwise load the name catalog. -/
+unsafe def withSearchFor {α : Type} (roots : Array Name) (query : String)
+    (limit : Nat) (action : Session → Array Name → CoreM α) : IO α := do
+  if let some result ← unsafe withCachedSearchFor roots query limit action then return result
+  unsafe withSessionFor roots (fun index =>
+    let names := index.search query limit
+    .ok (names, names, none)) false action
 
 structure InteractiveRunner where
   query : String → Limits → (QueryNames → CoreM Unit) → IO Unit
@@ -145,16 +151,12 @@ unsafe def withInteractiveSession {α : Type} (roots : Array Name)
   let indexCache ← IO.mkRef none
   let query := fun query limits action => do
     if limits.usesCachedQuery then
-      match ← unsafe QueryCache.resolve roots query with
-      | .error message => throw <| IO.userError message
-      | .ok (some cached) =>
-        discard <| unsafe runCachedQuery session cached limits action
+      if let some cached ← liftStringError (← unsafe QueryCache.resolve roots query) then
+        let names := cached.queryNames limits
+        discard <| unsafe runCachedQuery session cached names action
         return
-      | .ok none => pure ()
     let index ← unsafe loadIndexOnce roots indexCache
-    let names ← match index.queryNames query limits with
-      | .ok names => pure names
-      | .error message => throw <| IO.userError message
+    let names ← liftStringError (index.queryNames query limits)
     discard <| unsafe runSession index.moduleOf? session names.all
       (some names.target) (some emptyEnv) (action names)
   let search := fun pattern limit action => do
