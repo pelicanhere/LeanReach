@@ -61,8 +61,7 @@ async function request(parameters) {
 }
 
 async function search(query) {
-  query = query.trim();
-  if (!query) return;
+  if (!query.trim()) return;
   input.value = query;
   results.replaceChildren();
   detail.replaceChildren();

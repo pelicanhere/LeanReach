@@ -50,8 +50,4 @@ def mergeBuckets (queryLower : String) (limit : Nat)
   return buckets queryLower candidates.size
     (fun id => candidates[id]!) some (·.name) limit
 
-def merge (queryLower : String) (limit : Nat)
-    (left right : Array LocatedName) : Array LocatedName :=
-  (mergeBuckets queryLower limit left right).flatten.take limit
-
 end LeanReach.NameResolve

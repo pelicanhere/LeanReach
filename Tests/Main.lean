@@ -10,11 +10,35 @@ open Lean Meta
 private def check (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 
+private def regex (source : String) : IO SearchPattern :=
+  IO.ofExcept <| SearchPattern.compileRegex source |>.mapError IO.userError
+
+private def tokens (values : Array String) : IO SearchPattern :=
+  IO.ofExcept <| SearchPattern.compileTokens values |>.mapError IO.userError
+
 private unsafe def runTests : IO Unit := do
   unless NameSearch.trigrams "abcd" == #["abc", "bcd"] &&
       NameSearch.trigrams "αβγδ" == #["αβγ", "βγδ"] &&
       (NameSearch.trigrams "ab").isEmpty do
     throw <| IO.userError "trigram generation changed character-window semantics"
+  let spanPattern ← regex "span_(le|eq_bot)"
+  check (spanPattern.isMatch `Submodule.span_le)
+    "unanchored regex did not match a declaration name"
+  check (!(← regex "^span").isMatch `Submodule.span_le)
+    "regex anchor was ignored"
+  check ((← regex "(?i)SPAN_LE").isMatch `Submodule.span_le)
+    "case-insensitive regex did not match"
+  check ((← regex r"Submodule\.span_le").isMatch `Submodule.span_le)
+    "escaped regex punctuation did not match literally"
+  check ((← tokens #["LE", "submodule", "le"]).isMatch `Submodule.span_le)
+    "unordered token search did not normalize or deduplicate tokens"
+  check (SearchPattern.compileRegex "(" |>.toOption |>.isNone)
+    "invalid regex was accepted"
+  check (SearchPattern.compileRegex "a{1025}" |>.toOption |>.isNone)
+    "oversized regex repetition was accepted"
+  check (SearchPattern.unionIds #[1, 2, 4, 4] #[2, 3, 4] ==
+      #[1, 2, 3, 4])
+    "sorted posting union changed ordering or deduplication"
   let sourcePath ← unsafe prepareEnvironment
   let duplicateIndex := Index.build #[
     (`LeanReachFixture.a, `Tests.Fixture, ({} : NameSet).insert `LeanReachFixture.b),
@@ -179,20 +203,53 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "private kernel query key did not resolve"
   unless exactPrivate.target.name == privateA do
     throw <| IO.userError "private kernel query key resolved the wrong module"
-  let some cachedSearch ← unsafe QueryCache.search #[`Tests.Fixture] "duplicateLeaf" 10 |
+  let duplicateLeafPattern ← regex "duplicateLeaf"
+  let some cachedSearch ← unsafe QueryCache.search #[`Tests.Fixture]
+      duplicateLeafPattern 10 |
     throw <| IO.userError "complete leaf search did not use its shard"
-  unless cachedSearch.map (·.name) == fixtureIndex.search "duplicateLeaf" 10 do
+  unless cachedSearch.map (·.name) == fixtureIndex.search duplicateLeafPattern 10 do
     throw <| IO.userError "cached leaf search changed search ordering"
+  let substringPattern ← regex "doubleVia"
   let some substringSearch ← unsafe QueryCache.search #[`Tests.Fixture]
-      "doubleVia" 10 |
+      substringPattern 10 |
     throw <| IO.userError "substring search cache is missing"
-  unless substringSearch.map (·.name) == fixtureIndex.search "doubleVia" 10 do
+  unless substringSearch.map (·.name) == fixtureIndex.search substringPattern 10 do
     throw <| IO.userError "cached substring search changed search ordering"
+  let missingPattern ← regex "not_a_declaration_name"
   let some missingSearch ← unsafe QueryCache.search #[`Tests.Fixture]
-      "not_a_declaration_name" 10 |
+      missingPattern 10 |
     throw <| IO.userError "cached empty search fell back to the complete index"
   unless missingSearch.isEmpty do
     throw <| IO.userError "cached empty search returned a declaration"
+  for (source, limit) in #[
+      (r"double_[zZ]", 1),
+      (r"double_(zero|eq)", 10),
+      (r"[zZ]", 10),
+      (r"LeanReachFixture\.hidden_double_zero", 10),
+      (r"^LeanReachFixture\.", 10),
+      ("(?i)DOUBLE_EQ", 10),
+      ("definitely_missing_literal", 10)] do
+    let pattern ← regex source
+    let expected := fixtureIndex.searchAll pattern limit
+    unless fixtureIndex.search pattern limit == expected do
+      throw <| IO.userError s!"indexed regex prefilter differs for '{source}'"
+    let some cached ← unsafe QueryCache.search #[`Tests.Fixture] pattern limit |
+      throw <| IO.userError s!"regex cache is missing for '{source}'"
+    unless cached.map (·.name) == expected do
+      throw <| IO.userError s!"cached regex differs for '{source}'"
+  for (values, limit) in #[
+      (#["double_", "z"], 1),
+      (#["zero", "double"], 10),
+      (#["z"], 10),
+      (#["DOUBLE", "ZERO", "double"], 10)] do
+    let pattern ← tokens values
+    let expected := fixtureIndex.searchAll pattern limit
+    unless fixtureIndex.search pattern limit == expected do
+      throw <| IO.userError s!"indexed token prefilter differs for '{values}'"
+    let some cached ← unsafe QueryCache.search #[`Tests.Fixture] pattern limit |
+      throw <| IO.userError s!"token cache is missing for '{values}'"
+    unless cached.map (·.name) == expected do
+      throw <| IO.userError s!"cached token search differs for '{values}'"
   let layeredRoots := #[`Tests.Fixture, `Mathlib]
   discard <| unsafe QueryCache.build layeredRoots
   let some overlay ← unsafe QueryOverlay.load layeredRoots |
@@ -225,21 +282,38 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "base declaration did not resolve through the overlay"
   unless layeredBase.target.name == `Submodule.span_le do
     throw <| IO.userError "overlay resolved the wrong base declaration"
+  let localizationPattern ← regex "localization_maximal"
   let some layeredSearch ← unsafe QueryCache.search layeredRoots
-      "localization_maximal" 10 |
+      localizationPattern 10 |
     throw <| IO.userError "base substring search did not use the overlay cache"
   unless layeredSearch.map (·.name) ==
-      mathlibIndex.search "localization_maximal" 10 do
+      mathlibIndex.search localizationPattern 10 do
     throw <| IO.userError "overlay substring search changed search ordering"
-  for (pattern, limit) in #[
+  let localPattern ← regex r"^LeanReachFixture\."
+  for limit in #[1, 2, 10] do
+    let some cached ← unsafe QueryCache.search layeredRoots localPattern limit |
+      throw <| IO.userError "overlay regex cache is missing"
+    unless cached.map (·.name) == fixtureIndex.searchAll localPattern limit do
+      throw <| IO.userError "overlay local regex changed global name ordering"
+  let crossLayerPattern ←
+    regex r"^(LeanReachFixture\.double|Submodule\.span_le)$"
+  let crossLayerExpected :=
+    #[`LeanReachFixture.double, `Submodule.span_le] |>.qsort Name.lt
+  for limit in #[1, 2] do
+    let some cached ← unsafe QueryCache.search layeredRoots crossLayerPattern limit |
+      throw <| IO.userError "cross-layer regex cache is missing"
+    unless cached.map (·.name) == crossLayerExpected.take limit do
+      throw <| IO.userError "cross-layer regex merge changed ordering"
+  for (source, limit) in #[
       ("Submodule.span_le", 10),
       ("span_eq", 37),
       ("continuouson_image", 10),
       ("eq", 10)] do
+    let pattern ← regex source
     let some cached ← unsafe QueryCache.search #[`Mathlib] pattern limit |
-      throw <| IO.userError s!"Mathlib search cache is missing for '{pattern}'"
+      throw <| IO.userError s!"Mathlib search cache is missing for '{source}'"
     unless cached.map (·.name) == mathlibIndex.search pattern limit do
-      throw <| IO.userError s!"cached search differs for '{pattern}'"
+      throw <| IO.userError s!"cached search differs for '{source}'"
   let lazyRoots := #[`Tests.Main, `Mathlib]
   let .ok (some lazyLocal) ← unsafe QueryCache.resolve lazyRoots
       "LeanReachFixture.double" |
@@ -261,8 +335,8 @@ private unsafe def runTests : IO Unit := do
         (action : QueryResult → IO Unit) : IO Unit :=
       runner.query name limits fun names => do
         action (← session.describeQuery names)
-    let search (pattern : String) (action : Array Declaration → IO Unit) : IO Unit :=
-      runner.search pattern 10 fun names => do
+    let search (pattern : String) (action : Array Declaration → IO Unit) : IO Unit := do
+      runner.search (← regex pattern) 10 fun names => do
         action (← session.describeNames names)
 
     query "LeanReachFixture.double" (Limits.uniform 100) fun result => do

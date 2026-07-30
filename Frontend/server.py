@@ -125,11 +125,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         params = parse_qs(url.query)
         if query := params.get("q", [None])[0]:
-            command = "search " + " ".join(query.split())
+            command = "search " + query
         elif name := params.get("name", [None])[0]:
-            command = " ".join(name.split())
+            command = name.strip()
         else:
             self.json(400, {"error": "expected one 'q' or 'name' parameter"})
+            return
+        if any(character in command for character in "\r\n\0"):
+            self.json(400, {"error": "query contains an invalid line break"})
             return
         if len(command) > 512:
             self.json(400, {"error": "query is too long"})

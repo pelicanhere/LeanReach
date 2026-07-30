@@ -32,8 +32,11 @@ can be launched directly without `lake exe` or a separate packaging step. For ex
 ## CLI
 
 ```console
-# Find declarations by exact name, final component, or substring.
-lake exe leanreach search span_le
+# Search declaration names with an unanchored regex.
+lake exe leanreach search 'span_(le|eq)'
+
+# Match unordered, case-insensitive name tokens.
+lake exe leanreach tokens compact image continuous
 
 # Show a declaration and its direct dependencies.
 lake exe leanreach Submodule.span_le
@@ -50,6 +53,9 @@ lake exe leanreach cache Mathlib.LinearAlgebra.Span.Defs
 # Override automatic project detection.
 lake exe leanreach --module Mathlib.LinearAlgebra.Span.Defs Submodule.span_le
 ```
+
+Regex search is case-sensitive by default. Use `(?i)` for case-insensitive matching and `^...$`
+for a complete name. Prefix a dash-leading pattern with `--`.
 
 The default query returns 10 upstream and 10 downstream declarations. Search returns 20 names.
 
@@ -73,10 +79,11 @@ For a chain of queries, keep one process alive to avoid repeatedly starting the 
 lake exe leanreach --interactive --json
 ```
 
-Each input line is either a declaration name or `search PATTERN`:
+Each input line is a declaration name, `search PATTERN`, or `tokens TOKEN...`:
 
 ```text
-search localization_maximal
+search ^Submodule\..*span
+tokens localization maximal
 Submodule.span_eq_bot
 ```
 

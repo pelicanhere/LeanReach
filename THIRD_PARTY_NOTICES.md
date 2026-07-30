@@ -9,3 +9,6 @@ model were informed by [Loogle](https://github.com/nomeata/loogle):
 LeanReach uses Lean's public `importModules`, delaborator, declaration-range, and module-data APIs;
 its cache serialization wrapper and generated-declaration filter are adapted from Loogle's
 `Pickle` and `BlackListed` modules. LeanReach does not vendor Loogle's parser, trie, or matcher.
+
+LeanReach uses [lean-regex](https://github.com/pandaman64/lean-regex), released under the Apache
+License 2.0.

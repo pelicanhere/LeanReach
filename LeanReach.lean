@@ -86,14 +86,6 @@ unsafe def withCachedQueryFor {α : Type} (roots : Array Name) (query : String)
   return some (← unsafe withFreshSession cached.moduleOf? names.all fun session =>
     action session names)
 
-/-- Search complete declaration names from a query shard without loading the catalog. -/
-unsafe def withCachedSearchFor {α : Type} (roots : Array Name) (query : String)
-    (limit : Nat) (action : Session → Array Name → IO α) : IO (Option α) := do
-  let some targets ← unsafe QueryCache.search roots query limit | return none
-  let (names, modules) := cachedSearchPlan targets
-  return some (← unsafe withFreshSession modules.find? names fun session =>
-    action session names)
-
 /-- Query through a cache shard when available, otherwise load the dependency index. -/
 unsafe def withQueryFor {α : Type} (roots : Array Name) (query : String)
     (limits : Limits) (action : Session → QueryNames → IO α) : IO α := do
@@ -103,18 +95,26 @@ unsafe def withQueryFor {α : Type} (roots : Array Name) (query : String)
     let names ← index.queryNames query limits
     return (names, names.all)) true action
 
+private unsafe def selectSearch (roots : Array Name) (pattern : SearchPattern)
+    (limit : Nat) (loadIndex : IO Index) :
+    IO ((Name → Option Name) × Array Name) := do
+  if let some targets ← unsafe QueryCache.search roots pattern limit then
+    let (names, modules) := cachedSearchPlan targets
+    return (modules.find?, names)
+  let index ← loadIndex
+  return (index.moduleOf?, index.search pattern limit)
+
 /-- Search through cache shards when available, otherwise load the name catalog. -/
-unsafe def withSearchFor {α : Type} (roots : Array Name) (query : String)
+unsafe def withSearchFor {α : Type} (roots : Array Name) (pattern : SearchPattern)
     (limit : Nat) (action : Session → Array Name → IO α) : IO α := do
   unsafe prepareSearchPath
-  if let some result ← unsafe withCachedSearchFor roots query limit action then return result
-  unsafe withSessionFor roots (fun index =>
-    let names := index.search query limit
-    .ok (names, names)) false action
+  let (moduleOf?, names) ← unsafe selectSearch roots pattern limit
+    (unsafe Cache.loadIndex roots false)
+  unsafe withFreshSession moduleOf? names fun session => action session names
 
 structure InteractiveRunner where
   query : String → Limits → (QueryNames → IO Unit) → IO Unit
-  search : String → Nat → (Array Name → IO Unit) → IO Unit
+  search : SearchPattern → Nat → (Array Name → IO Unit) → IO Unit
 
 private unsafe def loadIndexOnce (roots : Array Name)
     (cached : IO.Ref (Option Index)) : IO Index := do
@@ -138,13 +138,9 @@ unsafe def withInteractiveSession {α : Type} (roots : Array Name)
     let names ← liftStringError (index.queryNames query limits)
     discard <| unsafe runSession index.moduleOf? session names.all false (action names)
   let search := fun pattern limit action => do
-    if let some targets ← unsafe QueryCache.search roots pattern limit then
-      let (names, modules) := cachedSearchPlan targets
-      discard <| unsafe runSession modules.find? session names false (action names)
-      return
-    let index ← unsafe loadIndexOnce roots indexCache
-    let names := index.search pattern limit
-    discard <| unsafe runSession index.moduleOf? session names false (action names)
+    let (moduleOf?, names) ← unsafe selectSearch roots pattern limit
+      (unsafe loadIndexOnce roots indexCache)
+    discard <| unsafe runSession moduleOf? session names false (action names)
   action session { query, search }
 
 end LeanReach

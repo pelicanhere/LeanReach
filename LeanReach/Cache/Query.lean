@@ -237,10 +237,24 @@ private unsafe def resolveFull (roots : Array Name) (query : String) :
     s!"  {privateToUserName target.name} ({target.moduleName})"
   return .error s!"ambiguous declaration '{query}':\n{String.intercalate "\n" options.toList}"
 
-private def localMatches (overlay : QueryOverlay.Data) (query : String)
+private def localResolveMatches (overlay : QueryOverlay.Data) (query : String)
     (limit : Nat) : Array LocatedName :=
   NameResolve.collect query.toLower overlay.localNames.size
     (fun id => overlay.localNames[id]!) some (·.name) limit
+
+private def localSearchMatches (overlay : QueryOverlay.Data)
+    (pattern : SearchPattern) (limit : Nat) : Array LocatedName :=
+  pattern.collect overlay.localNames.size (fun id => overlay.localNames[id]!)
+    some (·.name) limit
+
+private def mergeSearchResults (localResults baseResults : Array LocatedName)
+    (limit : Nat) : Array LocatedName := Id.run do
+  let mut byName : NameMap LocatedName := {}
+  for target in baseResults do byName := byName.insert target.name target
+  for target in localResults do byName := byName.insert target.name target
+  let mut results := #[]
+  for (_, target) in byName do results := results.push target
+  return (results.qsort fun left right => Name.lt left.name right.name).take limit
 
 private def ambiguityMessage (query : String)
     (candidates : Array LocatedName) : String :=
@@ -281,7 +295,7 @@ unsafe def resolve (roots : Array Name) (query : String) :
   if let .ok (some cached) ← unsafe resolveFull #[overlay.baseRoot] query then
     if cached.target.name == name then
       return .ok (some <| (overlay.cached? cached.target.name).getD cached)
-  let localResults := localMatches overlay query 11
+  let localResults := localResolveMatches overlay query 11
   let some base ← unsafe SearchCache.lookup #[overlay.baseRoot] query 11 |
     return .ok none
   let candidates := NameResolve.bestBucket <|
@@ -291,15 +305,14 @@ unsafe def resolve (roots : Array Name) (query : String) :
   if candidates.isEmpty then return .ok none
   return .error (ambiguityMessage query candidates)
 
-unsafe def search (roots : Array Name) (query : String)
+unsafe def search (roots : Array Name) (pattern : SearchPattern)
     (limit : Nat) : IO (Option (Array LocatedName)) := do
   let overlay? ← unsafe loadOverlay roots
   let some overlay := overlay? | do
-    return ← unsafe SearchCache.lookup roots query limit
-  let some base ← unsafe SearchCache.lookup #[overlay.baseRoot] query limit |
+    return ← unsafe SearchCache.search roots pattern limit
+  let some base ← unsafe SearchCache.search #[overlay.baseRoot] pattern limit |
     return none
-  let results := NameResolve.merge query.toLower limit
-    (localMatches overlay query limit) base
-  return some results
+  return some <| mergeSearchResults
+    (localSearchMatches overlay pattern limit) base limit
 
 end LeanReach.QueryCache

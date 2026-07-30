@@ -19,7 +19,7 @@ Lake project discovery
 ```
 
 Name matching, graph lookup, mathematical ranking, and pretty-printing are separate stages. Changing
-substring matching therefore does not alter dependency scores, and changing a score does not affect
+pattern matching therefore does not alter dependency scores, and changing a score does not affect
 exact-name resolution.
 
 The three query stages reuse `Neighborhood α`: cached plans contain located names, PP plans contain
@@ -44,18 +44,18 @@ This graph is a navigation index, not a runtime call graph and not a transitive 
 
 ## Name matching
 
-The catalog is sorted by full Lean `Name`. For a search string, results are grouped in this order:
+`search PATTERN` compiles an unanchored, case-sensitive regex once. `tokens TOKEN...` performs an
+unordered, case-insensitive literal AND over the user-visible declaration name. Cached and
+in-memory execution use the same final matcher.
 
-1. case-insensitive complete name;
-2. final name component;
-3. general substring.
-
-Queries of at least three characters use the rarest available trigram posting. Shorter queries scan
-the compact name table. Cached and in-memory searches use the same bounded bucket collector.
+The pattern AST yields only trigrams proven to occur on every successful path. Each regex
+alternative selects its rarest posting, the selected postings are merged, and the complete regex is
+then checked. Token search selects the rarest trigram from all long tokens and checks every token.
+Patterns without a safe trigram scan the compact cached name table. Limits are applied only after
+the complete match.
 
 Exact dependency queries first try a case-sensitive complete `Name`. A unique final component can be
-resolved from a query shard; otherwise LeanReach loads the complete catalog to preserve ambiguity
-reporting.
+resolved by the separate literal resolver; regex syntax never changes bare declaration queries.
 
 ## Dependency ranking
 
@@ -229,7 +229,7 @@ LeanReach/PrettyPrint/Printer.lean     Lean declaration formatting
 LeanReach/PrettyPrint/Module.lean      module PP environment preparation
 LeanReach/Cache/Storage.lean           persistence and root fingerprints
 LeanReach/Cache/Index.lean             module fragments and graph indexes
-LeanReach/Cache/Search.lean            sharded substring-search persistence
+LeanReach/Cache/Search.lean            sharded regex/token candidate persistence
 LeanReach/Cache/Overlay.lean           local graph overlay
 LeanReach/Cache/Query.lean             exact-query shards and routing
 LeanReach/Cache/PrettyPrint.lean       module PP sidecars

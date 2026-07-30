@@ -1,5 +1,6 @@
 import LeanReach.Cache.Storage
 import LeanReach.Search.Index
+import LeanReach.Search.Pattern
 import LeanReach.Search.Resolve
 
 namespace LeanReach.SearchCache
@@ -177,15 +178,21 @@ unsafe def build (roots : Array Name) (index : Index) : IO Nat := do
   IO.FS.writeFile (markerPath roots olean) depHash
   return entries.size
 
-private def findMatches (table : NameTable) (size : Nat) (idAt : Nat → UInt32)
-    (query : String) (limit : Nat) : Array LocatedName :=
+private def located? (table : NameTable) (id : UInt32) : Option LocatedName := do
   let (names, owners, modules) := table
-  let located? id := do
-    let name ← names[id.toNat]?
-    let owner ← owners[id.toNat]?
-    let moduleName ← modules[owner.toNat]?
-    return { name, moduleName }
-  NameResolve.collect query size idAt located? (·.name) limit
+  let name ← names[id.toNat]?
+  let owner ← owners[id.toNat]?
+  let moduleName ← modules[owner.toNat]?
+  return { name, moduleName }
+
+private def findLookupMatches (table : NameTable) (size : Nat)
+    (idAt : Nat → UInt32) (query : String) (limit : Nat) : Array LocatedName :=
+  NameResolve.collect query size idAt (located? table) (·.name) limit
+
+private def findPatternMatches (table : NameTable) (size : Nat)
+    (idAt : Nat → UInt32) (pattern : SearchPattern)
+    (limit : Nat) : Array LocatedName :=
+  pattern.collect size idAt (located? table) (·.name) limit
 
 unsafe def lookup (roots : Array Name) (query : String)
     (limit : Nat) : IO (Option (Array LocatedName)) := do
@@ -195,7 +202,8 @@ unsafe def lookup (roots : Array Name) (query : String)
   let query := query.toLower
   if query.length < 3 then
     let some table ← unsafe loadTable view | return none
-    return some (findMatches table table.1.size (fun id => id.toUInt32) query limit)
+    return some (findLookupMatches table table.1.size
+      (fun id => id.toUInt32) query limit)
   let some directory ← unsafe loadDirectory view | return none
   let some trigram := NameSearch.rarestTrigram? (NameSearch.trigrams query)
       (directory.find? · |>.map (·.toNat)) | return some #[]
@@ -203,6 +211,36 @@ unsafe def lookup (roots : Array Name) (query : String)
   let ids := (postings.find? trigram).map unpackIds |>.getD #[]
   if ids.isEmpty then return some #[]
   let some table ← unsafe loadTable view | return none
-  return some (findMatches table ids.size (fun id => ids[id]!) query limit)
+  return some (findLookupMatches table ids.size (fun id => ids[id]!) query limit)
+
+unsafe def search (roots : Array Name) (pattern : SearchPattern)
+    (limit : Nat) : IO (Option (Array LocatedName)) := do
+  let (olean, depHash, _) ← unsafe Cache.rootData roots
+  unless ← ready roots olean depHash do return none
+  if limit == 0 then return some #[]
+  let view ← loadView roots olean depHash
+  let findAll := do
+    let some table ← unsafe loadTable view | return none
+    return some (findPatternMatches table table.1.size
+      (fun id => id.toUInt32) pattern limit)
+  match pattern.candidatePlan with
+  | .all => findAll
+  | .empty => return some #[]
+  | plan@(.postings _) =>
+    let some directory ← unsafe loadDirectory view | return none
+    match plan.select (directory.find? · |>.map (·.toNat)) with
+    | .empty => return some #[]
+    | .all => findAll
+    | .postings alternatives =>
+      let mut ids := #[]
+      for grams in alternatives do
+        let some gram := grams[0]? | continue
+        let some postings ← unsafe loadPostings view (shard gram) | return none
+        let candidates := (postings.find? gram).map unpackIds |>.getD #[]
+        ids := SearchPattern.unionIds ids candidates
+      if ids.isEmpty then return some #[]
+      let some table ← unsafe loadTable view | return none
+      return some (findPatternMatches table ids.size
+        (fun id => ids[id]!) pattern limit)
 
 end LeanReach.SearchCache

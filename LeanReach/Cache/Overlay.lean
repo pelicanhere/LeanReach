@@ -25,13 +25,19 @@ private initialize loadedCache : IO.Ref (Std.HashMap String Data) ← IO.mkRef {
 private def loadedKey (olean : System.FilePath) (depHash : String) : String :=
   s!"{path olean}\u0000{depHash}"
 
+private def normalize (data : Data) : Data :=
+  { data with
+    localNames := data.localNames.qsort fun left right =>
+      Name.lt left.name right.name }
+
 unsafe def load (roots : Array Name) : IO (Option Data) := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
   let key := loadedKey olean depHash
   if let some data := (← loadedCache.get).get? key then return some data
-  let data? ← unsafe Cache.loadPart Data (path olean) depHash
-  if let some data := data? then loadedCache.modify (·.insert key data)
-  return data?
+  let some data ← unsafe Cache.loadPart Data (path olean) depHash | return none
+  let data := normalize data
+  loadedCache.modify (·.insert key data)
+  return some data
 
 def Data.local? (data : Data) (name : Name) : Option LocatedName :=
   data.entries.find? name |>.map (·.target)
@@ -104,7 +110,7 @@ unsafe def buildGraph (roots : Array Name) (baseRoot : Name)
     for dependency in entry.dependencies do
       reverse := reverse.alter dependency fun targets =>
         some ((targets.getD #[]).push entry.target)
-  return { baseRoot, entries, localNames, reverse, queries := {} }
+  return normalize { baseRoot, entries, localNames, reverse, queries := {} }
 
 unsafe def save (roots : Array Name) (data : Data) : IO Unit := do
   let (olean, depHash, root) ← unsafe Cache.rootData roots
