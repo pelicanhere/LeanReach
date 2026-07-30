@@ -9,7 +9,7 @@ namespace LeanReach
 
 open Lean
 
-private abbrev Input := Name × Array Name × NameMap Declaration
+private abbrev Input := Name × Array Name
 private abbrev Output := Name × Except IO.Error (Nat × PPTiming)
 
 private def parallelism : IO Nat := do
@@ -17,17 +17,17 @@ private def parallelism : IO Nat := do
   let some workers := value.toNat? | return 4
   return max 1 (min workers 32)
 
-private unsafe def saveModule (moduleName : Name) (before added : NameMap Declaration) :
+private unsafe def saveModule (moduleName : Name) (added : NameMap Declaration) :
     IO (Nat × Nat) := do
   let started ← IO.monoNanosNow
-  unsafe Cache.savePPModule moduleName (Std.TreeMap.union before added)
+  unsafe Cache.mergePPModule moduleName added
   return (added.size, (← IO.monoNanosNow) - started)
 
 private unsafe def addMissingInput (inputs : Array Input)
     (moduleName : Name) (names : Array Name) : IO (Array Input) := do
   let before ← unsafe Cache.loadPPModule moduleName
   let missing := names.filter fun name => !before.contains name
-  return if missing.isEmpty then inputs else inputs.push (moduleName, missing, before)
+  return if missing.isEmpty then inputs else inputs.push (moduleName, missing)
 
 private unsafe def completedModules (roots : Array Name) : IO NameHashSet := do
   let mut completed : NameHashSet := {}
@@ -42,11 +42,11 @@ private unsafe def worker (sourcePath : SearchPath) (env : Environment)
     (next finished : IO.Ref Nat) (outputs : Array (IO.Promise Output)) : IO Unit := do
   while true do
     let index ← next.modifyGet fun index => (index, index + 1)
-    let some (moduleName, names, before) := inputs[index]? | return
+    let some (moduleName, names) := inputs[index]? | return
     let result ← try
       let (added, timing) ← unsafe prettyPrintModuleIO
         sourcePath env moduleName names moduleOf?
-      let (count, writeNanos) ← unsafe saveModule moduleName before added
+      let (count, writeNanos) ← unsafe saveModule moduleName added
       pure <| .ok (count, { timing with sidecarWriteNanos := writeNanos })
     catch error => pure (.error error)
     let slot ← finished.modifyGet fun slot => (slot, slot + 1)
@@ -130,10 +130,8 @@ unsafe def buildPPRoots (roots : Array Name)
       pure (inputs, index.moduleOf?)
     else
       let mut inputs := #[]
-      for moduleName in roots do
-        unless completed.contains moduleName do
-          inputs ← unsafe addMissingInput inputs moduleName
-            (← unsafe Cache.moduleNames moduleName)
+      for (moduleName, declarations) in ← unsafe Cache.moduleClosure roots completed do
+        inputs ← unsafe addMissingInput inputs moduleName (declarations.map (·.1))
       pure (inputs, fun _ => none)
   let report := fun moduleName done => progress moduleName done inputs.size
   let (count, timing) ←

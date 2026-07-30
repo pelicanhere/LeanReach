@@ -89,14 +89,15 @@ unsafe def moduleData (moduleName : Name) :
 unsafe def moduleNames (moduleName : Name) : IO (Array Name) :=
   return (← unsafe moduleData moduleName).2.map (·.1)
 
-private unsafe def buildIndex (roots : Array Name) : IO Index := do
+unsafe def moduleClosure (roots : Array Name) (excluded : NameHashSet := {}) :
+    IO (Array (Name × Array (Name × NameSet))) := do
   let mut pending := #[]
-  let mut seen : NameHashSet := {}
+  let mut seen := excluded
   for root in roots do
     unless seen.contains root do
       seen := seen.insert root
       pending := pending.push root
-  let mut declarations := #[]
+  let mut modules := #[]
   while !pending.isEmpty do
     let mut batch := #[]
     while batch.size < 32 do
@@ -106,12 +107,18 @@ private unsafe def buildIndex (roots : Array Name) : IO Index := do
     let tasks ← batch.mapM fun moduleName => IO.asTask (unsafe moduleData moduleName)
     for (moduleName, task) in batch.zip tasks do
       let (imports, moduleDeclarations) ← IO.ofExcept task.get
+      modules := modules.push (moduleName, moduleDeclarations)
       for imported in imports do
         unless seen.contains imported do
           seen := seen.insert imported
           pending := pending.push imported
-      for (name, dependencies) in moduleDeclarations do
-        declarations := declarations.push (name, moduleName, dependencies)
+  return modules
+
+private unsafe def buildIndex (roots : Array Name) : IO Index := do
+  let mut declarations := #[]
+  for (moduleName, moduleDeclarations) in ← unsafe moduleClosure roots do
+    for (name, dependencies) in moduleDeclarations do
+      declarations := declarations.push (name, moduleName, dependencies)
   return Index.build declarations
 
 unsafe def loadIndex (roots : Array Name) (loadRelations := true) : IO Index := do

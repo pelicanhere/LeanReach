@@ -85,18 +85,11 @@ def Data.queryFromBase (data : Data) (base : Index) (target : LocatedName)
 
 unsafe def buildGraph (roots : Array Name) (baseRoot : Name)
     (baseModules : Array Name) : IO Data := do
-  let mut seen := baseModules.foldl
+  let mut excluded := baseModules.foldl
     (init := ({} : NameHashSet)) (·.insert ·)
-  seen := seen.insert baseRoot
-  let mut pending := roots
+  excluded := excluded.insert baseRoot
   let mut entries : NameMap Entry := {}
-  while let some moduleName := pending.back? do
-    pending := pending.pop
-    if seen.contains moduleName then continue
-    seen := seen.insert moduleName
-    let (imports, declarations) ← unsafe Cache.moduleData moduleName
-    for imported in imports do
-      unless seen.contains imported do pending := pending.push imported
+  for (moduleName, declarations) in ← unsafe Cache.moduleClosure roots excluded do
     for (name, dependencies) in declarations do
       entries := entries.alter name fun previous => some {
         target := { name, moduleName }

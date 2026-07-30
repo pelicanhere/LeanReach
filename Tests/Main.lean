@@ -138,6 +138,13 @@ private unsafe def runTests : IO Unit := do
     unless pidRank.contains expected do
       throw <| IO.userError s!"PID proof dependency '{expected}' is poorly ranked"
   let fixtureIndex ← unsafe Cache.loadIndex #[`Tests.Fixture] true
+  let completed := (fixtureIndex.modules.foldl
+      (init := ({} : NameHashSet)) (·.insert ·))
+    |>.erase `Tests.Fixture |>.insert `LeanReach
+  let closure := (← unsafe Cache.moduleClosure #[`Tests.Main] completed).map (·.1)
+  for expected in #[`Tests.Main, `Tests.Fixture, `Tests.PrivateA, `Tests.PrivateB] do
+    unless closure.contains expected do
+      throw <| IO.userError s!"module closure skipped transitive module '{expected}'"
   let fixtureNames ← unsafe Cache.moduleNames `Tests.Fixture
   let hiddenTheorem :=
     mkPrivateNameCore `Tests.Fixture `LeanReachFixture.hidden_double_zero
@@ -192,9 +199,10 @@ private unsafe def runTests : IO Unit := do
         "LeanReachFixture.cachedWrapped" (Limits.uniform 0) fun _ _ =>
           (throw <| IO.userError "injected output failure" : IO Unit)
     catch _ => pure ()
-    unless (← unsafe Cache.loadPPModule `Tests.Fixture).contains
-        `LeanReachFixture.cachedWrapped do
-      throw <| IO.userError "PP result was not cached before output failure"
+    let afterFailure ← unsafe Cache.loadPPModule `Tests.Fixture
+    unless afterFailure.contains `LeanReachFixture.double &&
+        afterFailure.contains `LeanReachFixture.cachedWrapped do
+      throw <| IO.userError "incremental PP cache did not preserve and add declarations"
   finally
     unsafe Cache.savePPModule `Tests.Fixture planned
   let (withoutSource, _) ← unsafe runCore fixtureEnv <| MetaM.run' <|

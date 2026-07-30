@@ -155,7 +155,8 @@ does not copy the full Mathlib query plan.
 
 The PP cache stores a `NameMap Declaration` per defining module. A root marker records that all modules
 in a view have complete PP sidecars. A valid partial sidecar can be resumed declaration by
-declaration; changing the module hash invalidates that module as a unit.
+declaration; changing the module hash invalidates that module as a unit. Loaded sidecars are reused
+within a process and revalidated before an incremental merge.
 
 `Cache.Build` owns cache construction and worker scheduling. Four persistent workers share one
 immutable imported environment by default. Each completed module is checkpointed immediately.
