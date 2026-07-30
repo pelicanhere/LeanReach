@@ -62,11 +62,11 @@ private unsafe def readFragment (moduleName : Name) (olean : System.FilePath) :
 
 private unsafe def writeFragment (moduleName : Name) (olean path : System.FilePath)
     (hash : String) : IO Unit := do
-  let regions ← show IO (Array CompactedRegion) from do
-    let (fragment, regions) ← readFragment moduleName olean
-    pickle path (hash, fragment) moduleName
-    return regions
-  regions.forM CompactedRegion.free
+  let (fragment, regions) ← readFragment moduleName olean
+  try
+    savePart path hash fragment moduleName
+  finally
+    regions.forM CompactedRegion.free
 
 private unsafe def loadFragment (moduleName : Name) : IO ModuleFragment := do
   let olean ← findOLean moduleName
@@ -119,8 +119,8 @@ unsafe def loadIndex (roots : Array Name) (loadRelations := true) : IO Index := 
       return Index.ofParts catalog relations
   let index ← buildIndex roots
   try
-    pickle catalogPath (depHash, index.catalog) (Name.str root "_leanreachCatalog")
-    pickle relationsPath (depHash, index.relations) (Name.str root "_leanreachRelations")
+    savePart catalogPath depHash index.catalog (Name.str root "_leanreachCatalog")
+    savePart relationsPath depHash index.relations (Name.str root "_leanreachRelations")
   catch _ => IO.eprintln "leanreach: could not write root index cache"
   if loadRelations then return index
   return Index.ofParts index.catalog default

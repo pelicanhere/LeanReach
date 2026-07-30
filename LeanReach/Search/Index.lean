@@ -120,13 +120,6 @@ private def Index.locatedAt (index : Index) (id : UInt32) : LocatedName :=
 def Index.located? (index : Index) (name : Name) : Option LocatedName :=
   index.findId? name |>.map index.locatedAt
 
-def Index.relatedLocated (index : Index) (name : Name)
-    (upstream : Bool) : Array LocatedName :=
-  match index.findId? name with
-  | some id =>
-    (if upstream then index.forward[id.toNat]! else index.reverse[id.toNat]!).map index.locatedAt
-  | none => #[]
-
 def Index.reverseCount (index : Index) (name : Name) : Nat :=
   index.findId? name |>.map (index.reverse[·.toNat]!.size) |>.getD 0
 

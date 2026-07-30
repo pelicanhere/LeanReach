@@ -1,4 +1,4 @@
-import Lake.Build.Trace
+import Lake.Build.Common
 import Lean.Environment
 import Lean.Util.Path
 
@@ -9,6 +9,10 @@ open Lean
 /-- Save a compacted Lean object. Adapted from Loogle's `Pickle` module. -/
 def pickle {α : Type} (path : System.FilePath) (value : α) (key : Name) : IO Unit :=
   saveModuleData path key (unsafe unsafeCast value)
+
+def savePart {α : Type} (path : System.FilePath) (depHash : String)
+    (value : α) (key : Name) : IO Unit :=
+  pickle path (depHash, value) key
 
 unsafe def loadPart (α : Type) (path : System.FilePath) (depHash : String) :
     IO (Option α) := do
@@ -25,26 +29,24 @@ def markerMatches (path : System.FilePath) (value : String) : IO Bool := do
   try return (← IO.FS.readFile path) == value
   catch _ => return false
 
+private def oleanParts (olean : System.FilePath) : Array System.FilePath :=
+  #[OLeanLevel.exported, OLeanLevel.server, OLeanLevel.private].map
+    (·.adjustFileName olean)
+
 def depHash? (olean : System.FilePath) : IO (Option String) := do
   let path := olean.withExtension "trace"
   if ← path.pathExists then
-    return (Json.parse (← IO.FS.readFile path) >>= (·.getObjValAs? String "depHash")).toOption
-  let mut hashes := #[]
-  for level in #[OLeanLevel.exported, OLeanLevel.server, OLeanLevel.private] do
-    let path := level.adjustFileName olean
-    if ← path.pathExists then
-      hashes := hashes.push (toString (← Lake.computeFileHash path))
+    return (Lake.BuildMetadata.parse (← IO.FS.readFile path)).toOption.map
+      (toString ·.depHash)
+  let hashes ← (← (oleanParts olean).filterM (·.pathExists)).mapM fun path =>
+    toString <$> Lake.computeFileHash path
   return if hashes.isEmpty then none else some (String.intercalate ":" hashes.toList)
 
 private def rootStamp (olean : System.FilePath) : IO String := do
   let trace := olean.withExtension "trace"
-  let mut paths := #[]
-  if ← trace.pathExists then
-    paths := paths.push trace
-  else
-    for level in #[OLeanLevel.exported, OLeanLevel.server, OLeanLevel.private] do
-      let path := level.adjustFileName olean
-      if ← path.pathExists then paths := paths.push path
+  let paths ←
+    if ← trace.pathExists then pure #[trace]
+    else (oleanParts olean).filterM (·.pathExists)
   let stamps ← paths.mapM fun path => do
     let metadata ← path.metadata
     return s!"{path}:{metadata.modified.sec}:{metadata.modified.nsec}:{metadata.byteSize}"

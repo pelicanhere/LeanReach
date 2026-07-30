@@ -43,7 +43,7 @@ unsafe def savePPModule (moduleName : Name) (declarations : NameMap Declaration)
   let olean ← findOLean moduleName
   let some depHash ← depHash? olean | return
   let path := olean.withExtension "leanreach-pp-3"
-  pickle path (depHash, declarations) (Name.str moduleName "_leanreachPP")
+  savePart path depHash declarations (Name.str moduleName "_leanreachPP")
 
 unsafe def savePP (before after : NameMap Declaration) : IO Unit := do
   let mut additions : NameMap (NameMap Declaration) := {}
@@ -58,6 +58,6 @@ unsafe def savePP (before after : NameMap Declaration) : IO Unit := do
 
 unsafe def markFullyPP (roots : Array Name) : IO Unit := do
   let (path, depHash, root) ← unsafe ppRootData roots
-  pickle path (depHash, true) (Name.str root "_leanreachPPRoot")
+  savePart path depHash true (Name.str root "_leanreachPPRoot")
 
 end LeanReach.Cache

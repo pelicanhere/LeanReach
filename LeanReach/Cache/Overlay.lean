@@ -30,7 +30,7 @@ def Data.local? (data : Data) (name : Name) : Option LocatedName :=
   data.entries.find? name |>.map (·.target)
 
 def Data.localNames (data : Data) : Array LocatedName :=
-  data.entries.foldl (init := #[]) fun result _ entry => result.push entry.target
+  data.entries.valuesArray.map (·.target)
 
 def Data.cached? (data : Data) (name : Name) : Option CachedQuery :=
   data.queries.find? name
@@ -41,9 +41,7 @@ def Data.affectedNames (data : Data) : Array Name := Id.run do
     affected := affected.insert name
     for dependency in entry.dependencies do
       affected := affected.insert dependency
-  let mut names := #[]
-  for name in affected do names := names.push name
-  return names
+  return affected.toArray
 
 private def Data.moduleOf? (data : Data) (base : Index) (name : Name) :
     Option LocatedName :=
@@ -95,6 +93,6 @@ unsafe def buildGraph (roots : Array Name) (baseRoot : Name) : IO Data := do
 
 unsafe def save (roots : Array Name) (data : Data) : IO Unit := do
   let (olean, depHash, root) ← unsafe Cache.rootData roots
-  Cache.pickle (path olean) (depHash, data) (Name.str root "_leanreachQueryOverlay")
+  Cache.savePart (path olean) depHash data (Name.str root "_leanreachQueryOverlay")
 
 end LeanReach.QueryOverlay

@@ -65,6 +65,13 @@ private def decode (modules : Array Name) (line : String) : Option CachedQuery :
     downstream := ← decodeLocated modules downstream
   }
 
+private def readShard (path : System.FilePath) :
+    IO (Option (Array Name × List String)) := do
+  unless ← path.pathExists do return none
+  let (modules, lines) := (← IO.FS.readFile path).splitOn "\n" |>.span (· != "|")
+  let _ :: lines := lines | return none
+  return some (modules.toArray.map (·.toName), lines)
+
 private unsafe def loadQueries (roots : Array Name) (names : Array Name) :
     IO (NameMap CachedQuery) := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
@@ -77,12 +84,7 @@ private unsafe def loadQueries (roots : Array Name) (names : Array Name) :
     unless shards.contains id do shards := shards.push id
   let mut result := {}
   for id in shards do
-    let path := shardPath olean id
-    unless ← path.pathExists do continue
-    let content ← IO.FS.readFile path
-    let (modules, lines) := content.splitOn "\n" |>.span (· != "|")
-    let _ :: lines := lines | continue
-    let modules := modules.toArray.map (·.toName)
+    let some (modules, lines) ← readShard (shardPath olean id) | continue
     for line in lines do
       if let some query := decode modules line then
         if wanted.contains query.target.name then
@@ -207,12 +209,7 @@ private unsafe def loadShard (roots : Array Name) (name : Name) :
     IO (Option (Array Name × List String)) := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
   unless ← ready olean depHash do return none
-  let path := shardPath olean (shard name)
-  unless ← path.pathExists do return none
-  let content ← IO.FS.readFile path
-  let (modules, queries) := content.splitOn "\n" |>.span (· != "|")
-  let _ :: queries := queries | return none
-  return some (modules.toArray.map (·.toName), queries)
+  readShard (shardPath olean (shard name))
 
 private unsafe def resolveFull (roots : Array Name) (query : String) :
     IO (Except String (Option CachedQuery)) := do

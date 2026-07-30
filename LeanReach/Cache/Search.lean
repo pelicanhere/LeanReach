@@ -113,17 +113,17 @@ unsafe def build (roots : Array Name) (index : Index) : IO Nat := do
     directory := directory.insert trigram ids.size.toUInt32
     let id := shard trigram
     shards := shards.modify id (·.insert trigram (packIds ids))
-  Cache.pickle (path roots olean "names") (depHash, makeNameTable entries)
+  Cache.savePart (path roots olean "names") depHash (makeNameTable entries)
     (Name.str root "_leanreachSearchNames")
-  Cache.pickle (path roots olean "directory") (depHash, directory)
+  Cache.savePart (path roots olean "directory") depHash directory
     (Name.str root "_leanreachSearchDirectory")
   let mut offset := 0
   while offset < shardCount do
     let stop := min shardCount (offset + 16)
     let tasks ← (Array.range (stop - offset)).mapM fun delta =>
       let id := offset + delta
-      IO.asTask <| Cache.pickle (shardPath roots olean id)
-        (depHash, shards[id]!) (Name.str root s!"_leanreachSearchPosting{id}")
+      IO.asTask <| Cache.savePart (shardPath roots olean id) depHash
+        shards[id]! (Name.str root s!"_leanreachSearchPosting{id}")
     tasks.forM fun task => IO.ofExcept task.get
     offset := stop
   IO.FS.writeFile (markerPath roots olean) depHash
