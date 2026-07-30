@@ -144,12 +144,23 @@ private def runPrepared (session : Session) (config : Config) : Prepared → Cor
   | .search pattern names => do
     printSearch config.json pattern (← session.describeNames names)
 
-private def runTimed (session : Session) (config : Config) (prepared : Prepared) :
-    CoreM Unit := do
-  let started ← IO.monoMsNow
-  runPrepared session config prepared
-  if config.profile then
-    IO.eprintln s!"leanreach: query={(← IO.monoMsNow) - started}ms"
+private def profiled {α : Type} (enabled : Bool) (label : String)
+    (action : IO α) : IO α := do
+  unless enabled do return ← action
+  let started ← IO.monoNanosNow
+  let report := do
+    let elapsed := (← IO.monoNanosNow) - started
+    let duration :=
+      if elapsed < 1000000 then s!"{max 1 (elapsed / 1000)}μs"
+      else s!"{elapsed / 1000000}ms"
+    IO.eprintln s!"leanreach: {label}={duration}"
+  try
+    let result ← action
+    report
+    return result
+  catch error =>
+    report
+    throw error
 
 private def parseLine (line : String) : Command :=
   if let some pattern := line.dropPrefix? "search " then
@@ -162,21 +173,23 @@ private partial def runInteractive (session : Session) (runner : InteractiveRunn
   let line := (← (← IO.getStdin).getLine).trimAscii.copy
   if line.isEmpty then return
   let command := parseLine line
-  try
-    match command with
-    | .query query =>
-      runner.query query config.limits fun names =>
-        runTimed session config (.query names)
-    | .search pattern =>
-      runner.search pattern config.limits.search fun names =>
-        runTimed session config (.search pattern names)
-    | .cache _ => unreachable!
-  catch error =>
-    let message := toString error
-    if config.json then
-      IO.println (Json.mkObj [("error", toJson message)]).compress
-    else
-      IO.eprintln s!"leanreach: {message}"
+  let label := if command matches .search _ then "search" else "query"
+  profiled config.profile label do
+    try
+      match command with
+      | .query query =>
+        runner.query query config.limits fun names =>
+          runPrepared session config (.query names)
+      | .search pattern =>
+        runner.search pattern config.limits.search fun names =>
+          runPrepared session config (.search pattern names)
+      | .cache _ => unreachable!
+    catch error =>
+      let message := toString error
+      if config.json then
+        IO.println (Json.mkObj [("error", toJson message)]).compress
+      else
+        IO.eprintln s!"leanreach: {message}"
   (← IO.getStdout).flush
   runInteractive session runner config
 
@@ -189,33 +202,35 @@ private unsafe def Config.roots (config : Config) (refresh := false) : IO (Array
   config.root?.map (#[·]) |>.getDM (detectRoots refresh)
 
 private unsafe def execute (config : Config) (command? : Option Command) : IO UInt32 := do
-  let started ← IO.monoMsNow
   match command? with
   | some (.cache modules) =>
-    if modules.isEmpty then
-      let result ← buildPPRoots (← config.roots true) fun moduleName done total =>
-        unless config.json do
-          if done == total || done % 100 == 0 then
-            IO.eprintln s!"leanreach: pretty-printed modules {done}/{total} ({moduleName})"
-      printPP config modules result
-    else
-      printPP config modules (← buildPPModules modules)
+    profiled config.profile "cache" do
+      if modules.isEmpty then
+        let result ← buildPPRoots (← config.roots true) fun moduleName done total =>
+          unless config.json do
+            if done == total || done % 100 == 0 then
+              IO.eprintln s!"leanreach: pretty-printed modules {done}/{total} ({moduleName})"
+        printPP config modules result
+      else
+        printPP config modules (← buildPPModules modules)
   | some (.query query) =>
-    let roots ← config.roots
-    let limits := config.limits
-    if (← withCachedQueryFor roots query limits fun session names =>
-        runTimed session config (.query names)).isNone then
-      withSessionFor roots (prepare config (.query query)) true (runTimed · config)
+    profiled config.profile "query" do
+      let roots ← config.roots
+      let limits := config.limits
+      if (← withCachedQueryFor roots query limits fun session names =>
+          runPrepared session config (.query names)).isNone then
+        withSessionFor roots (prepare config (.query query)) true
+          (runPrepared · config)
   | some (.search pattern) =>
-    let roots ← config.roots
-    if (← withCachedSearchFor roots pattern config.limits.search fun session names =>
-        runTimed session config (.search pattern names)).isNone then
-      withSessionFor roots (prepare config (.search pattern)) false (runTimed · config)
+    profiled config.profile "search" do
+      let roots ← config.roots
+      if (← withCachedSearchFor roots pattern config.limits.search fun session names =>
+          runPrepared session config (.search pattern names)).isNone then
+        withSessionFor roots (prepare config (.search pattern)) false
+          (runPrepared · config)
   | none =>
     withInteractiveSession (← config.roots) fun session runner =>
       runInteractive session runner config
-  if config.profile then
-    IO.eprintln s!"leanreach: elapsed={(← IO.monoMsNow) - started}ms"
   return 0
 
 private unsafe def cli : CliM UInt32 := do
