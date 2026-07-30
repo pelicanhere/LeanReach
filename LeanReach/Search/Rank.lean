@@ -1,4 +1,4 @@
-import LeanReach.Search.Name
+import LeanReach.Search.Match
 import LeanReach.Search.TopK
 import LeanReach.Search.Types
 

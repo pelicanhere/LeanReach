@@ -57,16 +57,17 @@ def Data.queryFromBase (data : Data) (base : Index) (target : LocatedName)
     (cached?.map (·.downstream) |>.getD #[]) ++
       (data.reverse.find? target.name).getD #[]
   -- Keep base priors stable so the overlay only changes directly affected neighborhoods.
-  let reverseCount name := base.reverseCount name +
-    if data.entries.contains name then
-      data.reverse.find? name |>.map (·.size) |>.getD 0
-    else 0
-  let forwardCount name :=
-    data.entries.find? name |>.map (·.dependencies.size) |>.getD (base.forwardCount name)
   let rank upstream candidates :=
     Rank.select target candidates id
-      (fun candidate => Rank.prior base.size
-        (reverseCount candidate.name) (forwardCount candidate.name) upstream)
+      (fun candidate =>
+        let (baseReverse, baseForward) := base.relationCounts candidate.name
+        let reverseCount := baseReverse +
+          if data.entries.contains candidate.name then
+            data.reverse.find? candidate.name |>.map (·.size) |>.getD 0
+          else 0
+        let forwardCount := data.entries.find? candidate.name
+          |>.map (·.dependencies.size) |>.getD baseForward
+        Rank.prior base.size reverseCount forwardCount upstream)
       cachedQueryLimit
   {
     target

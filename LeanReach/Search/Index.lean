@@ -9,8 +9,7 @@ namespace LeanReach
 open Lean
 
 /-- Searchable names and their defining modules. Array positions are declaration IDs. -/
-abbrev CatalogEntry := LocatedName
-abbrev Catalog := Array CatalogEntry × Data.Trie (Array UInt32)
+abbrev Catalog := Array LocatedName × Data.Trie (Array UInt32)
 
 structure Relations where
   forward : Array (Array UInt32)
@@ -24,13 +23,10 @@ abbrev CachedQuery := Neighborhood LocatedName
 def cachedQueryLimit := 10
 
 structure Index extends Relations where
-  private entries : Array CatalogEntry
+  private entries : Array LocatedName
   private trigrams : Data.Trie (Array UInt32)
-  deriving Inhabited
 
-abbrev IndexedDeclaration := Name × Name × NameSet
-
-def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
+def Index.build (declarations : Array (Name × Name × NameSet)) : Index := Id.run do
   let mut byName : NameMap (Name × NameSet) := {}
   for (name, moduleName, used) in declarations do
     let (owner, previous) := (byName.find? name).getD (moduleName, {})
@@ -41,22 +37,21 @@ def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
   declarations := declarations.qsort fun a b => Name.lt a.1 b.1
   let mut entries := #[]
   let mut ids : NameMap UInt32 := {}
+  let mut trigramIndex : Data.Trie (Array UInt32) := {}
   for (name, moduleName, _) in declarations do
     let id := entries.size.toUInt32
     entries := entries.push { name, moduleName }
     ids := ids.insert name id
-  let mut trigramIndex : Data.Trie (Array UInt32) := {}
-  for (entry, id) in entries.zipIdx do
     let mut seen : Std.HashSet String := {}
-    for trigram in NameSearch.trigrams (NameSearch.normalizedName entry.name) do
+    for trigram in NameSearch.trigrams (NameSearch.normalizedName name) do
       unless seen.contains trigram do
         seen := seen.insert trigram
         trigramIndex := trigramIndex.upsert trigram fun ids =>
-          (ids.getD #[]).push id.toUInt32
+          (ids.getD #[]).push id
   let mut forward := Array.replicate entries.size #[]
   let mut reverse := Array.replicate entries.size #[]
-  for (name, _, used) in declarations do
-    let some source := ids.find? name | continue
+  for ((name, _, used), source) in declarations.zipIdx do
+    let source := source.toUInt32
     for dependency in used do
       if dependency != name then
         if let some target := ids.find? dependency then
@@ -120,11 +115,10 @@ private def Index.locatedAt (index : Index) (id : UInt32) : LocatedName :=
 def Index.located? (index : Index) (name : Name) : Option LocatedName :=
   index.findId? name |>.map index.locatedAt
 
-def Index.reverseCount (index : Index) (name : Name) : Nat :=
-  index.findId? name |>.map (index.reverse[·.toNat]!.size) |>.getD 0
-
-def Index.forwardCount (index : Index) (name : Name) : Nat :=
-  index.findId? name |>.map (index.forward[·.toNat]!.size) |>.getD 0
+def Index.relationCounts (index : Index) (name : Name) : Nat × Nat :=
+  match index.findId? name with
+  | some id => (index.reverse[id.toNat]!.size, index.forward[id.toNat]!.size)
+  | none => (0, 0)
 
 def Index.cachedQueryAt! (index : Index) (id : Nat) : CachedQuery :=
   let id := id.toUInt32
@@ -143,28 +137,24 @@ private def Index.candidates (index : Index) (query : String) : Array UInt32 :=
     gram?.bind index.trigrams.find? |>.getD #[]
 
 private def Index.matches (index : Index) (query : String) (limit : Nat) :
-    Array (Array Name) :=
+    Array (Array LocatedName) :=
   let query := query.toLower
   NameSearch.buckets query (index.candidates query)
-    (fun id => index.entries[id.toNat]?.map (·.name)) id limit
+    (fun id => index.entries[id.toNat]?) (·.name) limit
 
 def Index.search (index : Index) (query : String) (limit : Nat := 20) : Array Name :=
-  let query := query.toLower
-  NameSearch.collect query (index.candidates query)
-    (fun id => index.entries[id.toNat]?.map (·.name)) id limit
+  (index.matches query limit).flatten.take limit |>.map (·.name)
 
 def Index.resolve (index : Index) (query : String) : Except String Name := do
   let exact := query.toName
   if index.findId? exact |>.isSome then return exact
   let candidates := (index.matches query 10).find?
     (not ∘ Array.isEmpty) |>.getD #[]
-  if candidates.size == 1 then return candidates[0]!
+  if candidates.size == 1 then return candidates[0]!.name
   if candidates.isEmpty then throw s!"no declaration name contains '{query}'"
   throw s!"ambiguous declaration '{query}':\n{String.intercalate "\n" <|
-    candidates.toList.map fun name =>
-      let moduleName := (index.findId? name).map
-        (fun id => index.entries[id.toNat]!.moduleName) |>.getD .anonymous
-      s!"  {privateToUserName name} ({moduleName})"}"
+    candidates.toList.map fun entry =>
+      s!"  {privateToUserName entry.name} ({entry.moduleName})"}"
 
 private def Index.related (index : Index) (name : Name) (upstream : Bool)
     (limit : Nat) : Array Name :=

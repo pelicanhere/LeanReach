@@ -85,7 +85,7 @@ private def unpackIds (bytes : ByteArray) : Array UInt32 := Id.run do
       scale := scale * 128
   return ids
 
-private def makeNameTable (entries : Array CatalogEntry) : NameTable := Id.run do
+private def makeNameTable (entries : Array LocatedName) : NameTable := Id.run do
   let mut ids : NameMap UInt32 := {}
   let mut modules := #[]
   let mut names := #[]
@@ -153,7 +153,6 @@ unsafe def search (roots : Array Name) (query : String)
       (path roots olean "directory") depHash | return none
   let some trigram := NameSearch.rarestTrigram? (NameSearch.trigrams query)
       (directory.find? · |>.map (·.toNat)) | return some #[]
-  unless directory.find? trigram |>.isSome do return some #[]
   let some postings ← unsafe Cache.loadPart (Data.Trie ByteArray)
       (shardPath roots olean (shard trigram)) depHash | return none
   let ids := (postings.find? trigram).map unpackIds |>.getD #[]

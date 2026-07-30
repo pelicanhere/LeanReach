@@ -267,7 +267,7 @@ private def mergeMatches (query : String) (limit : Nat)
       seen := seen.insert target.name
       candidates := candidates.push target
   candidates := candidates.qsort fun a b => Name.lt a.name b.name
-  return NameSearch.collect query candidates some (·.name) limit
+  return NameSearch.collect query.toLower candidates some (·.name) limit
 
 private unsafe def baseMatches (root : Name) (query : String)
     (limit : Nat) : IO (Array LocatedName) := do
