@@ -1,0 +1,33 @@
+name = "LeanReach"
+version = "0.1.0"
+keywords = ["math"]
+defaultTargets = ["LeanReach", "leanreach", "leanreach_tests"]
+leanOptions.pp.unicode.fun = true
+leanOptions.autoImplicit = false
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+rev = "v4.32.0"
+
+[[require]]
+name = "Regex"
+git = "https://github.com/pelicanhere/lean-regex.git"
+rev = "e9dcea72668042ff3a2ade88efbc639b1c0fc119"
+subDir = "regex"
+
+[[lean_lib]]
+name = "LeanReach"
+
+[[lean_lib]]
+name = "Tests"
+
+[[lean_exe]]
+name = "leanreach"
+root = "Main"
+supportInterpreter = true
+
+[[lean_exe]]
+name = "leanreach_tests"
+root = "Tests.Main"
+supportInterpreter = true
