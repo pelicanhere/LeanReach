@@ -41,7 +41,7 @@ unsafe def prettyPrintModuleIO (sourcePath : SearchPath) (env : Environment)
     (moduleName : Name) (names : Array Name) (moduleOf? : Name → Option Name) :
     IO (NameMap Declaration × PPTiming) := do
   let preparationStarted ← IO.monoNanosNow
-  let source ← sourceInfo sourcePath moduleName
+  let source ← moduleSource sourcePath moduleName
   let (bodies, signatureOverlay) ← unsafe runCore env (prettyPrintPlan names)
   let bodySet := bodies.foldl (init := ({} : NameHashSet))
     fun result name => result.insert name

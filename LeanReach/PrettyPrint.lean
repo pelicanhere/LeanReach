@@ -97,22 +97,23 @@ def prettyPrintPlan (names : Array Name) : CoreM (Array Name × Array Name) := d
   return (bodies, overlay)
 
 private def prettyPrintKnownDeclaration (cache : SignatureCache)
-    (moduleName : Name) (source : SourceInfo) (name : Name)
+    (moduleName : Name) (source : Option String × NameMap Lsp.Position) (name : Name)
     (includeBody : Bool) : CoreM (Declaration × PPTiming) := do
   let env ← getEnv
   let some info := env.find? name | throwError "unknown declaration '{name}'"
-  let position := source.position name
+  let position := source.2.find? name
   let (signature, timing) ← MetaM.run' (prettyPrintConstant cache name info includeBody)
   return ({
       name := name.toString
       signature
       moduleName := moduleName.toString
-      file := source.file
-      line := position.1
-      column := position.2
+      file := source.1
+      line := position.map (·.line + 1) |>.getD 0
+      column := position.map (·.character + 1) |>.getD 0
     }, timing)
 
-def prettyPrintModuleWithBodies (moduleName : Name) (source : SourceInfo)
+def prettyPrintModuleWithBodies (moduleName : Name)
+    (source : Option String × NameMap Lsp.Position)
     (names : Array Name) (bodies : NameHashSet) :
     CoreM (NameMap Declaration × PPTiming) := do
   let cache ← IO.mkRef {}
@@ -133,11 +134,11 @@ def prettyPrintDeclaration (sourcePath : SearchPath) (name : Name) :
   let some moduleName ← findModuleOf? name | throwError "unknown module for '{name}'"
   let some info := (← getEnv).find? name | throwError "unknown declaration '{name}'"
   return (← prettyPrintKnownDeclaration cache moduleName
-    (← sourceInfo sourcePath moduleName) name (← MetaM.run' (needsBody info))).1
+    (← moduleSource sourcePath moduleName) name (← MetaM.run' (needsBody info))).1
 
 def prettyPrintModule (sourcePath : SearchPath) (moduleName : Name)
     (names : Array Name) : CoreM (NameMap Declaration) := do
-  let source ← sourceInfo sourcePath moduleName
+  let source ← moduleSource sourcePath moduleName
   let bodies := (← prettyPrintPlan names).1.foldl
     (init := ({} : NameHashSet)) fun bodies name => bodies.insert name
   return (← prettyPrintModuleWithBodies moduleName source names bodies).1

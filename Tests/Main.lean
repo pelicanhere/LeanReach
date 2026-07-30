@@ -55,6 +55,13 @@ private unsafe def runTests : IO Unit := do
       | some left, some right => (toJson left).compress == (toJson right).compress
       | _, _ => false do
     throw <| IO.userError "planned PP changed declaration output"
+  let (withoutSource, _) ← unsafe runCore fixtureEnv <|
+    prettyPrintModuleWithBodies `Tests.Fixture (none, {})
+      #[`LeanReachFixture.double] {}
+  let some withoutSource := withoutSource.find? `LeanReachFixture.double |
+    throw <| IO.userError "declaration without source position is missing"
+  unless withoutSource.line == 0 && withoutSource.column == 0 do
+    throw <| IO.userError "missing source position did not remain 0:0"
   discard <| unsafe QueryCache.build #[`Tests.Fixture]
   let some cachedQuery ← unsafe QueryCache.load #[`Tests.Fixture]
       `LeanReachFixture.Topic.ranked |
