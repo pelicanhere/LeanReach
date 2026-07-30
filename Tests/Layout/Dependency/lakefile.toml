@@ -1,0 +1,8 @@
+name = "LayoutDependency"
+srcDir = "source"
+buildDir = ".lake/dependency-build"
+leanLibDir = "olean"
+
+[[lean_lib]]
+name = "LayoutDependency"
+srcDir = "lean"

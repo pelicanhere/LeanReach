@@ -1,12 +1,16 @@
-import Lake.Build.Trace
 import Lake.Config.Module
-import Lake.Load.Package
+import Lake.Load.Workspace
 
 namespace LeanReach.Project
 
 open Lean Lake System
 
-private abbrev Metadata := Array Name × Array String × Bool × Array Name
+structure Layout where
+  leanPath : Array FilePath
+  sourcePath : Array FilePath
+  roots : Array Name
+
+private initialize loadedLayouts : IO.Ref (Std.HashMap String Layout) ← IO.mkRef {}
 
 private def configFile? (dir : FilePath) : IO (Option FilePath) := do
   for name in #[defaultLeanConfigFile, defaultTomlConfigFile] do
@@ -22,84 +26,158 @@ partial def findDir? : IO (Option FilePath) := do
     go parent
   go (← IO.currentDir)
 
-private def loadCached (path : FilePath) (hash : String) : IO (Option Metadata) := do
+private def fileStamp (path : FilePath) : IO String := do
+  unless ← path.pathExists do return "<missing>"
+  try
+    let metadata ← path.metadata
+    return s!"{metadata.modified.sec}:{metadata.modified.nsec}:{metadata.byteSize}"
+  catch _ =>
+    return "<unreadable>"
+
+private def inputsFresh (paths stamps : Array String) : IO Bool := do
+  if paths.size != stamps.size then return false
+  for (path, stamp) in paths.zip stamps do
+    unless (← fileStamp path) == stamp do return false
+  return true
+
+private def loadCached (path sysroot : FilePath) : IO (Option Layout) := do
   unless ← path.pathExists do return none
   let content ← try IO.FS.readFile path catch _ => return none
-  let parsed : Except String Metadata := do
+  let parsed : Except String (Layout × Array String × Array String) := do
     let json ← Json.parse content
-    unless (← json.getObjValAs? String "hash") == hash do
-      throw "stale project cache"
+    unless (← json.getObjValAs? String "sysroot") == sysroot.toString do
+      throw "different Lean sysroot"
+    let leanPath ← json.getObjValAs? (Array String) "leanPath"
+    let sourcePath ← json.getObjValAs? (Array String) "sourcePath"
     let roots ← json.getObjValAs? (Array String) "roots"
-    let sourceDirs ← json.getObjValAs? (Array String) "sourceDirs"
-    let mathlib ← json.getObjValAs? Bool "mathlib"
-    let built ← json.getObjValAs? (Array String) "built"
-    return (roots.map (·.toName), sourceDirs, mathlib, built.map (·.toName))
-  return parsed.toOption
+    let inputs ← json.getObjValAs? (Array String) "inputs"
+    let stamps ← json.getObjValAs? (Array String) "stamps"
+    return ({
+      leanPath := leanPath.map FilePath.mk
+      sourcePath := sourcePath.map FilePath.mk
+      roots := roots.map (·.toName)
+    }, inputs, stamps)
+  let some (layout, inputs, stamps) := parsed.toOption | return none
+  return if ← inputsFresh inputs stamps then some layout else none
 
-private def saveCached (path : FilePath) (hash : String) (roots : Array Name)
-    (sourceDirs : Array String) (mathlib : Bool) (built : Array Name) : IO Unit := do
+private def saveCached (path sysroot : FilePath) (layout : Layout)
+    (inputs : Array FilePath) : IO Unit := do
   if let some parent := path.parent then IO.FS.createDirAll parent
+  let stamps ← inputs.mapM fileStamp
   IO.FS.writeFile path <| (Json.mkObj [
-    ("hash", toJson hash),
-    ("roots", toJson <| roots.map (·.toString)),
-    ("sourceDirs", toJson sourceDirs),
-    ("mathlib", toJson mathlib),
-    ("built", toJson <| built.map (·.toString))
+    ("sysroot", toJson sysroot.toString),
+    ("leanPath", toJson <| layout.leanPath.map (·.toString)),
+    ("sourcePath", toJson <| layout.sourcePath.map (·.toString)),
+    ("roots", toJson <| layout.roots.map (·.toString)),
+    ("inputs", toJson <| inputs.map (·.toString)),
+    ("stamps", toJson stamps)
   ]).compress
 
-private unsafe def loadConfig (dir sysroot : FilePath) : IO (Option Metadata) := do
+private def localizeEntry (workspace : Workspace) (packagesDir : FilePath)
+    (entry : PackageEntry) : IO PackageEntry := do
+  let dir ← match entry.src with
+    | .path dir => pure dir
+    | .git (subDir? := subDir?) .. => do
+      let gitDir := packagesDir / entry.dirName
+      pure <| subDir?.map (gitDir / ·) |>.getD gitDir
+  let packageDir := workspace.dir / dir
+  unless ← packageDir.isDir do
+    throw <| IO.userError
+      s!"dependency '{entry.name}' is not materialized at '{packageDir}'; run `lake update`"
+  unless ← configFileExists (packageDir / entry.configFile) do
+    throw <| IO.userError s!"dependency '{entry.name}' has no Lake config at '{packageDir}'"
+  return { entry with src := .path dir }
+
+private def localOverrides (workspace : Workspace) (manifest : Manifest) :
+    IO (Array PackageEntry) := do
+  let mut entries : NameMap PackageEntry := {}
+  for entry in manifest.packages do entries := entries.insert entry.name entry
+  for entry in ← Manifest.tryLoadEntries workspace.packageOverridesFile do
+    entries := entries.insert entry.name entry
+  let packagesDir := manifest.packagesDir?.getD workspace.relPkgsDir
+  entries.toArray.mapM fun (_, entry) =>
+    localizeEntry workspace packagesDir entry
+
+private unsafe def loadWorkspace? (dir sysroot : FilePath) :
+    IO (Option Workspace) := do
   let lean ← LeanInstall.get sysroot (collocated := true)
   let lake := LakeInstall.ofLean lean
   let .ok lakeEnv ← (Env.compute lake lean (← findElanInstall?)).toBaseIO | return none
   let config : LoadConfig := { lakeEnv, wsDir := dir }
-  let (some package, _) ← (loadPackage config).run? {} | return none
-  let libraries := package.leanLibs
-  let roots := libraries.flatMap (·.roots)
-  return some (roots, libraries.map (·.srcDir.toString),
-    package.depConfigs.any fun dependency => dependency.name == `mathlib, #[])
+  let (root?, rootLog) ← (loadWorkspaceRoot config).run? {}
+  let some root := root? | do
+    let message := rootLog.toString.trimAscii.copy
+    throw <| IO.userError <| if message.isEmpty then
+      "could not load the Lake project" else message
+  let some manifest ← Manifest.load? root.manifestFile | do
+    if root.root.depConfigs.isEmpty then return some root
+    throw <| IO.userError "Lake manifest is missing; run `lake update`"
+  let overrides ← localOverrides root manifest
+  let (workspace?, log) ←
+    (root.materializeDeps manifest config.leanOpts config.reconfigure overrides).run?
+  let some workspace := workspace? | do
+    let message := log.toString.trimAscii.copy
+    throw <| IO.userError <| if message.isEmpty then
+      "could not resolve the existing Lake workspace" else message
+  return some workspace
 
-private partial def builtSubmodules (dir : FilePath) (base : Name)
-    (modules : Array Name) : IO (Array Name) := do
-  unless ← dir.isDir do return modules
-  let mut modules := modules
-  for entry in ← dir.readDir do
-    let name := Name.str base (FilePath.withExtension entry.fileName "").toString
-    if ← entry.path.isDir then
-      modules ← builtSubmodules entry.path name modules
-    else if entry.path.extension == some "olean" then
-      modules := modules.push name
-  return modules
-
-unsafe def detectRoots (sysroot : FilePath) (refresh := false) : IO (Array Name) := do
-  let some dir ← findDir? | return #[]
-  let some config ← configFile? dir | return #[]
-  let hash := toString (← Lake.computeFileHash config)
-  -- Project-metadata cache format 7.
-  let cache := dir / ".lake" / "leanreach-project-7"
-  let cached ← loadCached cache hash
-  if !refresh then
-    if let some (_, _, _, built) := cached then return built
-  let metadata ← cached.map some |>.getDM (unsafe loadConfig dir sysroot)
-  let some (roots, sourceDirs, mathlib, _) := metadata | return #[]
-  let buildDir := dir / ".lake" / "build" / "lib" / "lean"
-  let mut candidates := roots
-  for root in roots do
-    candidates ← builtSubmodules (Lean.modToFilePath buildDir root "") root candidates
-  let mut built := #[]
+private unsafe def workspaceLayout (workspace : Workspace) : IO Layout := do
+  let mut roots := #[]
   let mut seen : NameHashSet := {}
-  for moduleName in candidates do
-    unless seen.contains moduleName do
-      let mut hasSource := false
-      for sourceDir in sourceDirs do
-        if ← (Lean.modToFilePath (FilePath.mk sourceDir) moduleName "lean").pathExists then
-          hasSource := true
-          break
-      if hasSource && (← (Lean.modToFilePath buildDir moduleName "olean").pathExists) then
-        seen := seen.insert moduleName
-        built := built.push moduleName
-  built := built.qsort Name.lt
-  if mathlib && !seen.contains `Mathlib then built := built.push `Mathlib
-  try saveCached cache hash roots sourceDirs mathlib built catch _ => pure ()
-  return built
+  for library in workspace.root.leanLibs do
+    unless ← library.srcDir.isDir do continue
+    let modules ← (·.2) <$> StateT.run (s := #[]) do
+      Lean.forEachModuleInDir library.srcDir fun name =>
+        modify (·.push name)
+    for name in modules do
+      let module : Lake.Module := { lib := library, name }
+      if library.isLocalModule name && !seen.contains name &&
+          (← module.oleanFile.pathExists) then
+        roots := roots.push name
+        seen := seen.insert name
+  if let some mathlib := workspace.findPackageByName? `mathlib then
+    if let some module := mathlib.findModule? `Mathlib then
+      if !seen.contains module.name && (← module.oleanFile.pathExists) then
+        roots := roots.push module.name
+  roots := roots.qsort Name.lt
+  if roots.contains `Mathlib then
+    roots := (roots.filter (· != `Mathlib)).push `Mathlib
+  let mut sourcePath := #[]
+  for library in workspace.root.leanLibs do
+    unless sourcePath.contains library.srcDir do
+      sourcePath := sourcePath.push library.srcDir
+  for path in workspace.leanSrcPath do
+    unless sourcePath.contains path do sourcePath := sourcePath.push path
+  unless sourcePath.contains workspace.lakeEnv.lake.srcDir do
+    sourcePath := sourcePath.push workspace.lakeEnv.lake.srcDir
+  return {
+    leanPath := workspace.leanPath.toArray
+    sourcePath
+    roots
+  }
+
+private def layoutInputs (dir : FilePath) (workspace : Workspace) :
+    Array FilePath :=
+  (workspace.packages.flatMap fun package =>
+    #[package.configFile, package.manifestFile]) ++
+      #[workspace.packageOverridesFile, dir / "lean-toolchain"]
+
+unsafe def loadLayout? (sysroot : FilePath) (refresh := false) :
+    IO (Option Layout) := do
+  let some dir ← findDir? | return none
+  let key := s!"{dir}\u0000{sysroot}"
+  unless refresh do
+    if let some layout := (← loadedLayouts.get).get? key then return some layout
+  let cache := dir / ".lake" / "leanreach-project-9"
+  unless refresh do
+    if let some layout ← loadCached cache sysroot then
+      loadedLayouts.modify (·.insert key layout)
+      return some layout
+  let some workspace ← unsafe loadWorkspace? dir sysroot | return none
+  let layout ← unsafe workspaceLayout workspace
+  try saveCached cache sysroot layout (layoutInputs dir workspace)
+  catch _ => pure ()
+  loadedLayouts.modify (·.insert key layout)
+  return some layout
 
 end LeanReach.Project

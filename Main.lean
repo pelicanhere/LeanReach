@@ -84,7 +84,7 @@ USAGE:
 
 OPTIONS:
   -m, --module MODULE   override the detected local library or Mathlib root
-  -n, --limit N         override both dependency limits (default: 10 each)
+  -n, --limit N         override result limits (default: 10 each)
   -i, --interactive     reuse one environment; read queries from stdin
   -j, --json            emit JSON (NDJSON in interactive mode)
       --profile         print elapsed and cache-stage time to stderr

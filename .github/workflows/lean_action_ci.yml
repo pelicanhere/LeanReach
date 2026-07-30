@@ -14,3 +14,6 @@ jobs:
       - uses: leanprover/lean-action@v1
       - name: Run tests
         run: lake exe leanreach_tests
+      - name: Test Lake project layouts
+        shell: pwsh
+        run: ./Tests/Layout/Test.ps1

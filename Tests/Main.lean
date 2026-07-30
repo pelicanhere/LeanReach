@@ -77,6 +77,10 @@ private unsafe def runTests : IO Unit := do
   check (selected == #[#["abc"]])
     "candidate planning retained a duplicate posting"
   let sourcePath ← unsafe prepareEnvironment
+  unless (← sourcePath.findModuleWithExt "lean" `Tests.Fixture).isSome do
+    throw <| IO.userError s!"project source path does not contain Tests.Fixture: {sourcePath}"
+  unless (← sourcePath.findModuleWithExt "lean" `Lake.Config.Module).isSome do
+    throw <| IO.userError "project source path does not contain Lake.Config.Module"
   let duplicateIndex := Index.build #[
     (`LeanReachFixture.a, `Tests.Fixture, ({} : NameSet).insert `LeanReachFixture.b),
     (`LeanReachFixture.a, `Tests.Fixture, ({} : NameSet).insert `LeanReachFixture.c),
