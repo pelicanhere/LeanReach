@@ -1,4 +1,3 @@
-import LeanReach.BlackListed
 import LeanReach.Cache
 import LeanReach.Index
 import LeanReach.ModuleData
@@ -7,6 +6,16 @@ import LeanReach.SourceInfo
 namespace LeanReach.Cache
 
 open Lean
+
+/-
+Adapted from Loogle/BlackListed.lean.
+Copyright (c) 2019 Robert Y. Lewis and contributors.
+Released under the Apache License 2.0.
+-/
+
+/-- Hide generated implementation details that can still have source ranges. -/
+private def isBlacklisted (name : Name) : Bool :=
+  name.isInternal || name.isInternalDetail || isPrivateName name
 
 private def catalogVersion := 6
 private def relationsVersion := 7
@@ -46,7 +55,7 @@ private unsafe def readFragment (moduleName : Name) (olean : System.FilePath) :
       (init := (({} : NameMap ConstantInfo), ({} : NameMap NameSet))) fun state info =>
     let constants := state.1.insert info.name info
     let internal :=
-      if isBlackListed info.name || !visibleNames.contains info.name then
+      if isBlacklisted info.name || !visibleNames.contains info.name then
         state.2.insert info.name info.getUsedConstantsAsSet
       else state.2
     (constants, internal)
@@ -54,7 +63,7 @@ private unsafe def readFragment (moduleName : Name) (olean : System.FilePath) :
     imports := all.imports.map (·.module)
     declarations := visible.constants.filterMap fun visibleInfo =>
       let name := visibleInfo.name
-      if source.contains name.toString && !isBlackListed name then
+      if source.contains name.toString && !isBlacklisted name then
         let info := (constants.find? name).getD visibleInfo
         some (name, collapseInternal internal info.getUsedConstantsAsSet)
       else none
