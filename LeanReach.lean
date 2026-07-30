@@ -103,6 +103,19 @@ unsafe def withSessionFor {α β : Type} (roots : Array Name)
     (action : Session → α → CoreM β) : IO β :=
   withIndexSession roots loadRelations select false fun _ => action
 
+private unsafe def runCachedQuery {α : Type} (session : Session)
+    (cached : CachedQuery) (limits : Limits)
+    (action : QueryNames → CoreM α) : IO α := do
+  let names := cached.queryNames limits
+  unsafe runSession cached.moduleOf? session names.all
+    (some names.target) none false none (action names)
+
+private unsafe def runCachedSearch {α : Type} (session : Session)
+    (targets : Array LocatedName) (action : Array Name → CoreM α) : IO α := do
+  let names := targets.map (·.name)
+  let moduleOf? name := targets.find? (·.name == name) |>.map (·.moduleName)
+  unsafe runSession moduleOf? session names none none false none (action names)
+
 /-- Use the pre-ranked exact-query shard without loading the complete dependency index. -/
 unsafe def withCachedQueryFor {α : Type} (roots : Array Name) (query : String)
     (limits : Limits) (action : Session → QueryNames → CoreM α) : IO (Option α) := do
@@ -115,9 +128,7 @@ unsafe def withCachedQueryFor {α : Type} (roots : Array Name) (query : String)
     | .error message => throw <| IO.userError message
   let names := cached.queryNames limits
   let session ← unsafe cachedSession cached.moduleOf? names.all
-  return some (← unsafe runSession cached.moduleOf? session names.all
-    (some names.target) none false none
-    (action session names))
+  return some (← unsafe runCachedQuery session cached limits (action session))
 
 /-- Search complete declaration names from a query shard without loading the catalog. -/
 unsafe def withCachedSearchFor {α : Type} (roots : Array Name) (query : String)
@@ -127,8 +138,7 @@ unsafe def withCachedSearchFor {α : Type} (roots : Array Name) (query : String)
   let names := targets.map (·.name)
   let moduleOf? name := targets.find? (·.name == name) |>.map (·.moduleName)
   let session ← unsafe cachedSession moduleOf? names
-  return some (← unsafe runSession moduleOf? session names none none false none
-    (action session names))
+  return some (← unsafe runCachedSearch session targets (action session))
 
 /-- Import the root modules once and reuse their environment and index for the entire action. -/
 unsafe def withSession {α : Type} (roots : Array Name)
