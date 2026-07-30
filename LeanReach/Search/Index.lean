@@ -1,7 +1,7 @@
 import Lean.Data.Name
 import Lean.Data.Trie
-import LeanReach.Search.Match
 import LeanReach.Search.Rank
+import LeanReach.Search.Resolve
 import LeanReach.Search.Types
 
 namespace LeanReach
@@ -129,7 +129,7 @@ private def Index.matches (index : Index) (query : String) (limit : Nat) :
     Array (Array LocatedName) :=
   let query := query.toLower
   let find size candidateAt :=
-    NameSearch.buckets query size candidateAt
+    NameResolve.buckets query size candidateAt
       (fun id => index.entries[id.toNat]?) (·.name) limit
   if query.length < 3 then
     find index.entries.size (fun id => id.toUInt32)
@@ -145,7 +145,7 @@ def Index.search (index : Index) (query : String) (limit : Nat := 20) : Array Na
 def Index.resolve (index : Index) (query : String) : Except String Name := do
   let exact := query.toName
   if index.findId? exact |>.isSome then return exact
-  let candidates := NameSearch.bestBucket (index.matches query 10)
+  let candidates := NameResolve.bestBucket (index.matches query 10)
   if candidates.size == 1 then return candidates[0]!.name
   if candidates.isEmpty then throw s!"no declaration name contains '{query}'"
   throw s!"ambiguous declaration '{query}':\n{String.intercalate "\n" <|

@@ -1,6 +1,6 @@
 import LeanReach.Cache.Storage
 import LeanReach.Search.Index
-import LeanReach.Search.Match
+import LeanReach.Search.Resolve
 
 namespace LeanReach.SearchCache
 
@@ -185,9 +185,9 @@ private def findMatches (table : NameTable) (size : Nat) (idAt : Nat → UInt32)
     let owner ← owners[id.toNat]?
     let moduleName ← modules[owner.toNat]?
     return { name, moduleName }
-  NameSearch.collect query size idAt located? (·.name) limit
+  NameResolve.collect query size idAt located? (·.name) limit
 
-unsafe def search (roots : Array Name) (query : String)
+unsafe def lookup (roots : Array Name) (query : String)
     (limit : Nat) : IO (Option (Array LocatedName)) := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
   unless ← ready roots olean depHash do return none

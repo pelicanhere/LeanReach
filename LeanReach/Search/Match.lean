@@ -5,8 +5,6 @@ namespace LeanReach.NameSearch
 
 open Lean
 
-universe u v
-
 def leaf (name : Name) : String :=
   name.getString!
 
@@ -34,36 +32,5 @@ def rarestTrigram? (grams : Array String)
     let count := (count? gram).getD 0
     if selected.all (count < ·.2) then selected := some (gram, count)
   return selected.bind fun (gram, count) => if count == 0 then none else some gram
-
-def leafMatches (query : String) (name : Name) : Bool :=
-  (leaf (privateToUserName name)).toLower == query
-
-private def bucket? (query suffix : String) (name : Name) : Option Nat :=
-  let candidate := normalizedName name
-  if candidate == query then some 0
-  else if candidate.endsWith suffix then some 1
-  else if candidate.contains query then some 2
-  else none
-
-def buckets {α : Type u} {β : Type v} (queryLower : String)
-    (size : Nat) (itemAt : Nat → α) (project : α → Option β) (nameOf : β → Name)
-    (limit : Nat) : Array (Array β) := Id.run do
-  let mut buckets : Array (Array β) := #[#[], #[], #[]]
-  let suffix := "." ++ queryLower
-  for position in [0:size] do
-    let some item := project (itemAt position) | continue
-    let name := nameOf item
-    if let some bucket := bucket? queryLower suffix name then
-      if buckets[bucket]!.size < limit then
-        buckets := buckets.modify bucket (·.push item)
-  return buckets
-
-def collect {α : Type u} {β : Type v} (queryLower : String)
-    (size : Nat) (itemAt : Nat → α) (project : α → Option β) (nameOf : β → Name)
-    (limit : Nat) : Array β :=
-  (buckets queryLower size itemAt project nameOf limit).flatten.take limit
-
-def bestBucket {α : Type u} (buckets : Array (Array α)) : Array α :=
-  buckets.find? (not ∘ Array.isEmpty) |>.getD #[]
 
 end LeanReach.NameSearch
