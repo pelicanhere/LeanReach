@@ -137,8 +137,7 @@ private def findMatches (table : NameTable) (ids : Array UInt32)
     let owner ← owners[id.toNat]?
     let moduleName ← modules[owner.toNat]?
     return { name, moduleName }
-  return (NameSearch.buckets query ids located?
-    (privateToUserName ·.name) limit).flatten.take limit
+  return NameSearch.collect query ids located? (·.name) limit
 
 unsafe def search (roots : Array Name) (query : String)
     (limit : Nat) : IO (Option (Array LocatedName)) := do
@@ -152,11 +151,9 @@ unsafe def search (roots : Array Name) (query : String)
       (Array.range table.1.size |>.map UInt32.ofNat) query limit)
   let some directory ← unsafe Cache.loadPart (Data.Trie UInt32)
       (path roots olean "directory") depHash | return none
-  let mut selected : Option (String × UInt32) := none
-  for trigram in NameSearch.trigrams query do
-    let some count := directory.find? trigram | return some #[]
-    if selected.all (count < ·.2) then selected := some (trigram, count)
-  let some (trigram, _) := selected | return some #[]
+  let some trigram := NameSearch.rarestTrigram? (NameSearch.trigrams query)
+      (directory.find? · |>.map (·.toNat)) | return some #[]
+  unless directory.find? trigram |>.isSome do return some #[]
   let some postings ← unsafe Cache.loadPart (Data.Trie ByteArray)
       (shardPath roots olean (shard trigram)) depHash | return none
   let ids := (postings.find? trigram).map unpackIds |>.getD #[]

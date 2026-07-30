@@ -203,10 +203,9 @@ private unsafe def searchFull (roots : Array Name) (query : String)
   let mut suffix := #[]
   for line in lines do
     let some target := target? modules line | continue
-    let userName := privateToUserName target.name
-    if NameSearch.exact wanted userName then
+    if NameSearch.exact wanted target.name then
       exact := exact.push target
-    else if name.isAtomic && NameSearch.leafMatches wanted userName then
+    else if name.isAtomic && NameSearch.leafMatches wanted target.name then
       suffix := suffix.push target
   let results := (exact ++ suffix).take limit
   return if results.isEmpty then none else some results
@@ -216,9 +215,8 @@ private def localMatches (overlay : QueryOverlay.Data) (query : String) :
   let name := query.toName
   let wanted := query.toLower
   overlay.localNames.filter fun target =>
-    let userName := privateToUserName target.name
-    NameSearch.exact wanted userName ||
-      name.isAtomic && NameSearch.leafMatches wanted userName
+    NameSearch.exact wanted target.name ||
+      name.isAtomic && NameSearch.leafMatches wanted target.name
 
 private def mergeMatches (query : String) (limit : Nat)
     (left right : Array LocatedName) : Array LocatedName := Id.run do
@@ -229,8 +227,7 @@ private def mergeMatches (query : String) (limit : Nat)
       seen := seen.insert target.name
       candidates := candidates.push target
   candidates := candidates.qsort fun a b => Name.lt a.name b.name
-  return (NameSearch.buckets query candidates some
-    (privateToUserName ·.name) limit).flatten.take limit
+  return NameSearch.collect query candidates some (·.name) limit
 
 unsafe def resolve (roots : Array Name) (query : String) :
     IO (Except String (Option CachedQuery)) := do

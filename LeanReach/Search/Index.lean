@@ -48,7 +48,7 @@ def Index.build (declarations : Array IndexedDeclaration) : Index := Id.run do
   let mut trigramIndex : Data.Trie (Array UInt32) := {}
   for (entry, id) in entries.zipIdx do
     let mut seen : Std.HashSet String := {}
-    for trigram in NameSearch.trigrams (privateToUserName entry.name).toString.toLower do
+    for trigram in NameSearch.trigrams (NameSearch.normalizedName entry.name) do
       unless seen.contains trigram do
         seen := seen.insert trigram
         trigramIndex := trigramIndex.upsert trigram fun ids =>
@@ -144,21 +144,21 @@ def Index.cachedQueryAt! (index : Index) (id : Nat) : CachedQuery :=
 private def Index.candidates (index : Index) (query : String) : Array UInt32 :=
   if query.length < 3 then
     index.entries.mapIdx fun id _ => id.toUInt32
-  else Id.run do
-    let mut best : Option (Array UInt32) := none
-    for trigram in NameSearch.trigrams query do
-      let some ids := index.trigrams.find? trigram | return #[]
-      if best.all (ids.size < ·.size) then best := some ids
-    return best.getD #[]
+  else
+    let gram? := NameSearch.rarestTrigram? (NameSearch.trigrams query)
+      (index.trigrams.find? · |>.map (·.size))
+    gram?.bind index.trigrams.find? |>.getD #[]
 
 private def Index.matches (index : Index) (query : String) (limit : Nat) :
     Array (Array Name) :=
   let query := query.toLower
   NameSearch.buckets query (index.candidates query)
-    (fun id => index.entries[id.toNat]?.map (·.name)) privateToUserName limit
+    (fun id => index.entries[id.toNat]?.map (·.name)) id limit
 
 def Index.search (index : Index) (query : String) (limit : Nat := 20) : Array Name :=
-  (index.matches query limit).flatten.take limit
+  let query := query.toLower
+  NameSearch.collect query (index.candidates query)
+    (fun id => index.entries[id.toNat]?.map (·.name)) id limit
 
 def Index.resolve (index : Index) (query : String) : Except String Name := do
   let exact := query.toName
