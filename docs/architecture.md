@@ -178,6 +178,7 @@ sysroot source tree.
 
 - root import;
 - private overlay preparation;
+- source lookup and PP planning;
 - signature PP;
 - body PP;
 - sidecar writes.

@@ -37,26 +37,22 @@ private def leanSysroot : IO System.FilePath := do
 
 private def initializeSearchPath (sysroot : System.FilePath)
     (roots : Array System.FilePath) : IO Unit := do
-  match ← IO.getEnv "LEAN_PATH" with
-  | some path => searchPathRef.set (System.SearchPath.parse path)
-  | none =>
-    let mut paths := #[]
-    for root in roots do
-      let path := root / ".lake" / "build" / "lib" / "lean"
-      if ← path.isDir then paths := paths.push path
-    initSearchPath sysroot paths.toList
+  let mut paths := #[]
+  for root in roots do
+    let path := root / ".lake" / "build" / "lib" / "lean"
+    if ← path.isDir then paths := paths.push path
+  initSearchPath sysroot paths.toList
 
 private def sourceSearchPath (sysroot : System.FilePath)
     (roots : Array System.FilePath) : IO SearchPath := do
-  let mut fallback := #[]
+  let mut paths := #[]
   for root in roots do
-    fallback := fallback.push root
+    paths := paths.push root
     let source := root / "src"
-    if ← source.isDir then fallback := fallback.push source
-  fallback := fallback.push (sysroot / "src" / "lean")
-  match ← IO.getEnv "LEAN_SRC_PATH" with
-  | some path => return fallback.toList ++ System.SearchPath.parse path
-  | none => return fallback.toList
+    if ← source.isDir then paths := paths.push source
+  if let some path ← IO.getEnv "LEAN_SRC_PATH" then
+    paths := paths ++ (System.SearchPath.parse path).toArray
+  return (paths.push (sysroot / "src" / "lean")).toList
 
 unsafe def prepareSearchPath : IO Unit := do
   let roots ← workspaceRoots

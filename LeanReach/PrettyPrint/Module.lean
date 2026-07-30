@@ -33,7 +33,7 @@ unsafe def prettyPrintModuleIO (sourcePath : SearchPath) (env : Environment)
     return (declarations, {
       timing with
       privateOverlayNanos := overlayNanos
-      signatureNanos := timing.signatureNanos + sourceNanos + planNanos
+      preparationNanos := sourceNanos + planNanos
     })
   let missing := names.filter fun name => !env.contains name
   if missing.isEmpty then return ← print env
