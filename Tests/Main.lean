@@ -1,5 +1,7 @@
 import LeanReach
 import Tests.Fixture
+import Tests.PrivateA
+import Tests.PrivateB
 
 namespace LeanReach.Tests
 
@@ -19,6 +21,17 @@ private unsafe def runTests : IO Unit := do
   unless duplicateIndex.size == 3 &&
       (duplicateIndex.upstream `LeanReachFixture.a 10).size == 2 do
     throw <| IO.userError "index did not merge duplicate declarations"
+  let privateA := mkPrivateNameCore `Tests.PrivateA `LeanReachDuplicate.hidden
+  let privateB := mkPrivateNameCore `Tests.PrivateB `LeanReachDuplicate.hidden
+  let privateIndex := Index.build #[
+    (privateA, `Tests.PrivateA, {}),
+    (privateB, `Tests.PrivateB, {})
+  ]
+  let .error privateAmbiguity := privateIndex.resolve "LeanReachDuplicate.hidden" |
+    throw <| IO.userError "duplicate private user names were not ambiguous"
+  unless privateAmbiguity.contains "Tests.PrivateA" &&
+      privateAmbiguity.contains "Tests.PrivateB" do
+    throw <| IO.userError "private ambiguity omitted defining modules"
   let roots ← detectRoots
   unless roots.contains `Tests.Fixture do
     throw <| IO.userError "built local modules were not detected"
@@ -91,6 +104,19 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "private query lost its kernel identity"
   let .error _ ← unsafe QueryCache.resolve #[`Tests.Fixture] "duplicateLeaf" |
     throw <| IO.userError "ambiguous short query was not rejected"
+  let privateRoots := #[`Tests.PrivateA, `Tests.PrivateB]
+  discard <| unsafe QueryCache.build privateRoots
+  let .error cachedPrivateAmbiguity ← unsafe QueryCache.resolve privateRoots
+      "LeanReachDuplicate.hidden" |
+    throw <| IO.userError "cached duplicate private names were not ambiguous"
+  unless cachedPrivateAmbiguity.contains "Tests.PrivateA" &&
+      cachedPrivateAmbiguity.contains "Tests.PrivateB" do
+    throw <| IO.userError "cached private ambiguity omitted defining modules"
+  let .ok (some exactPrivate) ← unsafe QueryCache.resolve privateRoots
+      privateA.toString |
+    throw <| IO.userError "private kernel query key did not resolve"
+  unless exactPrivate.target.name == privateA do
+    throw <| IO.userError "private kernel query key resolved the wrong module"
   let some cachedSearch ← unsafe QueryCache.search #[`Tests.Fixture] "duplicateLeaf" 10 |
     throw <| IO.userError "complete leaf search did not use its shard"
   unless cachedSearch.map (·.name) == fixtureIndex.search "duplicateLeaf" 10 do

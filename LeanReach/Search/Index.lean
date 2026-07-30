@@ -168,7 +168,10 @@ def Index.resolve (index : Index) (query : String) : Except String Name := do
   if candidates.size == 1 then return candidates[0]!
   if candidates.isEmpty then throw s!"no declaration name contains '{query}'"
   throw s!"ambiguous declaration '{query}':\n{String.intercalate "\n" <|
-    candidates.toList.map fun name => s!"  {privateToUserName name}"}"
+    candidates.toList.map fun name =>
+      let moduleName := (index.findId? name).map
+        (fun id => index.entries[id.toNat]!.moduleName) |>.getD .anonymous
+      s!"  {privateToUserName name} ({moduleName})"}"
 
 private def Index.related (index : Index) (name : Name) (upstream : Bool)
     (limit : Nat) : Array Name :=
