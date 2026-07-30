@@ -68,16 +68,15 @@ def Data.query (data : Data) (base : Index) (target : LocatedName) : CachedQuery
     base.reverseCount name + (data.reverse.find? name |>.map (·.size) |>.getD 0)
   let forwardCount name :=
     data.entries.find? name |>.map (·.dependencies.size) |>.getD (base.forwardCount name)
+  let rank upstream candidates :=
+    Rank.select target candidates id
+      (fun candidate => Rank.prior (base.size + data.size)
+        (reverseCount candidate.name) (forwardCount candidate.name) upstream)
+      cachedQueryLimit
   {
     target
-    upstream := Rank.select target upstream id
-      (fun candidate => Rank.prior (base.size + data.size)
-        (reverseCount candidate.name) (forwardCount candidate.name) true)
-      cachedQueryLimit
-    downstream := Rank.select target downstream id
-      (fun candidate => Rank.prior (base.size + data.size)
-        (reverseCount candidate.name) (forwardCount candidate.name) false)
-      cachedQueryLimit
+    upstream := rank true upstream
+    downstream := rank false downstream
   }
 
 end LeanReach.QueryOverlay

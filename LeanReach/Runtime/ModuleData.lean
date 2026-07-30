@@ -6,16 +6,13 @@ namespace LeanReach.ModuleData
 open Lean
 
 unsafe def readParts (olean : System.FilePath) :
-    IO (Array (ModuleData × CompactedRegion) × Nat) := do
+    IO (Array (ModuleData × CompactedRegion)) := do
   let mut paths := #[olean]
-  let mut visible := 0
   let server := OLeanLevel.server.adjustFileName olean
-  if ← server.pathExists then
-    paths := paths.push server
-    visible := paths.size - 1
+  if ← server.pathExists then paths := paths.push server
   let privatePath := OLeanLevel.private.adjustFileName olean
   if ← privatePath.pathExists then paths := paths.push privatePath
-  return (← readModuleDataParts paths, visible)
+  readModuleDataParts paths
 
 private def privateModule? (name : Name) : Option Name :=
   match privatePrefix? name with
@@ -29,18 +26,21 @@ private unsafe def addConstant (env : Environment) (info : ConstantInfo) : IO En
   added.commitConst added.asyncEnv (some info)
   return added.mainEnv
 
+private def constantMap (data : ModuleData) : NameMap ConstantInfo :=
+  data.constants.foldl (init := {}) fun result info => result.insert info.name info
+
 unsafe def withPrivateOverlay {α : Type} (env : Environment) (moduleName : Name)
     (signatureNames bodyNames : Array Name) (moduleOf? : Name → Option Name)
     (action : Environment → IO α) : IO (α × Nat) := do
   let started ← IO.monoNanosNow
   let ((result, overlayNanos), regions) ←
       show IO ((α × Nat) × Array CompactedRegion) from do
-    let (parts, _) ← unsafe readParts (← findOLean moduleName)
+    let parts ← unsafe readParts (← findOLean moduleName)
     let some (data, _) := parts.back? |
       throw <| IO.userError s!"empty module data for '{moduleName}'"
     let mut regions := parts.map (·.2)
-    let mut modules : NameMap ModuleData := {}
-    modules := modules.insert moduleName data
+    let mut modules : NameMap (NameMap ConstantInfo) := {}
+    modules := modules.insert moduleName (constantMap data)
     let mut env := env
     let mut pending :=
       signatureNames.map (·, moduleName, false) ++
@@ -50,16 +50,17 @@ unsafe def withPrivateOverlay {α : Type} (env : Environment) (moduleName : Name
       pending := pending.pop
       if seen.contains name then continue
       seen := seen.insert name
-      let data ← match modules.find? owner with
-        | some data => pure data
+      let constants ← match modules.find? owner with
+        | some constants => pure constants
         | none => do
-          let (parts, _) ← unsafe readParts (← findOLean owner)
+          let parts ← unsafe readParts (← findOLean owner)
           let some (data, _) := parts.back? |
             throw <| IO.userError s!"empty module data for '{owner}'"
           regions := regions ++ parts.map (·.2)
-          modules := modules.insert owner data
-          pure data
-      let some info := data.constants.find? (·.name == name) | continue
+          let result := constantMap data
+          modules := modules.insert owner result
+          pure result
+      let some info := constants.find? name | continue
       env ← unsafe addConstant env info
       let dependencies :=
         if scanValue then info.getUsedConstantsAsSet
@@ -67,7 +68,7 @@ unsafe def withPrivateOverlay {α : Type} (env : Environment) (moduleName : Name
       for dependency in dependencies do
         unless env.contains dependency || seen.contains dependency do
           let owner? :=
-            if data.constants.any (·.name == dependency) then some owner
+            if constants.contains dependency then some owner
             else
               privateModule? dependency <|>
                 (env.getModuleIdxFor? dependency >>= fun index =>

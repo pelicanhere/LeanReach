@@ -1,12 +1,11 @@
+import Lean.Data.Name
 import Lean.PrivateName
 
 namespace LeanReach.NameSearch
 
 open Lean
 
-def leaf : Name → String
-  | .str _ value => value
-  | .num _ value => toString value
-  | .anonymous => ""
+def leaf (name : Name) : String :=
+  name.getString!
 
 end LeanReach.NameSearch

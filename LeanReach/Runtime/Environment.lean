@@ -1,3 +1,4 @@
+import Lean.Environment
 import Lean.Util.Path
 import LeanReach.Runtime.Project
 
@@ -64,17 +65,10 @@ unsafe def runCore {α : Type} (env : Environment) (action : CoreM α) : IO α :
     { fileName := "<leanreach>", fileMap := default }
     { env }
 
-unsafe def importEnvironment (modules : Array Name) (leakEnv := false)
-    (level := OLeanLevel.exported) : IO Environment := do
+unsafe def importEnvironment (modules : Array Name) (leakEnv := false) : IO Environment := do
   Lean.enableInitializersExecution
   let imports := modules.map fun module => { module }
-  if level == .private then
-    importModules (loadExts := true) (level := level) (leakEnv := leakEnv) imports {}
-  else try
-    importModules (loadExts := true) (level := level) (leakEnv := leakEnv) imports {}
-  catch _ =>
-    Lean.enableInitializersExecution
-    importModules (loadExts := true) (leakEnv := leakEnv) imports {}
+  importModules (loadExts := true) (leakEnv := leakEnv) imports {}
 
 unsafe def detectRoots (refresh := false) : IO (Array Name) := do
   let roots ← unsafe Project.detectRoots (← leanSysroot) refresh
