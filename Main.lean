@@ -128,21 +128,16 @@ private inductive Prepared where
   | query (names : QueryNames)
   | search (pattern : String) (names : Array Name)
 
-private def Prepared.names : Prepared → Array Name
-  | .query names => names.all
-  | .search _ names => names
-
-private def Prepared.target? : Prepared → Option Name
-  | .query names => some names.1
-  | .search .. => none
-
 private def prepare (config : Config) (command : Command) (index : Index) :
-    Except String (SessionPlan Prepared) := do
-  let result : Prepared ← match command with
-    | .query query => pure <| .query (← index.queryNames query config.limits)
-    | .search pattern => pure <| .search pattern (index.search pattern config.limits.search)
+    Except String (SessionPlan Prepared) :=
+  match command with
+    | .query query => do
+      let names ← index.queryNames query config.limits
+      return (.query names, names.all, some names.target)
+    | .search pattern =>
+      let names := index.search pattern config.limits.search
+      return (.search pattern names, names, none)
     | .cache _ => throw "cache is not an interactive query"
-  return (result, result.names, result.target?)
 
 private def runPrepared (session : Session) (config : Config) : Prepared → CoreM Unit
   | .query names => do printQuery config.json (← session.describeQuery names)

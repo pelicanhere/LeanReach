@@ -1,5 +1,6 @@
 import LeanReach.Cache.Storage
 import LeanReach.Search.Index
+import LeanReach.Search.Match
 
 namespace LeanReach.SearchCache
 
@@ -89,15 +90,15 @@ private def makeNameTable (entries : Array CatalogEntry) : NameTable := Id.run d
   let mut modules := #[]
   let mut names := #[]
   let mut owners := #[]
-  for (name, moduleName) in entries do
-    let id ← match ids.find? moduleName with
+  for entry in entries do
+    let id ← match ids.find? entry.moduleName with
       | some id => pure id
       | none =>
         let id := modules.size.toUInt32
-        ids := ids.insert moduleName id
-        modules := modules.push moduleName
+        ids := ids.insert entry.moduleName id
+        modules := modules.push entry.moduleName
         pure id
-    names := names.push name
+    names := names.push entry.name
     owners := owners.push id
   return (names, owners, modules)
 

@@ -102,7 +102,8 @@ unsafe def withCachedQueryFor {α : Type} (roots : Array Name) (query : String)
     | .error message => throw <| IO.userError message
   let names := cached.queryNames limits
   let session ← unsafe cachedSession cached.moduleOf? names.all
-  return some (← unsafe runSession cached.moduleOf? session names.all (some names.1) none false none
+  return some (← unsafe runSession cached.moduleOf? session names.all
+    (some names.target) none false none
     (action session names))
 
 /-- Search complete declaration names from a query shard without loading the catalog. -/

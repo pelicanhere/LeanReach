@@ -22,6 +22,9 @@ Name matching, graph lookup, mathematical ranking, and pretty-printing are separ
 substring matching therefore does not alter dependency scores, and changing a score does not affect
 exact-name resolution.
 
+The three query stages reuse `Neighborhood α`: cached plans contain located names, PP plans contain
+Lean names, and output contains rendered declarations.
+
 ## Dependency semantics
 
 For a declaration `A`, LeanReach calls `ConstantInfo.getUsedConstantsAsSet` on the complete
@@ -193,7 +196,9 @@ Mathlib sidecars should be built once and reused; changed local modules are gene
 ## Source layout
 
 ```text
-LeanReach/Search/Name.lean            matching and bounded result buckets
+LeanReach/Search/Types.lean           shared located-name and neighborhood models
+LeanReach/Search/Name.lean            reusable Lean name decomposition
+LeanReach/Search/Match.lean           matching and bounded result buckets
 LeanReach/Search/Rank.lean            dependency scoring and Top-K selection
 LeanReach/Search/Index.lean           catalog, direct graph, and lookup
 LeanReach/Runtime/Project.lean        Lake project and built-module discovery

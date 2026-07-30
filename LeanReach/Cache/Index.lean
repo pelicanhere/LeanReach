@@ -63,7 +63,7 @@ private unsafe def readFragment (moduleName : Name) (olean : System.FilePath) :
     imports := all.imports.map (·.module)
     declarations := visible.constants.filterMap fun visibleInfo =>
       let name := visibleInfo.name
-      if source.contains name.toString && !isBlacklisted name then
+      if source.contains name && !isBlacklisted name then
         let info := (constants.find? name).getD visibleInfo
         some (name, collapseInternal internal info.getUsedConstantsAsSet)
       else none

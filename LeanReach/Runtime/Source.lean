@@ -20,9 +20,9 @@ private def foldDefinitions {α : Type} (ilean : Server.Ilean) (init : α)
         result := visit result name.toName location.range.start
   return result
 
-def sourceNames (olean : System.FilePath) : IO (Std.HashSet String) := do
+def sourceNames (olean : System.FilePath) : IO NameHashSet := do
   let some ilean ← loadIlean? olean | return {}
-  return foldDefinitions ilean {} fun names name _ => names.insert name.toString
+  return foldDefinitions ilean {} fun names name _ => names.insert name
 
 def moduleSource (sourcePath : SearchPath) (moduleName : Name) :
     IO (Option String × NameMap Lsp.Position) := do

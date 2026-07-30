@@ -63,8 +63,8 @@ private unsafe def runTests : IO Unit := do
   unless withoutSource.line == 0 && withoutSource.column == 0 do
     throw <| IO.userError "missing source position did not remain 0:0"
   discard <| unsafe QueryCache.build #[`Tests.Fixture]
-  let some cachedQuery ← unsafe QueryCache.load #[`Tests.Fixture]
-      `LeanReachFixture.Topic.ranked |
+  let .ok (some cachedQuery) ← unsafe QueryCache.resolve #[`Tests.Fixture]
+      "LeanReachFixture.Topic.ranked" |
     throw <| IO.userError "exact query cache is missing"
   let .ok expectedQuery :=
       fixtureIndex.queryNames "LeanReachFixture.Topic.ranked" {} |
@@ -225,7 +225,7 @@ private unsafe def runTests : IO Unit := do
           "lazy session search is missing"
     run (fun index => do
       let names ← index.queryNames "LeanReachFixture.Topic.ranked" (Limits.uniform 1)
-      pure (names, names.all, some names.1)) fun names => do
+      pure (names, names.all, some names.target)) fun names => do
         check ((← session.describeQuery names).upstream.size == 1)
           "prepared lazy query is missing"
 

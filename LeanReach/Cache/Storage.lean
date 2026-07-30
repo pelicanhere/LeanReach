@@ -12,16 +12,12 @@ private def rootHashVersion := 1
 def pickle {α : Type} (path : System.FilePath) (value : α) (key : Name) : IO Unit :=
   saveModuleData path key (unsafe unsafeCast value)
 
-private unsafe def unpickle (α : Type) (path : System.FilePath) :
-    IO (α × CompactedRegion) := do
-  let (value, region) ← readModuleData path
-  return (unsafeCast value, region)
-
 unsafe def loadPart (α : Type) (path : System.FilePath) (depHash : String) :
     IO (Option α) := do
   unless ← path.pathExists do return none
   try
-    let ((storedHash, value), _) ← unsafe unpickle (String × α) path
+    let (raw, _) ← readModuleData path
+    let (storedHash, value) : String × α := unsafeCast raw
     if storedHash == depHash then return some value
   catch _ => pure ()
   return none

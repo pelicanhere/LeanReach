@@ -28,8 +28,8 @@ unsafe def loadPP (moduleOf? : Name → Option Name)
   let mut byModule : NameMap (Array Name) := {}
   for name in names do
     if let some moduleName := moduleOf? name then
-      byModule := byModule.insert moduleName
-        ((byModule.find? moduleName).getD #[] |>.push name)
+      byModule := byModule.alter moduleName fun names =>
+        some ((names.getD #[]).push name)
   let mut declarations := {}
   for (moduleName, names) in byModule do
     let cached ← unsafe loadPPModule moduleName
@@ -50,8 +50,8 @@ unsafe def savePP (before after : NameMap Declaration) : IO Unit := do
   for (name, declaration) in after do
     unless before.contains name do
       let moduleName := declaration.moduleName.toName
-      let moduleDeclarations := (additions.find? moduleName).getD {}
-      additions := additions.insert moduleName (moduleDeclarations.insert name declaration)
+      additions := additions.alter moduleName fun declarations =>
+        some ((declarations.getD {}).insert name declaration)
   for (moduleName, added) in additions do
     unsafe savePPModule moduleName
       (Std.TreeMap.union (← unsafe loadPPModule moduleName) added)

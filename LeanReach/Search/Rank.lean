@@ -1,16 +1,11 @@
-import Lean.Data.Name
 import LeanReach.Search.Name
+import LeanReach.Search.Types
 
 namespace LeanReach
 
 open Lean
 
 universe u
-
-structure LocatedName where
-  name : Name
-  moduleName : Name
-  deriving Inhabited
 
 namespace Rank
 

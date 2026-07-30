@@ -1,7 +1,7 @@
 import LeanReach.Cache.Index
 import LeanReach.Cache.Overlay
 import LeanReach.Cache.Search
-import LeanReach.Search.Name
+import LeanReach.Search.Match
 
 namespace LeanReach.QueryCache
 
@@ -22,14 +22,11 @@ private def markerPath (olean : System.FilePath) : System.FilePath :=
 private def ready (olean : System.FilePath) (depHash : String) : IO Bool :=
   Cache.markerMatches (markerPath olean) depHash
 
-private def allLocated (query : CachedQuery) : Array LocatedName :=
-  #[query.target] ++ query.upstream ++ query.downstream
-
 private def encodeShard (queries : Array CachedQuery) : String := Id.run do
   let mut ids : NameMap Nat := {}
   let mut modules := #[]
   for query in queries do
-    for item in allLocated query do
+    for item in query.all do
       unless ids.contains item.moduleName do
         ids := ids.insert item.moduleName modules.size
         modules := modules.push item.moduleName
@@ -43,6 +40,11 @@ private def encodeShard (queries : Array CachedQuery) : String := Id.run do
   return String.intercalate "\n" <|
     modules.toList.map toString ++ ["|"] ++ queries.toList.map encode
 
+private def decodeTarget (modules : Array Name) (name moduleId : String) :
+    Option LocatedName := do
+  let some moduleName := moduleId.toNat? >>= fun id => modules[id]? | none
+  return { name := name.toName, moduleName }
+
 private def decodeLocated (modules : Array Name) (fields : List String) :
     Option (Array LocatedName) :=
   go fields #[]
@@ -50,17 +52,15 @@ where
   go : List String → Array LocatedName → Option (Array LocatedName)
     | [], items => some items
     | name :: moduleId :: rest, items => do
-      let some moduleName := moduleId.toNat? >>= fun id => modules[id]? | none
-      go rest (items.push { name := name.toName, moduleName })
+      go rest (items.push (← decodeTarget modules name moduleId))
     | _, _ => none
 
 private def decode (modules : Array Name) (line : String) : Option CachedQuery := do
   let name :: moduleId :: fields := line.splitOn "\t" | none
-  let some moduleName := moduleId.toNat? >>= fun id => modules[id]? | none
   let (upstream, downstream) := fields.span (· != "|")
   let _ :: downstream := downstream | none
   return {
-    target := { name := name.toName, moduleName }
+    target := ← decodeTarget modules name moduleId
     upstream := ← decodeLocated modules upstream
     downstream := ← decodeLocated modules downstream
   }
@@ -164,11 +164,6 @@ private unsafe def loadShard (roots : Array Name) (name : Name) :
   let _ :: queries := queries | return none
   return some (modules.toArray.map (·.toName), queries)
 
-private unsafe def loadFull (roots : Array Name) (name : Name) :
-    IO (Option CachedQuery) := do
-  let some (modules, lines) ← unsafe loadShard roots name | return none
-  return findExact modules lines name
-
 private unsafe def resolveFull (roots : Array Name) (query : String) :
     IO (Except String (Option CachedQuery)) := do
   let name := query.toName
@@ -188,8 +183,7 @@ private unsafe def resolveFull (roots : Array Name) (query : String) :
 
 private def target? (modules : Array Name) (line : String) : Option LocatedName := do
   let name :: moduleId :: _ := line.splitOn "\t" | none
-  let some moduleName := moduleId.toNat? >>= fun id => modules[id]? | none
-  return { name := name.toName, moduleName }
+  decodeTarget modules name moduleId
 
 private unsafe def searchFull (roots : Array Name) (query : String)
     (limit : Nat) : IO (Option (Array LocatedName)) := do
@@ -225,14 +219,6 @@ private def mergeMatches (query : String) (limit : Nat)
       candidates := candidates.push target
   candidates := candidates.qsort fun a b => Name.lt a.name b.name
   return (NameSearch.buckets query candidates some (·.name) limit).flatten.take limit
-
-unsafe def load (roots : Array Name) (name : Name) : IO (Option CachedQuery) := do
-  let overlay? ← unsafe loadOverlay roots
-  let some overlay := overlay? |
-    return ← unsafe loadFull roots name
-  let base ← unsafe Cache.loadIndex #[overlay.baseRoot] true
-  let some target := overlay.local? name <|> base.located? name | return none
-  return some (overlay.query base target)
 
 unsafe def resolve (roots : Array Name) (query : String) :
     IO (Except String (Option CachedQuery)) := do

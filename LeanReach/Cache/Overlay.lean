@@ -1,4 +1,5 @@
 import LeanReach.Cache.Index
+import LeanReach.Search.Rank
 
 namespace LeanReach.QueryOverlay
 
@@ -35,8 +36,8 @@ unsafe def build (roots : Array Name) (baseRoot : Name) : IO Data := do
   let mut reverse : NameMap (Array LocatedName) := {}
   for (_, entry) in entries do
     for dependency in entry.dependencies do
-      reverse := reverse.insert dependency
-        ((reverse.find? dependency).getD #[] |>.push entry.target)
+      reverse := reverse.alter dependency fun targets =>
+        some ((targets.getD #[]).push entry.target)
   let data : Data := { baseRoot, entries, reverse }
   let (olean, depHash, root) ← unsafe Cache.rootData roots
   Cache.pickle (path olean) (depHash, data) (Name.str root "_leanreachQueryOverlay")

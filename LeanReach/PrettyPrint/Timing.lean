@@ -7,14 +7,14 @@ structure PPTiming where
   bodyNanos : Nat := 0
   sidecarWriteNanos : Nat := 0
 
-def PPTiming.add (left right : PPTiming) : PPTiming where
-  importNanos := left.importNanos + right.importNanos
-  privateOverlayNanos := left.privateOverlayNanos + right.privateOverlayNanos
-  signatureNanos := left.signatureNanos + right.signatureNanos
-  bodyNanos := left.bodyNanos + right.bodyNanos
-  sidecarWriteNanos := left.sidecarWriteNanos + right.sidecarWriteNanos
-
-instance : Add PPTiming := ⟨PPTiming.add⟩
+instance : Add PPTiming where
+  add left right := {
+    importNanos := left.importNanos + right.importNanos
+    privateOverlayNanos := left.privateOverlayNanos + right.privateOverlayNanos
+    signatureNanos := left.signatureNanos + right.signatureNanos
+    bodyNanos := left.bodyNanos + right.bodyNanos
+    sidecarWriteNanos := left.sidecarWriteNanos + right.sidecarWriteNanos
+  }
 
 def PPTiming.profile (timing : PPTiming) : String :=
   let ms nanos := nanos / 1000000

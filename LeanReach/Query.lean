@@ -5,11 +5,14 @@ namespace LeanReach
 
 open Lean Meta
 
-structure QueryResult where
-  target : Declaration
-  upstream : Array Declaration
-  downstream : Array Declaration
-  deriving ToJson
+abbrev QueryResult := Neighborhood Declaration
+
+instance : ToJson QueryResult where
+  toJson result := Json.mkObj [
+    ("target", toJson result.target),
+    ("upstream", toJson result.upstream),
+    ("downstream", toJson result.downstream)
+  ]
 
 structure Limits where
   upstream : Nat := 10
@@ -46,17 +49,14 @@ private def describe (session : Session) (name : Name) : CoreM Declaration := do
   session.declarations.modify (·.insert name declaration)
   return declaration
 
-abbrev QueryNames := Name × Array Name × Array Name
-
-def QueryNames.all (names : QueryNames) : Array Name :=
-  #[names.1] ++ names.2.1 ++ names.2.2
+abbrev QueryNames := Neighborhood Name
 
 def CachedQuery.queryNames (query : CachedQuery) (limits : Limits) : QueryNames :=
-  (
-    query.target.name,
-    (query.upstream.take limits.upstream).map (·.name),
-    (query.downstream.take limits.downstream).map (·.name)
-  )
+  {
+    target := query.target.name
+    upstream := (query.upstream.take limits.upstream).map (·.name)
+    downstream := (query.downstream.take limits.downstream).map (·.name)
+  }
 
 def CachedQuery.moduleOf? (query : CachedQuery) (name : Name) : Option Name :=
   if query.target.name == name then some query.target.moduleName
@@ -66,33 +66,28 @@ def CachedQuery.moduleOf? (query : CachedQuery) (name : Name) : Option Name :=
 def Index.queryNames (index : Index) (query : String) (limits : Limits := {}) :
     Except String QueryNames := do
   let target ← index.resolve query
-  return (
-    target,
-    index.upstream target limits.upstream,
-    index.downstream target limits.downstream
-  )
+  return {
+    target
+    upstream := index.upstream target limits.upstream
+    downstream := index.downstream target limits.downstream
+  }
 
 def Session.describeNames (session : Session) (items : Array Name) :
     CoreM (Array Declaration) :=
   items.mapM (describe session)
 
-private def liftQuery {α : Type} : Except String α → CoreM α
-  | .ok result => pure result
-  | .error message => throwError message
-
 def Session.describeQuery (session : Session) (names : QueryNames) :
     CoreM QueryResult := do
-  let (target, upstream, downstream) := names
   return {
-    target := ← describe session target
-    upstream := ← session.describeNames upstream
-    downstream := ← session.describeNames downstream
+    target := ← describe session names.target
+    upstream := ← session.describeNames names.upstream
+    downstream := ← session.describeNames names.downstream
   }
 
 def Session.query (session : Session) (index : Index) (query : String)
     (limits : Limits := {}) :
     CoreM QueryResult := do
-  session.describeQuery (← liftQuery (index.queryNames query limits))
+  session.describeQuery (← Lean.ofExcept (index.queryNames query limits))
 
 def Session.search (session : Session) (index : Index) (query : String)
     (limit : Nat := 20) :
