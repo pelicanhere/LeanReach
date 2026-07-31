@@ -101,15 +101,18 @@ private def prettyPrintKnownDeclaration (cache : SignatureCache)
     (includeBody : Bool) : MetaM (Declaration × PPTiming) := do
   let env ← getEnv
   let some info := env.find? name | throwError "unknown declaration '{name}'"
-  let position := source.2.find? name
+  let some file := source.1 |
+    throwError "source file for '{name}' was not found"
+  let some position := source.2.find? name |
+    throwError "source position for '{name}' was not found"
   let (signature, timing) ← prettyPrintConstant cache name info includeBody
   return ({
       name := name.toString
       signature
       moduleName
-      file := source.1
-      line := position.map (·.line + 1) |>.getD 0
-      column := position.map (·.character + 1) |>.getD 0
+      file := some file
+      line := position.line + 1
+      column := position.character + 1
     }, timing)
 
 def prettyPrintModuleWithBodies (moduleName : Name)

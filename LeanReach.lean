@@ -64,7 +64,8 @@ private unsafe def runSession {α : Type} (moduleOf? : Name → Option Name) (se
 private unsafe def withFreshSession {α : Type} (moduleOf? : Name → Option Name)
     (names : Array Name) (action : Session → IO α) : IO α := do
   let declarations ← unsafe Cache.loadPP moduleOf? names
-  let missing := names.filter fun name => !declarations.contains name
+  let missing := names.filter fun name =>
+    (declarations.find? name).all (!·.hasSource)
   let sourcePath ← if missing.isEmpty then pure [] else prepareEnvironment
   let session ← Session.create sourcePath
   session.merge declarations

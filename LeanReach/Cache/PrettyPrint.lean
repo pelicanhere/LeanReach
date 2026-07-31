@@ -42,8 +42,8 @@ unsafe def loadPPModule (moduleName : Name) : IO (NameMap Declaration) := do
 private unsafe def ppRootData (roots : Array Name) :
     IO (System.FilePath × String) := do
   let (olean, depHash, _) ← unsafe rootData roots
-  -- Single-root marker format 6; multi-root marker format 7.
-  let suffix := if roots.size == 1 then "root-6" else "roots-7"
+  -- Single-root marker format 7; multi-root marker format 8.
+  let suffix := if roots.size == 1 then "root-7" else "roots-8"
   return (olean.withExtension s!"leanreach-pp-{suffix}", depHash)
 
 unsafe def isFullyPP (roots : Array Name) : IO Bool := do
@@ -74,8 +74,10 @@ unsafe def savePPModule (moduleName : Name) (declarations : NameMap Declaration)
 
 unsafe def mergePPModule (moduleName : Name) (added : NameMap Declaration) :
     IO Unit := do
-  unsafe savePPModule moduleName
-    (Std.TreeMap.union (← unsafe loadPPModule moduleName) added)
+  let current ← unsafe loadPPModule moduleName
+  unsafe savePPModule moduleName <|
+    added.foldl (init := current) fun current name declaration =>
+      current.insert name declaration
 
 unsafe def savePP (additions : PPBatch) : IO Unit := do
   for (moduleName, added) in additions do

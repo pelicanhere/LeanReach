@@ -218,7 +218,9 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "selective PP cache load changed declaration output"
   try
     unsafe Cache.savePPModule `Tests.Fixture
-      (planned.erase `LeanReachFixture.cachedWrapped)
+      (planned.insert `LeanReachFixture.cachedWrapped {
+        cachedWrapped with file := none, line := 0, column := 0
+      })
     try
       discard <| unsafe withLookupFor #[`Tests.Fixture]
         "LeanReachFixture.cachedWrapped" (Limits.uniform 0) fun _ _ =>
@@ -226,17 +228,19 @@ private unsafe def runTests : IO Unit := do
     catch _ => pure ()
     let afterFailure ← unsafe Cache.loadPPModule `Tests.Fixture
     unless afterFailure.contains `LeanReachFixture.double &&
-        afterFailure.contains `LeanReachFixture.cachedWrapped do
-      throw <| IO.userError "incremental PP cache did not preserve and add declarations"
+        (afterFailure.find? `LeanReachFixture.cachedWrapped).any (·.hasSource) do
+      throw <| IO.userError "incremental PP cache did not repair its source location"
   finally
     unsafe Cache.savePPModule `Tests.Fixture planned
-  let (withoutSource, _) ← unsafe runCore fixtureEnv <| MetaM.run' <|
-    prettyPrintModuleWithBodies `Tests.Fixture (none, {})
-      #[`LeanReachFixture.double] {}
-  let some withoutSource := withoutSource.find? `LeanReachFixture.double |
-    throw <| IO.userError "declaration without source position is missing"
-  unless withoutSource.line == 0 && withoutSource.column == 0 do
-    throw <| IO.userError "missing source position did not remain 0:0"
+  let mut rejectedMissingSource := false
+  try
+    discard <| unsafe runCore fixtureEnv <| MetaM.run' <|
+      prettyPrintModuleWithBodies `Tests.Fixture (none, {})
+        #[`LeanReachFixture.double] {}
+  catch _ =>
+    rejectedMissingSource := true
+  unless rejectedMissingSource do
+    throw <| IO.userError "pretty-printer accepted a declaration without source"
   discard <| unsafe QueryCache.build #[`Tests.Fixture]
   for query in #[
       "LeanReachFixture.cachedWrapped",
@@ -402,12 +406,20 @@ private unsafe def runTests : IO Unit := do
     let query (name : String) (limits : Limits)
         (action : QueryResult → IO Unit) : IO Unit :=
       runner name limits fun
-        | .query names => do action (← session.describeQuery names)
+        | .query names => do
+          let result ← session.describeQuery names
+          check (result.all.all (·.hasSource))
+            s!"dependency query '{name}' returned a declaration without source"
+          action result
         | .search _ =>
           throw <| IO.userError s!"exact declaration '{name}' became a regex search"
     let search (pattern : String) (action : Array Declaration → IO Unit) : IO Unit := do
       runner pattern {} fun
-        | .search names => do action (← session.describeNames names)
+        | .search names => do
+          let result ← session.describeNames names
+          check (result.all (·.hasSource))
+            s!"regex '{pattern}' returned a declaration without source"
+          action result
         | .query _ =>
           throw <| IO.userError s!"regex pattern '{pattern}' became an exact query"
 

@@ -33,15 +33,20 @@ def Session.create (sourcePath : SearchPath) : IO Session :=
   return { sourcePath, declarations := ← IO.mkRef {} }
 
 def Session.merge (session : Session) (declarations : NameMap Declaration) : IO Unit := do
-  session.declarations.modify fun current => Std.TreeMap.union current declarations
+  session.declarations.modify fun current =>
+    declarations.foldl (init := current) fun current name declaration =>
+      current.insert name declaration
 
 def Session.missing (session : Session) (names : Array Name) : IO (Array Name) := do
   let cached ← session.declarations.get
-  return names.filter fun name => !cached.contains name
+  return names.filter fun name =>
+    (cached.find? name).all (!·.hasSource)
 
 private def describe (declarations : NameMap Declaration) (name : Name) : IO Declaration := do
   let some declaration := declarations.find? name |
     throw <| IO.userError s!"declaration '{name}' was not prepared"
+  unless declaration.hasSource do
+    throw <| IO.userError s!"declaration '{name}' has no source location"
   return declaration
 
 abbrev QueryNames := Neighborhood Name

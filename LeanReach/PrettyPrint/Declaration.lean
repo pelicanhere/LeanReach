@@ -11,6 +11,9 @@ structure Declaration where
   line : Nat
   column : Nat
 
+def Declaration.hasSource (declaration : Declaration) : Bool :=
+  declaration.file.isSome && declaration.line > 0 && declaration.column > 0
+
 instance : Lean.ToJson Declaration where
   toJson d :=
     let queryName := d.name

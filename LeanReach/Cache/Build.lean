@@ -26,7 +26,8 @@ private unsafe def saveModule (moduleName : Name) (added : NameMap Declaration) 
 private unsafe def addMissingInput (inputs : Array Input)
     (moduleName : Name) (names : Array Name) : IO (Array Input) := do
   let before ← unsafe Cache.loadPPModule moduleName
-  let missing := names.filter fun name => !before.contains name
+  let missing := names.filter fun name =>
+    (before.find? name).all (!·.hasSource)
   return if missing.isEmpty then inputs else inputs.push (moduleName, missing)
 
 private unsafe def completedModules (roots : Array Name) : IO NameHashSet := do
