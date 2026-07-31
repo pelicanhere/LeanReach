@@ -106,12 +106,10 @@ lake build
 lake exe leanreach_tests
 ```
 
-## Frontend and benchmarks
+## Frontend
 
 ```console
 python Frontend/server.py --project-dir /path/to/project
-python Benchmarks/run.py --stage my-change --query-set all --append-history
-python Benchmarks/plot.py
 ```
 
 See [docs/architecture.md](docs/architecture.md) for the design.
