@@ -1,4 +1,5 @@
 import Lean.Data.Name
+import Lean.Data.NameMap
 
 namespace LeanReach
 
@@ -10,6 +11,17 @@ structure LocatedName where
   name : Name
   moduleName : Name
   deriving Inhabited
+
+def LocatedName.sortByName (items : Array LocatedName) : Array LocatedName :=
+  items.qsort fun left right => Name.lt left.name right.name
+
+def groupNamesByModule (moduleOf? : Name → Option Name)
+    (names : Array Name) : NameMap (Array Name) :=
+  names.foldl (init := {}) fun groups name =>
+    match moduleOf? name with
+    | none => groups
+    | some moduleName => groups.alter moduleName fun names =>
+      some ((names.getD #[]).push name)
 
 structure Neighborhood (α : Type u) where
   target : α

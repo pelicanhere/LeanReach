@@ -73,8 +73,7 @@ def Delta.applyCatalog (delta : Delta) (catalog : Catalog) : Catalog := Id.run d
   for entry in delta.added do names := names.insert entry.target.name entry.target
   return {
     catalog with
-    localNames := names.toArray.map (·.2) |>.qsort fun left right =>
-      Name.lt left.name right.name
+    localNames := LocatedName.sortByName (names.toArray.map (·.2))
   }
 
 def Delta.applyRelations (delta : Delta) (relations : Relations) : Relations := Id.run do
@@ -140,9 +139,7 @@ private def saveSnapshot (olean : System.FilePath) (generation : Nat)
     `_leanreachQueryOverlaySnapshot
 
 private def removeFile (path : System.FilePath) : IO Unit := do
-  try
-    if ← path.pathExists then IO.FS.removeFile path
-  catch _ => pure ()
+  try IO.FS.removeFile path catch _ => pure ()
 
 private def removeArtifacts (olean : System.FilePath) (manifest : Manifest) : IO Unit := do
   removeFile (snapshotPath olean manifest.generation)

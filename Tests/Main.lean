@@ -450,18 +450,21 @@ private unsafe def runTests : IO Unit := do
   let staleRelations : QueryOverlay.Relations := {
     baseRoot := `Tests.PrivateA, entries := {}, reverse := {}
   }
-  unsafe QueryOverlay.saveRelations layeredRoots staleRelations
+  let (_, layeredFragments) ← unsafe QueryOverlay.buildRelationsWithFragments
+    layeredRoots `Mathlib mathlibTable.modules
+  unsafe QueryOverlay.Incremental.saveBaseline layeredRoots
+    localCatalog staleRelations layeredFragments
   let some layeredMissing ← unsafe QueryCache.exactQueries layeredRoots
       "definitely_missing_layered_declaration" {} |
     throw <| IO.userError "layered exact cache is unavailable"
-  let some afterMissing ← unsafe QueryOverlay.loadRelations layeredRoots |
+  let some afterMissing ← unsafe QueryOverlay.Incremental.loadRelations layeredRoots |
     throw <| IO.userError "stale layered relation sentinel disappeared"
   unless layeredMissing.isEmpty && afterMissing.baseRoot == staleRelations.baseRoot do
     throw <| IO.userError "an exact miss eagerly built layered relations"
   let localPattern ← regex r"^LeanReachFixture\."
   let some catalogSearch ← unsafe QueryCache.search layeredRoots localPattern 10 |
     throw <| IO.userError "local catalog search is unavailable"
-  let some afterSearch ← unsafe QueryOverlay.loadRelations layeredRoots |
+  let some afterSearch ← unsafe QueryOverlay.Incremental.loadRelations layeredRoots |
     throw <| IO.userError "stale layered relation sentinel disappeared"
   unless catalogSearch.map (·.name) == fixtureIndex.searchAll localPattern 10 &&
       afterSearch.baseRoot == staleRelations.baseRoot do

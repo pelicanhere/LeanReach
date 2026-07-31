@@ -22,28 +22,16 @@ structure Relations where
 private def catalogPath (olean : System.FilePath) : System.FilePath :=
   olean.withExtension "leanreach-query-overlay-catalog-6"
 
-private def relationsPath (olean : System.FilePath) : System.FilePath :=
-  olean.withExtension "leanreach-query-overlay-relations-7"
-
 private initialize loadedCatalogs : IO.Ref (Std.HashMap String Catalog) ← IO.mkRef {}
-private initialize loadedRelations : IO.Ref (Std.HashMap String Relations) ← IO.mkRef {}
 
-private unsafe def loadCached {α : Type} (roots : Array Name)
-    (pathOf : System.FilePath → System.FilePath)
-    (loaded : IO.Ref (Std.HashMap String α)) : IO (Option α) := do
+unsafe def loadCatalog (roots : Array Name) : IO (Option Catalog) := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
-  let path := pathOf olean
+  let path := catalogPath olean
   let key := Cache.loadedKey path depHash
-  if let some value := (← loaded.get).get? key then return some value
-  let some value ← unsafe Cache.loadPart α path depHash | return none
-  loaded.modify (·.insert key value)
-  return some value
-
-unsafe def loadCatalog (roots : Array Name) : IO (Option Catalog) :=
-  unsafe loadCached roots catalogPath loadedCatalogs
-
-unsafe def loadRelations (roots : Array Name) : IO (Option Relations) :=
-  unsafe loadCached roots relationsPath loadedRelations
+  if let some catalog := (← loadedCatalogs.get).get? key then return some catalog
+  let some catalog ← unsafe Cache.loadPart Catalog path depHash | return none
+  loadedCatalogs.modify (·.insert key catalog)
+  return some catalog
 
 def Relations.affects (data : Relations) (name : Name) : Bool :=
   data.entries.contains name || data.reverse.contains name
@@ -89,8 +77,7 @@ unsafe def buildCatalog (roots : Array Name) (baseRoot : Name)
       (excludedModules baseRoot baseModules) do
     for (name, _) in declarations do
       targets := targets.insert name { name, moduleName }
-  let localNames := targets.toArray.map (·.2) |>.qsort fun left right =>
-    Name.lt left.name right.name
+  let localNames := LocatedName.sortByName (targets.toArray.map (·.2))
   return { baseRoot, localNames }
 
 def relationsFromFragments (baseRoot : Name)
@@ -121,24 +108,13 @@ unsafe def buildRelationsWithFragments (roots : Array Name) (baseRoot : Name)
 
 def Relations.catalog (relations : Relations) : Catalog := {
   baseRoot := relations.baseRoot
-  localNames := relations.entries.toArray.map (·.2.target) |>.qsort fun left right =>
-    Name.lt left.name right.name
+  localNames := LocatedName.sortByName (relations.entries.toArray.map (·.2.target))
 }
 
-private unsafe def saveCached {α : Type} (roots : Array Name) (value : α)
-    (pathOf : System.FilePath → System.FilePath) (suffix : String)
-    (loaded : IO.Ref (Std.HashMap String α)) : IO Unit := do
+unsafe def saveCatalog (roots : Array Name) (catalog : Catalog) : IO Unit := do
   let (olean, depHash, root) ← unsafe Cache.rootData roots
-  let path := pathOf olean
-  Cache.savePart path depHash value (Name.str root suffix)
-  loaded.modify (·.insert (Cache.loadedKey path depHash) value)
-
-unsafe def saveCatalog (roots : Array Name) (catalog : Catalog) : IO Unit :=
-  unsafe saveCached roots catalog catalogPath
-    "_leanreachQueryOverlayCatalog" loadedCatalogs
-
-unsafe def saveRelations (roots : Array Name) (relations : Relations) : IO Unit :=
-  unsafe saveCached roots relations relationsPath
-    "_leanreachQueryOverlayRelations" loadedRelations
+  let path := catalogPath olean
+  Cache.savePart path depHash catalog (Name.str root "_leanreachQueryOverlayCatalog")
+  loadedCatalogs.modify (·.insert (Cache.loadedKey path depHash) catalog)
 
 end LeanReach.QueryOverlay

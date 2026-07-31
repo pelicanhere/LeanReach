@@ -142,14 +142,10 @@ private unsafe def workspaceLayout (workspace : Workspace) : IO Layout := do
   roots := roots.qsort Name.lt
   if roots.contains `Mathlib then
     roots := (roots.filter (· != `Mathlib)).push `Mathlib
-  let mut sourcePath := #[]
-  for library in workspace.root.leanLibs do
-    unless sourcePath.contains library.srcDir do
-      sourcePath := sourcePath.push library.srcDir
-  for path in workspace.leanSrcPath do
-    unless sourcePath.contains path do sourcePath := sourcePath.push path
-  unless sourcePath.contains workspace.lakeEnv.lake.srcDir do
-    sourcePath := sourcePath.push workspace.lakeEnv.lake.srcDir
+  let sourcePath :=
+    (workspace.root.leanLibs.map (·.srcDir) ++
+      workspace.leanSrcPath.toArray ++ #[workspace.lakeEnv.lake.srcDir])
+      |>.toList.eraseDups.toArray
   return {
     leanPath := workspace.leanPath.toArray
     sourcePath

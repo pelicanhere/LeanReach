@@ -111,7 +111,7 @@ private unsafe def readCatalog (roots : Array Name) :
 unsafe def isBuilt (roots : Array Name) : IO Bool := do
   if roots.size == 1 then return ← unsafe fullCachesBuilt roots
   let some catalog ← unsafe readCatalog roots | return false
-  let some relations ← unsafe QueryOverlay.loadRelations roots | return false
+  let some relations ← unsafe QueryOverlay.Incremental.loadRelations roots | return false
   return (← unsafe fullCachesBuilt #[catalog.baseRoot]) &&
     relations.baseRoot == catalog.baseRoot
 
@@ -127,15 +127,12 @@ private unsafe def loadCatalog (roots : Array Name) :
 
 private unsafe def loadRelations (roots : Array Name) (baseRoot : Name) :
     IO QueryOverlay.Relations := do
-  if let some relations ← unsafe QueryOverlay.loadRelations roots then
-    if relations.baseRoot == baseRoot then return relations
   if let some relations ← unsafe QueryOverlay.Incremental.loadRelations roots then
     if relations.baseRoot == baseRoot then return relations
   let some table ← unsafe SearchCache.loadTable #[baseRoot] |
     throw <| IO.userError s!"declaration table for '{baseRoot}' is unavailable"
   let (relations, fragments) ←
     unsafe QueryOverlay.buildRelationsWithFragments roots baseRoot table.modules
-  unsafe QueryOverlay.saveRelations roots relations
   unsafe QueryOverlay.Incremental.saveBaseline roots
     relations.catalog relations fragments
   return relations
@@ -178,9 +175,7 @@ private def mergeResults {α : Type} (nameOf : α → Name)
   let mut byName : NameMap α := {}
   for item in baseResults do byName := byName.insert (nameOf item) item
   for item in localResults do byName := byName.insert (nameOf item) item
-  let mut results := #[]
-  for (_, item) in byName do results := results.push item
-  return (results.qsort fun left right =>
+  return (byName.toArray.map (·.2) |>.qsort fun left right =>
     Name.lt (nameOf left) (nameOf right)).take limit
 
 private def queryFromEdges (table : SearchCache.Table) (targetId : UInt32)

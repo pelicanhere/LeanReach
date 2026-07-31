@@ -12,7 +12,7 @@ inductive Command where
 
 structure Config where
   root? : Option Name := none
-  limit? : Option Nat := none
+  limits : Limits := {}
   interactive : Bool := false
   json : Bool := false
   profile : Bool := false
@@ -33,7 +33,7 @@ private def takeNat (option : String) : CliM Nat := do
 
 private def shortOption : Char → CliM PUnit
   | 'm' => do modifyThe Config ({ · with root? := some (← takeArg "-m").toName })
-  | 'n' => do modifyThe Config ({ · with limit? := some (← takeNat "-n") })
+  | 'n' => do modifyThe Config ({ · with limits := Limits.uniform (← takeNat "-n") })
   | 'i' => modifyThe Config ({ · with interactive := true })
   | 'j' => modifyThe Config ({ · with json := true })
   | 'h' => modifyThe Config ({ · with help := true })
@@ -112,9 +112,6 @@ private def printLookupNames (config : Config) (pattern : String)
   | .search names => do
     printSearch config.json pattern (← session.describeNames names)
 
-private def Config.limits (config : Config) : Limits :=
-  config.limit?.map Limits.uniform |>.getD {}
-
 private def printPP (config : Config) (modules : Array Name)
     (result : Nat × PPTiming) : IO Unit := do
   let (count, timing) := result
@@ -166,7 +163,7 @@ private def runInteractive (session : Session) (runner : InteractiveRunner)
     stdout.flush
 
 private def validate (config : Config) : CliMainM Unit := do
-  if config.limit?.any fun limit => limit == 0 || limit > 1000 then
+  if config.limits.search == 0 || config.limits.search > 1000 then
     throw <| Lake.CliError.invalidOptArg "--limit" "an integer from 1 to 1000"
 
 private unsafe def Config.roots (config : Config) (refresh := false) : IO (Array Name) :=

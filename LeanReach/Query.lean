@@ -25,9 +25,7 @@ def Session.merge (session : Session) (declarations : NameMap Declaration) : IO 
   session.declarations.modify (·.insertMany declarations)
 
 def Session.missing (session : Session) (names : Array Name) : IO (Array Name) := do
-  let cached ← session.declarations.get
-  return names.filter fun name =>
-    (cached.find? name).all (!·.hasSource)
+  return Declaration.missingFrom (← session.declarations.get) names
 
 private def describe (declarations : NameMap Declaration) (name : Name) : IO Declaration := do
   let some declaration := declarations.find? name |

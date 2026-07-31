@@ -87,8 +87,7 @@ unsafe def moduleFragment (moduleName : Name) : IO ModuleFragment := do
 
 unsafe def removeStoredModuleFragment (moduleName : Name) (hash : String) : IO Unit := do
   try
-    let path := fragmentPath (← findOLean moduleName) hash
-    if ← path.pathExists then IO.FS.removeFile path
+    IO.FS.removeFile (fragmentPath (← findOLean moduleName) hash)
   catch _ => pure ()
 
 unsafe def moduleNames (moduleName : Name) : IO (Array Name) :=

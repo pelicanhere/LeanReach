@@ -17,25 +17,13 @@ private def normalizeQuery (query : String) : IO String := do
   if query.isEmpty then throw <| IO.userError "declaration query cannot be empty"
   return query
 
-private def groupByModule (moduleOf? : Name → Option Name) (names : Array Name) :
-    Array Name × NameMap (Array Name) := Id.run do
-  let mut modules := #[]
-  let mut byModule := {}
-  for name in names do
-    if let some moduleName := moduleOf? name then
-      unless byModule.contains moduleName do
-        modules := modules.push moduleName
-      byModule := byModule.alter moduleName fun names =>
-        some ((names.getD #[]).push name)
-  return (modules, byModule)
-
 private unsafe def runPreparedSession {α : Type} (moduleOf? : Name → Option Name)
     (session : Session) (missing : Array Name) (leakEnv : Bool)
     (action : IO α) : IO α := do
   let mut added : NameMap (NameMap Declaration) := {}
-  let (modules, byModule) := groupByModule moduleOf? missing
-  unless modules.isEmpty do
-    let env ← importEnvironment modules (leakEnv := leakEnv)
+  let byModule := groupNamesByModule moduleOf? missing
+  unless byModule.isEmpty do
+    let env ← importEnvironment (byModule.toArray.map (·.1)) (leakEnv := leakEnv)
     for (moduleName, names) in byModule do
       let (declarations, _) ← unsafe prettyPrintModuleIO
         session.sourcePath env moduleName names moduleOf?
@@ -58,8 +46,7 @@ private unsafe def runSession {α : Type} (moduleOf? : Name → Option Name) (se
 private unsafe def withFreshSession {α : Type} (moduleOf? : Name → Option Name)
     (names : Array Name) (action : Session → IO α) : IO α := do
   let declarations ← unsafe Cache.loadPP moduleOf? names
-  let missing := names.filter fun name =>
-    (declarations.find? name).all (!·.hasSource)
+  let missing := Declaration.missingFrom declarations names
   let sourcePath ← if missing.isEmpty then pure [] else prepareEnvironment
   let session ← Session.create sourcePath
   session.merge declarations

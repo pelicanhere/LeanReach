@@ -17,7 +17,7 @@ private def writeAtomically (path : System.FilePath)
     IO.FS.rename temp path
   finally
     try
-      if ← temp.pathExists then IO.FS.removeFile temp
+      IO.FS.removeFile temp
     catch _ => pure ()
 
 /-- Save a compacted Lean object with its dependency hash. Adapted from Loogle's `Pickle` module. -/
@@ -54,32 +54,30 @@ private def oleanParts (olean : System.FilePath) : Array System.FilePath :=
   #[OLeanLevel.exported, OLeanLevel.server, OLeanLevel.private].map
     (·.adjustFileName olean)
 
-def depHash? (olean : System.FilePath) : IO (Option String) := do
-  let path := olean.withExtension "trace"
-  if ← path.pathExists then
-    try
-      if let .ok metadata := Lake.BuildMetadata.parse (← IO.FS.readFile path) then
-        return some (toString metadata.depHash)
-    catch _ => pure ()
+private def buildMetadata? (olean : System.FilePath) : IO (Option Lake.BuildMetadata) := do
+  try
+    let result := Lake.BuildMetadata.parse
+      (← IO.FS.readFile (olean.withExtension "trace"))
+    return result.toOption
+  catch _ => return none
+
+private def partHash? (olean : System.FilePath) : IO (Option String) := do
   let hashes ← (← (oleanParts olean).filterM (·.pathExists)).mapM fun path =>
     toString <$> Lake.computeFileHash path
   return if hashes.isEmpty then none else some (String.intercalate ":" hashes.toList)
 
+def depHash? (olean : System.FilePath) : IO (Option String) := do
+  if let some metadata ← buildMetadata? olean then
+    return some (toString metadata.depHash)
+  partHash? olean
+
 /-- Hashes only the emitted `.olean` layers, excluding transitive build inputs. -/
 def oleanHash? (olean : System.FilePath) : IO (Option String) := do
-  let trace := olean.withExtension "trace"
-  if ← trace.pathExists then
-    try
-      if let .ok metadata := Lake.BuildMetadata.parse (← IO.FS.readFile trace) then
-        if let some outputs := metadata.outputs? then
-          let hashes : Except String (Array String) :=
-            outputs.getObjValAs? (Array String) "o"
-          if let .ok hashes := hashes then
-            if !hashes.isEmpty then return some (String.intercalate ":" hashes.toList)
-    catch _ => pure ()
-  let hashes ← (← (oleanParts olean).filterM (·.pathExists)).mapM fun path =>
-    toString <$> Lake.computeFileHash path
-  return if hashes.isEmpty then none else some (String.intercalate ":" hashes.toList)
+  if let some outputs := (← buildMetadata? olean).bind (·.outputs?) then
+    let hashes : Except String (Array String) := outputs.getObjValAs? (Array String) "o"
+    if let .ok hashes := hashes then
+      if !hashes.isEmpty then return some (String.intercalate ":" hashes.toList)
+  partHash? olean
 
 private def rootStamp (olean : System.FilePath) : IO String := do
   let trace := olean.withExtension "trace"

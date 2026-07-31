@@ -1,5 +1,6 @@
 import LeanReach.Cache.Storage
 import LeanReach.PrettyPrint.Declaration
+import LeanReach.Search.Types
 
 namespace LeanReach.Cache
 
@@ -49,13 +50,8 @@ unsafe def isFullyPP (roots : Array Name) : IO Bool := do
 
 unsafe def loadPP (moduleOf? : Name → Option Name)
     (names : Array Name) : IO (NameMap Declaration) := do
-  let mut byModule : NameMap (Array Name) := {}
-  for name in names do
-    if let some moduleName := moduleOf? name then
-      byModule := byModule.alter moduleName fun names =>
-        some ((names.getD #[]).push name)
   let mut declarations := {}
-  for (moduleName, names) in byModule do
+  for (moduleName, names) in groupNamesByModule moduleOf? names do
     let cached ← unsafe loadPPModule moduleName
     for name in names do
       if let some declaration := cached.find? name then
