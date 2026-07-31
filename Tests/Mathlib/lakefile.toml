@@ -1,0 +1,22 @@
+name = "LeanReachMathlibTests"
+packagesDir = "../../.lake/packages"
+defaultTargets = ["leanreach_mathlib_tests"]
+leanOptions.pp.unicode.fun = true
+leanOptions.autoImplicit = false
+
+[[require]]
+name = "LeanReach"
+path = "../.."
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+rev = "v4.32.0"
+
+[[lean_lib]]
+name = "LeanReachMathlibTests"
+
+[[lean_exe]]
+name = "leanreach_mathlib_tests"
+root = "LeanReachMathlibTests.Main"
+supportInterpreter = true

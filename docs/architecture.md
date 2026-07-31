@@ -215,6 +215,13 @@ The remaining cold-cache cost is primarily Lean signature delaboration and forma
 Mathlib sidecars should be built once and reused. Local module fragments and PP sidecars are reused
 per module; an edited module updates the local overlay without rematerializing the unchanged graph.
 
+## Test projects
+
+The root package and its default tests do not depend on Mathlib. `Tests/Mathlib` is a standalone
+Lake project that requires the repository by path and owns the Mathlib cache, ranking, PP, and
+overlay integration suite. Its build directory is local to that project, while its package
+directory reuses the repository's existing Lake packages.
+
 ## Source layout
 
 ```text
@@ -246,10 +253,10 @@ LeanReach/Query.lean                   cross-layer query construction
 LeanReach.lean                         public session orchestration
 Main.lean                              CLI and output
 Tests/Unit.lean                        storage, codec, index, and regex units
-Tests/Integration.lean                 Mathlib cache, PP, and overlay integration
 Tests/Session.lean                     interactive query contracts
 Tests/Layout/Test.ps1                  custom Lake layout integration
 Tests/Main.lean                        test runner
+Tests/Mathlib/                          standalone Mathlib integration project
 ```
 
 ## Benchmark discipline

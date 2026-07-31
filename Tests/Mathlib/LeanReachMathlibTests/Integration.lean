@@ -43,7 +43,7 @@ unsafe def run : IO Unit := do
       privateMatches.any (·.moduleName == `Tests.PrivateB) do
     throw <| IO.userError "duplicate private user names were not preserved"
   let roots ← detectRoots
-  unless roots.contains `Tests.Fixture do
+  unless roots.contains `LeanReachMathlibTests.Main do
     throw <| IO.userError "built local modules were not detected"
   unless roots.contains `Mathlib do
     throw <| IO.userError "required Mathlib was not detected"
@@ -77,9 +77,11 @@ unsafe def run : IO Unit := do
   let completed := (fixtureTable.modules.foldl
       (init := ({} : NameHashSet)) (·.insert ·))
     |>.erase `Tests.Fixture |>.insert `LeanReach
-  let closure := (← unsafe Cache.moduleClosure #[`Tests.Main] completed).map (·.1)
+  let closure := (← unsafe Cache.moduleClosure
+    #[`LeanReachMathlibTests.Main] completed).map (·.1)
   for expected in #[
-      `Tests.Main, `Tests.Integration, `Tests.Session, `Tests.Unit, `Tests.Support,
+      `LeanReachMathlibTests.Main, `LeanReachMathlibTests.Integration,
+      `Tests.Session, `Tests.Unit, `Tests.Support,
       `Tests.Fixture, `Tests.PrivateA, `Tests.PrivateB] do
     unless closure.contains expected do
       throw <| IO.userError s!"module closure skipped transitive module '{expected}'"
@@ -110,9 +112,7 @@ unsafe def run : IO Unit := do
       | _, _ => false do
     throw <| IO.userError "planned PP changed declaration output"
   let cachedWrapped ← expectSome (planned.find? `LeanReachFixture.cachedWrapped)
-    "irreducible definition is missing from planned PP"
-  unless cachedWrapped.signature.contains "✝" do
-    throw <| IO.userError "irreducible definition did not exercise dagger PP"
+    "cached definition is missing from planned PP"
   let cachedPrivateText ← expectSome (planned.find? `LeanReachFixture.cachedPrivateText)
     "private text fixture is missing from planned PP"
   unless cachedPrivateText.signature.contains "_private." do
@@ -124,7 +124,7 @@ unsafe def run : IO Unit := do
   let selected ← unsafe Cache.loadPP fixtureIndex.moduleOf?
     #[`LeanReachFixture.cachedWrapped]
   let selectedWrapped ← expectSome (selected.find? `LeanReachFixture.cachedWrapped)
-    "selective PP cache load dropped an irreducible definition"
+    "selective PP cache load dropped a definition"
   unless (toJson selectedWrapped).compress == (toJson cachedWrapped).compress do
     throw <| IO.userError "selective PP cache load changed declaration output"
   try
@@ -163,8 +163,8 @@ unsafe def run : IO Unit := do
       let .query names := result |
         throw <| IO.userError "exact cached query became a regex search"
       let result ← session.describeQuery names
-      check (result.target.signature.contains "✝")
-        "cached query lost the serialized irreducible definition"
+      check (result.target.signature == cachedWrapped.signature)
+        "cached query changed the serialized definition"
   let mut rejectedEmpty := false
   try
     discard <| unsafe withLookupFor #[`Tests.Fixture] " "

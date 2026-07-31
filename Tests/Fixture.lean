@@ -1,4 +1,4 @@
-import Mathlib.Tactic.IrreducibleDef
+import LeanReach
 
 namespace LeanReachFixture
 
@@ -18,7 +18,7 @@ private def hiddenDouble (n : Nat) : Nat := n + n
 
 def doubleViaPrivate (n : Nat) : Nat := hiddenDouble n
 
-irreducible_def cachedWrapped (n : Nat) : Nat := n + 1
+def cachedWrapped (n : Nat) : Nat := n + 1
 
 def cachedPrivateText : String := "_private."
 
