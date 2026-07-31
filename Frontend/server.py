@@ -49,7 +49,7 @@ class Worker:
             bufsize=0,
         )
         try:
-            self._exchange("search __leanreach_frontend_ready__")
+            self._exchange("__leanreach_frontend_ready__")
         except Exception:
             self.close()
             raise
@@ -130,7 +130,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         params = parse_qs(url.query)
         if query := params.get("q", [None])[0]:
-            command = "search " + query
+            command = query
         elif name := params.get("name", [None])[0]:
             command = name.strip()
         else:
