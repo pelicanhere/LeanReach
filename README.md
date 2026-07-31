@@ -42,9 +42,6 @@ With the default Lake layout, use:
 # Search declaration names with an unanchored regex.
 ./.lake/packages/LeanReach/.lake/build/bin/leanreach search 'span_(le|eq)'
 
-# Match unordered, case-insensitive name tokens.
-./.lake/packages/LeanReach/.lake/build/bin/leanreach tokens compact image continuous
-
 # Show one declaration and its direct dependencies.
 ./.lake/packages/LeanReach/.lake/build/bin/leanreach Submodule.span_le
 
@@ -81,8 +78,8 @@ Keep one process alive for a chain of queries:
 ./.lake/packages/LeanReach/.lake/build/bin/leanreach --interactive --json
 ```
 
-Each input line is a declaration name, `search PATTERN`, or `tokens TOKEN...`. The process returns
-and flushes one JSON value per line.
+Each input line is a declaration name or `search PATTERN`. The process returns and flushes one JSON
+value per line.
 
 ## Project detection
 

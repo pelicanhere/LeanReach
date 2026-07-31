@@ -30,9 +30,10 @@ inductive CandidatePlan where
 
 end SearchPattern
 
-inductive SearchPattern where
-  | regex (compiled : Regex) (candidates : SearchPattern.CandidatePlan)
-  | tokens (normalized : Array String) (candidates : SearchPattern.CandidatePlan)
+structure SearchPattern where
+  private mk ::
+  compiled : Regex
+  candidates : SearchPattern.CandidatePlan
 
 namespace SearchPattern
 
@@ -189,11 +190,6 @@ private partial def foldCaseInsensitiveClasses : Ast → StateM (Bool × Bool) A
       return .flags enabled
   | ast => return ast
 
-private def simpleCaseFold (value : String) : String :=
-  value.map fun char =>
-    if char.toNat < 128 then char.toLower
-    else (Regex.Unicode.getCaseFoldEquivChars char).1
-
 /--
 A trigram is safe for the existing cache when every character in each of its
 simple-fold classes is normalized to the same representative by `Char.toLower`.
@@ -316,32 +312,13 @@ def compileRegex (source : String) : Except String SearchPattern := do
   discard <| astCost ast
   let (ast, _, changed) := (foldCaseInsensitiveClasses ast).run (false, false)
   if changed then discard <| astCost ast
-  return .regex (Regex.fromExpr (Ast.toRegex (.group ast))) (candidatePlanFor ast)
+  return {
+    compiled := Regex.fromExpr (Ast.toRegex (.group ast))
+    candidates := candidatePlanFor ast
+  }
 
-def compileTokens (tokens : Array String) : Except String SearchPattern := do
-  if tokens.isEmpty then throw "token search requires at least one token"
-  let mut normalized := #[]
-  let mut bytes := 0
-  for token in tokens do
-    if token.isEmpty then throw "token search does not accept an empty token"
-    bytes := bytes + token.utf8ByteSize
-    if bytes > maxPatternBytes then
-      throw s!"token query exceeds the limit of {maxPatternBytes} bytes"
-    let token := simpleCaseFold token
-    unless normalized.contains token do
-      normalized := normalized.push token
-  let mut grams := #[]
-  for token in normalized do
-    for gram in NameSearch.trigrams token do
-      if isCacheFoldSafe gram && grams.size < maxGramsPerAlternative &&
-          !grams.contains gram then
-        grams := grams.push gram
-  let candidates := if grams.isEmpty then .all else .postings #[grams]
-  return .tokens normalized candidates
-
-def candidatePlan : SearchPattern → CandidatePlan
-  | .regex _ candidates
-  | .tokens _ candidates => candidates
+def candidatePlan (pattern : SearchPattern) : CandidatePlan :=
+  pattern.candidates
 
 /--
 Uses a loaded posting directory to retain the rarest required trigram in each
@@ -389,12 +366,8 @@ def unionIds (left right : Array UInt32) : Array UInt32 := Id.run do
     unless result.back? == some value do result := result.push value
   return result
 
-def isMatch : SearchPattern → Name → Bool
-  | .regex compiled _, name =>
-      compiled.test (privateToUserName name).toString
-  | .tokens normalized _, name =>
-      let name := simpleCaseFold (privateToUserName name).toString
-      normalized.all fun token => name.contains token
+def isMatch (pattern : SearchPattern) (name : Name) : Bool :=
+  pattern.compiled.test (privateToUserName name).toString
 
 def collect {α : Type u} {β : Type v} (pattern : SearchPattern)
     (size : Nat) (itemAt : Nat → α) (project : α → Option β)

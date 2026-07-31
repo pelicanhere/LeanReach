@@ -13,9 +13,6 @@ private def check (condition : Bool) (message : String) : IO Unit :=
 private def regex (source : String) : IO SearchPattern :=
   IO.ofExcept <| SearchPattern.compileRegex source |>.mapError IO.userError
 
-private def tokens (values : Array String) : IO SearchPattern :=
-  IO.ofExcept <| SearchPattern.compileTokens values |>.mapError IO.userError
-
 private unsafe def runTests : IO Unit := do
   unless NameSearch.trigrams "abcd" == #["abc", "bcd"] &&
       NameSearch.trigrams "αβγδ" == #["αβγ", "βγδ"] &&
@@ -54,10 +51,6 @@ private unsafe def runTests : IO Unit := do
     "case-insensitive regex did not fold a Unicode character class"
   check ((← regex r"Submodule\.span_le").isMatch `Submodule.span_le)
     "escaped regex punctuation did not match literally"
-  check ((← tokens #["LE", "submodule", "le"]).isMatch `Submodule.span_le)
-    "unordered token search did not normalize or deduplicate tokens"
-  check ((← tokens #["φ_NE_ZERO"]).isMatch `WeierstrassCurve.Φ_ne_zero)
-    "unordered token search did not apply Unicode simple case folding"
   check (SearchPattern.compileRegex "(" |>.toOption |>.isNone)
     "invalid regex was accepted"
   check (SearchPattern.compileRegex "a{1025}" |>.toOption |>.isNone)
@@ -114,11 +107,6 @@ private unsafe def runTests : IO Unit := do
   let unicodeCandidateIndex := Index.build #[
     (longSName, `Tests.Fixture, {})
   ]
-  let unsafeGramTokens ← tokens #["ski"]
-  unless unicodeCandidateIndex.search unsafeGramTokens 10 ==
-      unicodeCandidateIndex.searchAll unsafeGramTokens 10 &&
-      unicodeCandidateIndex.searchAll unsafeGramTokens 10 == #[longSName] do
-    throw <| IO.userError "token prefilter dropped a Unicode fold equivalent"
   let unsafeGramRegex ← regex "(?i)ski"
   unless unicodeCandidateIndex.search unsafeGramRegex 10 ==
       unicodeCandidateIndex.searchAll unsafeGramRegex 10 &&
@@ -326,19 +314,6 @@ private unsafe def runTests : IO Unit := do
       throw <| IO.userError s!"regex cache is missing for '{source}'"
     unless cached.map (·.name) == expected do
       throw <| IO.userError s!"cached regex differs for '{source}'"
-  for (values, limit) in #[
-      (#["double_", "z"], 1),
-      (#["zero", "double"], 10),
-      (#["z"], 10),
-      (#["DOUBLE", "ZERO", "double"], 10)] do
-    let pattern ← tokens values
-    let expected := fixtureIndex.searchAll pattern limit
-    unless fixtureIndex.search pattern limit == expected do
-      throw <| IO.userError s!"indexed token prefilter differs for '{values}'"
-    let some cached ← unsafe QueryCache.search #[`Tests.Fixture] pattern limit |
-      throw <| IO.userError s!"token cache is missing for '{values}'"
-    unless cached.map (·.name) == expected do
-      throw <| IO.userError s!"cached token search differs for '{values}'"
   let layeredRoots := #[`Tests.Fixture, `Mathlib]
   discard <| unsafe QueryCache.build layeredRoots
   let some overlay ← unsafe QueryOverlay.load layeredRoots |
@@ -404,14 +379,6 @@ private unsafe def runTests : IO Unit := do
       throw <| IO.userError s!"Mathlib search cache is missing for '{source}'"
     unless cached.map (·.name) == mathlibIndex.search pattern limit do
       throw <| IO.userError s!"cached search differs for '{source}'"
-  let unicodeTokens ← tokens #["WEIERSTRASSCURVE.φ_NE_ZERO"]
-  let unicodeExpected := mathlibIndex.searchAll unicodeTokens 10
-  let some unicodeCached ← unsafe QueryCache.search #[`Mathlib]
-      unicodeTokens 10 |
-    throw <| IO.userError "Mathlib Unicode token search cache is missing"
-  unless unicodeCached.map (·.name) == unicodeExpected &&
-      unicodeExpected == #[`WeierstrassCurve.Φ_ne_zero] do
-    throw <| IO.userError "Unicode token prefilter changed search results"
   let unicodeClass ← regex "(?i)^WeierstrassCurve\\.[φ]_ne_zero$"
   let unicodeClassExpected := mathlibIndex.searchAll unicodeClass 10
   let some unicodeClassCached ← unsafe QueryCache.search #[`Mathlib]

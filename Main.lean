@@ -6,25 +6,9 @@ namespace LeanReach.Cli
 
 open Lean
 
-inductive SearchSpec where
-  | regex (source : String)
-  | tokens (values : Array String)
-
-private def SearchSpec.text : SearchSpec → String
-  | .regex source => source
-  | .tokens values => String.intercalate " " values.toList
-
-private def SearchSpec.compile : SearchSpec → Except String SearchPattern
-  | .regex source => SearchPattern.compileRegex source
-  | .tokens values => SearchPattern.compileTokens values
-
-private def SearchSpec.label : SearchSpec → String
-  | .regex _ => "search"
-  | .tokens _ => "tokens"
-
 inductive Command where
   | query (name : String)
-  | search (spec : SearchSpec)
+  | search (pattern : String)
   | cache (modules : Array Name)
 
 structure Config where
@@ -78,7 +62,6 @@ LeanReach — Lean declaration search and dependency navigation
 USAGE:
   leanreach [OPTIONS] DECLARATION
   leanreach [OPTIONS] search PATTERN
-  leanreach [OPTIONS] tokens TOKEN...
   leanreach [OPTIONS] cache [MODULE...]
   leanreach [OPTIONS] --interactive
 
@@ -92,7 +75,7 @@ OPTIONS:
 
 Without `--module`, combine built local lean_lib roots with required Mathlib.
 With no modules, `cache` precomputes pretty-printed declarations for the detected view.
-In interactive mode, enter a declaration, `search PATTERN`, or `tokens TOKEN...`.
+In interactive mode, enter a declaration or `search PATTERN`.
 "
 
 private def location (declaration : Declaration) : String :=
@@ -165,10 +148,7 @@ private def profiled {α : Type} (enabled : Bool) (label : String)
 
 private def parseLine (line : String) : Command :=
   if let some pattern := line.dropPrefix? "search " then
-    .search (.regex pattern.copy)
-  else if let some values := line.dropPrefix? "tokens " then
-    .search (.tokens <| (values.split Char.isWhitespace).map (·.copy)
-      |>.filter (not ∘ String.isEmpty) |>.toArray)
+    .search pattern.copy
   else
     .query line.trimAscii.copy
 
@@ -185,7 +165,7 @@ private def runInteractive (session : Session) (runner : InteractiveRunner)
     if line.trimAscii.isEmpty then break
     let command := parseLine line
     let label := match command with
-      | .search spec => spec.label
+      | .search _ => "search"
       | _ => "query"
     profiled config.profile label do
       try
@@ -193,10 +173,11 @@ private def runInteractive (session : Session) (runner : InteractiveRunner)
         | .query query =>
           runner.query query config.limits fun names =>
             printQueryNames config session names
-        | .search spec =>
-          let pattern ← IO.ofExcept <| spec.compile.mapError IO.userError
+        | .search source =>
+          let pattern ← IO.ofExcept <|
+            SearchPattern.compileRegex source |>.mapError IO.userError
           runner.search pattern config.limits.search fun names =>
-            printSearchNames config spec.text session names
+            printSearchNames config source session names
         | .cache _ => unreachable!
       catch error =>
         let message := toString error
@@ -230,12 +211,13 @@ private unsafe def execute (config : Config) (command? : Option Command) : IO UI
     profiled config.profile "query" do
       let roots ← config.roots
       withQueryFor roots query config.limits (printQueryNames config)
-  | some (.search spec) =>
-    profiled config.profile spec.label do
-      let pattern ← IO.ofExcept <| spec.compile.mapError IO.userError
+  | some (.search source) =>
+    profiled config.profile "search" do
+      let pattern ← IO.ofExcept <|
+        SearchPattern.compileRegex source |>.mapError IO.userError
       let roots ← config.roots
       withSearchFor roots pattern config.limits.search
-        (printSearchNames config spec.text)
+        (printSearchNames config source)
   | none =>
     withInteractiveSession (← config.roots) fun session runner =>
       runInteractive session runner config
@@ -265,9 +247,7 @@ private unsafe def cli : CliM UInt32 := do
       else throw <| Lake.CliError.unexpectedArguments arguments.toList
     else
       match arguments.toList with
-      | ["search", pattern] => pure (some (.search (.regex pattern)))
-      | "tokens" :: token :: values =>
-        pure (some (.search (.tokens <| (token :: values).toArray)))
+      | ["search", pattern] => pure (some (.search pattern))
       | "cache" :: modules => pure (some (.cache <| modules.toArray.map (·.toName)))
       | [name] => pure (some (.query name))
       | arguments => throw <| Lake.CliError.unexpectedArguments arguments
