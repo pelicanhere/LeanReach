@@ -68,14 +68,8 @@ private unsafe def buildFull (roots : Array Name) (index : Index) : IO Nat := do
     let part ← IO.ofExcept job.get
     for id in [0:shardCount] do
       shards := shards.modify id (· ++ part[id]!)
-  let mut offset := 0
-  while offset < shardCount do
-    let stop := min shardCount (offset + 16)
-    let tasks ← (Array.range (stop - offset)).mapM fun delta =>
-      let id := offset + delta
-      IO.asTask <| Cache.saveBytes (shardPath olean id) shards[id]!
-    tasks.forM fun task => IO.ofExcept task.get
-    offset := stop
+  Cache.saveShards shardCount fun id =>
+    Cache.saveBytes (shardPath olean id) shards[id]!
   IO.FS.writeFile (markerPath olean) depHash
   return index.size
 

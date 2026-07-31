@@ -185,15 +185,9 @@ unsafe def build (roots : Array Name) (index : Index) : IO Nat := do
     (Name.str root "_leanreachSearchTable")
   Cache.savePart (path roots olean "directory") depHash directory
     (Name.str root "_leanreachSearchDirectory")
-  let mut offset := 0
-  while offset < shardCount do
-    let stop := min shardCount (offset + 16)
-    let tasks ← (Array.range (stop - offset)).mapM fun delta =>
-      let id := offset + delta
-      IO.asTask <| Cache.savePart (shardPath roots olean id) depHash
-        shards[id]! (Name.str root s!"_leanreachSearchPosting{id}")
-    tasks.forM fun task => IO.ofExcept task.get
-    offset := stop
+  Cache.saveShards shardCount fun id =>
+    Cache.savePart (shardPath roots olean id) depHash
+      shards[id]! (Name.str root s!"_leanreachSearchPosting{id}")
   IO.FS.writeFile (markerPath roots olean) depHash
   return entries.size
 

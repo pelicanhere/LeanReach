@@ -29,6 +29,15 @@ def savePart {α : Type} (path : System.FilePath) (depHash : String)
 def saveBytes (path : System.FilePath) (value : ByteArray) : IO Unit :=
   writeAtomically path fun temp => IO.FS.writeBinFile temp value
 
+def saveShards (count : Nat) (save : Nat → IO Unit) : IO Unit := do
+  let mut offset := 0
+  while offset < count do
+    let stop := min count (offset + 16)
+    let tasks ← (Array.range (stop - offset)).mapM fun delta =>
+      IO.asTask (save (offset + delta))
+    tasks.forM fun task => IO.ofExcept task.get
+    offset := stop
+
 def loadedKey (path : System.FilePath) (depHash : String) : String :=
   s!"{path}\u0000{depHash}"
 
