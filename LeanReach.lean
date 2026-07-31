@@ -70,18 +70,6 @@ private unsafe def withFreshSession {α : Type} (moduleOf? : Name → Option Nam
   session.merge declarations
   unsafe runPreparedSession moduleOf? session missing true (action session)
 
-/-- Import only the modules needed to pretty-print the selected declarations. -/
-private unsafe def withSessionFor {α β : Type} (roots : Array Name)
-    (select : Index → Except String (α × Array Name)) (loadRelations : Bool)
-    (action : Session → α → IO β) : IO β := do
-  let index ← unsafe Cache.loadIndex roots loadRelations
-  let (plan, names) ← liftStringError (select index)
-  unsafe withFreshSession index.moduleOf? names fun session => action session plan
-
-private def cachedSearchPlan (targets : Array LocatedName) : Array Name × NameMap Name :=
-  targets.foldl (init := (#[], {})) fun (names, modules) target =>
-    (names.push target.name, modules.insert target.name target.moduleName)
-
 inductive LookupNames where
   | query (names : QueryNames)
   | search (names : Array Name)
@@ -94,66 +82,56 @@ private structure LookupPlan where
   moduleOf? : Name → Option Name
   result : LookupNames
 
-/-- Resolve through cache shards, loading the dependency index only when relations require it. -/
-unsafe def withQueryFor {α : Type} (roots : Array Name) (query : String)
-    (limits : Limits) (action : Session → QueryNames → IO α) : IO α := do
-  let query ← normalizeQuery query
-  unsafe prepareSearchPath
-  if let some cached ← liftStringError (← unsafe QueryCache.resolve roots query) then
-    if limits.usesCachedQuery then
-      let names := cached.queryNames limits
-      return ← unsafe withFreshSession cached.moduleOf? names.all fun session =>
-        action session names
-  unsafe withSessionFor roots (fun index => do
-    let names ← index.queryNames query limits
-    return (names, names.all)) true action
-
-private unsafe def selectSearch (roots : Array Name) (pattern : SearchPattern)
-    (limit : Nat) (loadIndex : IO Index) :
-    IO ((Name → Option Name) × Array Name) := do
-  if let some targets ← unsafe QueryCache.search roots pattern limit then
-    let (names, modules) := cachedSearchPlan targets
-    return (modules.find?, names)
-  let index ← loadIndex
-  return (index.moduleOf?, index.search pattern limit)
-
-private def matchPlan (targets : Array LocatedName) : LookupPlan :=
-  let (names, modules) := cachedSearchPlan targets
+private def cachedSearchPlan (targets : Array LocatedName) : LookupPlan :=
+  let (names, modules) := targets.foldl
+    (init := (#[], ({} : NameMap Name)))
+    fun (names, modules) target =>
+      (names.push target.name, modules.insert target.name target.moduleName)
   { moduleOf? := modules.find?, result := .search names }
 
-private unsafe def selectExact (roots : Array Name) (target : LocatedName)
-    (limits : Limits) (loadIndex : Bool → IO Index) : IO LookupPlan := do
+private unsafe def selectSearch (roots : Array Name) (pattern : SearchPattern)
+    (limit : Nat) (loadIndex : IO Index) : IO LookupPlan := do
+  if let some targets ← unsafe QueryCache.search roots pattern limit then
+    return cachedSearchPlan targets
+  let index ← loadIndex
+  return {
+    moduleOf? := index.moduleOf?
+    result := .search (index.search pattern limit)
+  }
+
+private unsafe def selectExact (cached : CachedQuery) (limits : Limits)
+    (loadIndex : Bool → IO Index) : IO LookupPlan := do
   if limits.usesCachedQuery then
-    if let .ok (some cached) ←
-        unsafe QueryCache.resolve roots target.name.toString then
-      return {
-        moduleOf? := cached.moduleOf?
-        result := .query (cached.queryNames limits)
-      }
+    return {
+      moduleOf? := cached.moduleOf?
+      result := .query (cached.queryNames limits)
+    }
   let index ← loadIndex true
   return {
     moduleOf? := index.moduleOf?
-    result := .query (index.queryNamesAt target.name limits)
+    result := .query (index.queryNamesAt cached.target.name limits)
   }
 
 private unsafe def selectLookup (roots : Array Name) (source : String)
     (limits : Limits) (loadIndex : Bool → IO Index) : IO LookupPlan := do
   let exactLimit := max 2 limits.search
-  if let some exact ← unsafe QueryCache.exactMatches roots source exactLimit then
-    if let some target := exact[0]? then
+  if let some exact ← unsafe QueryCache.exactQueries roots source exactLimit then
+    if let some cached := exact[0]? then
       if exact[1]?.isNone then
-        return ← unsafe selectExact roots target limits loadIndex
-      return matchPlan (exact.take limits.search)
+        return ← unsafe selectExact cached limits loadIndex
+      return cachedSearchPlan ((exact.take limits.search).map (·.target))
     let pattern ← liftStringError (SearchPattern.compileRegex source)
-    let (moduleOf?, names) ← unsafe selectSearch roots pattern limits.search
-      (loadIndex false)
-    return { moduleOf?, result := .search names }
+    return ← unsafe selectSearch roots pattern limits.search (loadIndex false)
   let index ← loadIndex false
   let exact := index.exactMatches source exactLimit
   if let some target := exact[0]? then
     if exact[1]?.isNone then
-      return ← unsafe selectExact roots target limits loadIndex
-    return matchPlan (exact.take limits.search)
+      let index ← loadIndex true
+      return {
+        moduleOf? := index.moduleOf?
+        result := .query (index.queryNamesAt target.name limits)
+      }
+    return cachedSearchPlan (exact.take limits.search)
   let pattern ← liftStringError (SearchPattern.compileRegex source)
   return {
     moduleOf? := index.moduleOf?
@@ -170,22 +148,15 @@ unsafe def withLookupFor {α : Type} (roots : Array Name) (source : String)
   unsafe withFreshSession plan.moduleOf? plan.result.all fun session =>
     action session plan.result
 
-/-- Search through cache shards when available, otherwise load the name catalog. -/
-unsafe def withSearchFor {α : Type} (roots : Array Name) (pattern : SearchPattern)
-    (limit : Nat) (action : Session → Array Name → IO α) : IO α := do
-  unsafe prepareSearchPath
-  let (moduleOf?, names) ← unsafe selectSearch roots pattern limit
-    (unsafe Cache.loadIndex roots false)
-  unsafe withFreshSession moduleOf? names fun session => action session names
-
-structure InteractiveRunner where
-  lookup : String → Limits → (LookupNames → IO Unit) → IO Unit
+abbrev InteractiveRunner :=
+  String → Limits → (LookupNames → IO Unit) → IO Unit
 
 private unsafe def loadIndexOnce (roots : Array Name)
-    (cached : IO.Ref (Option Index)) : IO Index := do
-  if let some index ← cached.get then return index
-  let index ← unsafe Cache.loadIndex roots true
-  cached.set (some index)
+    (cached : IO.Ref (Option (Bool × Index))) (loadRelations : Bool) : IO Index := do
+  if let some (hasRelations, index) ← cached.get then
+    if hasRelations || !loadRelations then return index
+  let index ← unsafe Cache.loadIndex roots loadRelations
+  cached.set (some (loadRelations, index))
   return index
 
 unsafe def withInteractiveSession {α : Type} (roots : Array Name)
@@ -195,10 +166,10 @@ unsafe def withInteractiveSession {α : Type} (roots : Array Name)
   let indexCache ← IO.mkRef none
   let lookup := fun source limits next => do
     let source ← normalizeQuery source
-    let plan ← unsafe selectLookup roots source limits fun _ =>
-      unsafe loadIndexOnce roots indexCache
+    let plan ← unsafe selectLookup roots source limits fun loadRelations =>
+      unsafe loadIndexOnce roots indexCache loadRelations
     discard <| unsafe runSession plan.moduleOf? session plan.result.all false
       (next plan.result)
-  action session { lookup }
+  action session lookup
 
 end LeanReach

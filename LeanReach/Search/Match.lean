@@ -16,6 +16,10 @@ def leaf? : Name → Option String
 def normalizedName (name : Name) : String :=
   (privateToUserName name).toString.toLower
 
+def exactMatch (query candidate : Name) : Bool :=
+  candidate == query ||
+    (!isPrivateName query && privateToUserName candidate == query)
+
 def trigrams (value : String) : Array String := Id.run do
   let mut result := #[]
   let mut start := value.startPos

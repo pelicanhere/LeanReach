@@ -2,7 +2,6 @@ import Lean.Data.Name
 import Lean.Data.Trie
 import LeanReach.Search.Pattern
 import LeanReach.Search.Rank
-import LeanReach.Search.Resolve
 import LeanReach.Search.Types
 
 namespace LeanReach
@@ -126,25 +125,21 @@ def Index.cachedQueryAt! (index : Index) (id : Nat) : CachedQuery :=
     downstream := (index.relatedIds id false cachedQueryLimit).map index.locatedAt
   }
 
-private def Index.resolveMatches (index : Index) (query : String) (limit : Nat) :
-    Array (Array LocatedName) :=
-  let query := query.toLower
-  let find size candidateAt :=
-    NameResolve.buckets query size candidateAt
-      (fun id => index.entries[id.toNat]?) (·.name) limit
-  if query.length < 3 then
-    find index.entries.size (fun id => id.toUInt32)
-  else
-    let gram? := NameSearch.rarestTrigram? (NameSearch.trigrams query)
-      (index.trigrams.find? · |>.map (·.size))
-    let candidates := gram?.bind index.trigrams.find? |>.getD #[]
-    find candidates.size (fun id => candidates[id]!)
-
 def Index.exactMatches (index : Index) (query : String)
     (limit : Nat) : Array LocatedName :=
+  let normalized := query.toLower
+  let candidates :=
+    if normalized.length < 3 then
+      Array.range index.entries.size |>.map (·.toUInt32)
+    else
+      NameSearch.rarestTrigram? (NameSearch.trigrams normalized)
+        (index.trigrams.find? · |>.map (·.size))
+        |>.bind index.trigrams.find?
+        |>.getD #[]
   let name := query.toName
-  (index.resolveMatches query limit).flatten.filter
-    (NameResolve.exactMatch name ·.name) |>.take limit
+  candidates.filterMap (fun id => index.entries[id.toNat]?)
+    |>.filter (NameSearch.exactMatch name ·.name)
+    |>.take limit
 
 def Index.searchAll (index : Index) (pattern : SearchPattern)
     (limit : Nat := 20) : Array Name :=
@@ -166,14 +161,6 @@ def Index.search (index : Index) (pattern : SearchPattern)
       pattern.collect ids.size (fun id => ids[id]!)
         (fun id => index.entries[id.toNat]?) (·.name) limit |>.map (·.name)
     | .all => index.searchAll pattern limit
-
-def Index.resolve (index : Index) (query : String) : Except String Name := do
-  let exact := query.toName
-  if index.findId? exact |>.isSome then return exact
-  let candidates := NameResolve.bestBucket (index.resolveMatches query 10)
-  if candidates.size == 1 then return candidates[0]!.name
-  if candidates.isEmpty then throw <| NameResolve.noMatchMessage query
-  throw <| NameResolve.ambiguityMessage query candidates
 
 private def Index.related (index : Index) (name : Name) (upstream : Bool)
     (limit : Nat) : Array Name :=

@@ -169,7 +169,7 @@ private def runInteractive (session : Session) (runner : InteractiveRunner)
       try
         match command with
         | .lookup pattern =>
-          runner.lookup pattern config.limits
+          runner pattern config.limits
             (printLookupNames config pattern session)
         | .cache _ => unreachable!
       catch error =>

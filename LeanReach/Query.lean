@@ -67,10 +67,6 @@ def Index.queryNamesAt (index : Index) (target : Name)
     downstream := index.downstream target limits.downstream
   }
 
-def Index.queryNames (index : Index) (query : String) (limits : Limits := {}) :
-    Except String QueryNames := do
-  return index.queryNamesAt (← index.resolve query) limits
-
 def Session.describeNames (session : Session) (items : Array Name) :
     IO (Array Declaration) := do
   let declarations ← session.declarations.get

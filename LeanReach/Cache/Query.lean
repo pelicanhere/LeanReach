@@ -2,7 +2,6 @@ import LeanReach.Cache.Index
 import LeanReach.Cache.Overlay
 import LeanReach.Cache.Search
 import LeanReach.Search.Match
-import LeanReach.Search.Resolve
 
 namespace LeanReach.QueryCache
 
@@ -213,114 +212,51 @@ private unsafe def loadShard (roots : Array Name) (name : Name) :
   unless ← ready olean depHash do return none
   readShard (shardPath olean (shard name))
 
-private unsafe def resolveFull (roots : Array Name) (query : String) :
-    IO (Except String (Option CachedQuery)) := do
-  let name := query.toName
-  let some (modules, lines) ← unsafe loadShard roots name | return .ok none
-  let wanted := query.toLower
-  let mut exact := #[]
-  let mut suffix := #[]
-  for line in lines do
-    let some target := target? modules line | continue
-    if target.name == name then
-      if let some cached := decode modules line then return .ok (some cached)
-    else if NameResolve.exactMatch name target.name then
-      if let some cached := decode modules line then exact := exact.push cached
-    else if name.isAtomic && NameResolve.leafMatches wanted target.name then
-      suffix := suffix.push (target, line)
-  if exact.size == 1 then return .ok (some exact[0]!)
-  if exact.size > 1 then
-    return .error (NameResolve.ambiguityMessage query (exact.map (·.target)))
-  if suffix.size == 1 then return .ok (decode modules suffix[0]!.2)
-  if suffix.isEmpty then return .ok none
-  return .error (NameResolve.ambiguityMessage query (suffix.map (·.1)))
-
-private def localResolveMatches (overlay : QueryOverlay.Data) (query : String)
-    (limit : Nat) : Array LocatedName :=
-  NameResolve.collect query.toLower overlay.localNames.size
-    (fun id => overlay.localNames[id]!) some (·.name) limit
-
 private def localSearchMatches (overlay : QueryOverlay.Data)
     (pattern : SearchPattern) (limit : Nat) : Array LocatedName :=
   pattern.collect overlay.localNames.size (fun id => overlay.localNames[id]!)
     some (·.name) limit
 
-private def mergeSearchResults (localResults baseResults : Array LocatedName)
-    (limit : Nat) : Array LocatedName := Id.run do
-  let mut byName : NameMap LocatedName := {}
-  for target in baseResults do byName := byName.insert target.name target
-  for target in localResults do byName := byName.insert target.name target
+private def mergeResults {α : Type} (nameOf : α → Name)
+    (localResults baseResults : Array α) (limit : Nat) : Array α := Id.run do
+  let mut byName : NameMap α := {}
+  for item in baseResults do byName := byName.insert (nameOf item) item
+  for item in localResults do byName := byName.insert (nameOf item) item
   let mut results := #[]
-  for (_, target) in byName do results := results.push target
-  return (results.qsort fun left right => Name.lt left.name right.name).take limit
+  for (_, item) in byName do results := results.push item
+  return (results.qsort fun left right =>
+    Name.lt (nameOf left) (nameOf right)).take limit
 
 private unsafe def exactFull (roots : Array Name) (query : String)
-    (limit : Nat) : IO (Option (Array LocatedName)) := do
+    (limit : Nat) : IO (Option (Array CachedQuery)) := do
   let name := query.toName
   let some (modules, lines) ← unsafe loadShard roots name | return none
   let mut results := #[]
   for line in lines do
     let some target := target? modules line | continue
-    if NameResolve.exactMatch name target.name then
-      results := results.push target
+    if NameSearch.exactMatch name target.name then
+      let some cached := decode modules line | return none
+      results := results.push cached
       if results.size == limit then break
   return some results
 
-/-- Finds up to `limit` complete, case-sensitive user-name matches. -/
-unsafe def exactMatches (roots : Array Name) (query : String)
-    (limit : Nat) : IO (Option (Array LocatedName)) := do
+/-- Finds cached queries whose complete user names match case-sensitively. -/
+unsafe def exactQueries (roots : Array Name) (query : String)
+    (limit : Nat) : IO (Option (Array CachedQuery)) := do
   let overlay? ← unsafe loadOverlay roots
   let some overlay := overlay? | return ← unsafe exactFull roots query limit
   let name := query.toName
-  let localResults := overlay.localNames.filter
-    (NameResolve.exactMatch name ·.name) |>.take limit
+  let mut localResults := #[]
+  for target in overlay.localNames do
+    if NameSearch.exactMatch name target.name then
+      let some cached := overlay.cached? target.name | return none
+      localResults := localResults.push cached
+      if localResults.size == limit then break
   if localResults.size == limit then return some localResults
   let some base ← unsafe exactFull #[overlay.baseRoot] query limit | return none
-  return some (mergeSearchResults localResults base limit)
-
-private unsafe def resolveFromLookup (roots : Array Name) (query : String) :
-    IO (Except String (Option CachedQuery)) := do
-  let some results ← unsafe SearchCache.lookup roots query 11 | return .ok none
-  let candidates := NameResolve.bestBucket <|
-    NameResolve.buckets query.toLower results.size
-      (fun id => results[id]!) some (·.name) 11
-  if candidates.size == 1 then
-    return ← unsafe resolveFull roots candidates[0]!.name.toString
-  if candidates.isEmpty then return .error (NameResolve.noMatchMessage query)
-  return .error (NameResolve.ambiguityMessage query candidates)
-
-private unsafe def overlayQuery? (overlay : QueryOverlay.Data)
-    (target : LocatedName) : IO (Option CachedQuery) := do
-  if let some cached := overlay.cached? target.name then return some cached
-  if (overlay.local? target.name).isSome then return none
-  match ← unsafe resolveFull #[overlay.baseRoot] target.name.toString with
-  | .ok cached => return cached
-  | .error _ => return none
-
-/-- `none` means that a required cache is unavailable; a complete cached miss is an error. -/
-unsafe def resolve (roots : Array Name) (query : String) :
-    IO (Except String (Option CachedQuery)) := do
-  let overlay? ← unsafe loadOverlay roots
-  let some overlay := overlay? | do
-    let exact ← unsafe resolveFull roots query
-    match exact with
-    | .ok none => return ← unsafe resolveFromLookup roots query
-    | result => return result
-  let name := query.toName
-  if let some target := overlay.local? name then
-    return .ok (overlay.cached? target.name)
-  if let .ok (some cached) ← unsafe resolveFull #[overlay.baseRoot] query then
-    if cached.target.name == name then
-      return .ok (some <| (overlay.cached? cached.target.name).getD cached)
-  let localResults := localResolveMatches overlay query 11
-  let some base ← unsafe SearchCache.lookup #[overlay.baseRoot] query 11 |
-    return .ok none
-  let candidates := NameResolve.bestBucket <|
-    NameResolve.mergeBuckets query.toLower 11 localResults base
-  if candidates.size == 1 then
-    return .ok (← unsafe overlayQuery? overlay candidates[0]!)
-  if candidates.isEmpty then return .error (NameResolve.noMatchMessage query)
-  return .error (NameResolve.ambiguityMessage query candidates)
+  let base := base.map fun cached =>
+    (overlay.cached? cached.target.name).getD cached
+  return some (mergeResults (·.target.name) localResults base limit)
 
 unsafe def search (roots : Array Name) (pattern : SearchPattern)
     (limit : Nat) : IO (Option (Array LocatedName)) := do
@@ -329,7 +265,7 @@ unsafe def search (roots : Array Name) (pattern : SearchPattern)
     return ← unsafe SearchCache.search roots pattern limit
   let some base ← unsafe SearchCache.search #[overlay.baseRoot] pattern limit |
     return none
-  return some <| mergeSearchResults
+  return some <| mergeResults (·.name)
     (localSearchMatches overlay pattern limit) base limit
 
 end LeanReach.QueryCache

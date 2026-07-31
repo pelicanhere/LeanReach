@@ -1,7 +1,6 @@
 import LeanReach.Cache.Storage
 import LeanReach.Search.Index
 import LeanReach.Search.Pattern
-import LeanReach.Search.Resolve
 
 namespace LeanReach.SearchCache
 
@@ -185,33 +184,10 @@ private def located? (table : NameTable) (id : UInt32) : Option LocatedName := d
   let moduleName ← modules[owner.toNat]?
   return { name, moduleName }
 
-private def findLookupMatches (table : NameTable) (size : Nat)
-    (idAt : Nat → UInt32) (query : String) (limit : Nat) : Array LocatedName :=
-  NameResolve.collect query size idAt (located? table) (·.name) limit
-
 private def findPatternMatches (table : NameTable) (size : Nat)
     (idAt : Nat → UInt32) (pattern : SearchPattern)
     (limit : Nat) : Array LocatedName :=
   pattern.collect size idAt (located? table) (·.name) limit
-
-unsafe def lookup (roots : Array Name) (query : String)
-    (limit : Nat) : IO (Option (Array LocatedName)) := do
-  let (olean, depHash, _) ← unsafe Cache.rootData roots
-  unless ← ready roots olean depHash do return none
-  let view ← loadView roots olean depHash
-  let query := query.toLower
-  if query.length < 3 then
-    let some table ← unsafe loadTable view | return none
-    return some (findLookupMatches table table.1.size
-      (fun id => id.toUInt32) query limit)
-  let some directory ← unsafe loadDirectory view | return none
-  let some trigram := NameSearch.rarestTrigram? (NameSearch.trigrams query)
-      (directory.find? · |>.map (·.toNat)) | return some #[]
-  let some postings ← unsafe loadPostings view (shard trigram) | return none
-  let ids := (postings.find? trigram).map unpackIds |>.getD #[]
-  if ids.isEmpty then return some #[]
-  let some table ← unsafe loadTable view | return none
-  return some (findLookupMatches table ids.size (fun id => ids[id]!) query limit)
 
 unsafe def search (roots : Array Name) (pattern : SearchPattern)
     (limit : Nat) : IO (Option (Array LocatedName)) := do

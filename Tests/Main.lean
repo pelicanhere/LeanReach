@@ -13,6 +13,15 @@ private def check (condition : Bool) (message : String) : IO Unit :=
 private def regex (source : String) : IO SearchPattern :=
   IO.ofExcept <| SearchPattern.compileRegex source |>.mapError IO.userError
 
+private unsafe def cachedQuery (roots : Array Name) (name : Name) :
+    IO CachedQuery := do
+  let results ← QueryCache.exactQueries roots name.toString 2
+  let some results := results |
+    throw <| IO.userError s!"query cache is unavailable for '{name}'"
+  let some query := results.find? (·.target.name == name) |
+    throw <| IO.userError s!"query cache is missing '{name}'"
+  return query
+
 private unsafe def runTests : IO Unit := do
   check (NameSearch.leaf? `Submodule.span_le == some "span_le" &&
       (NameSearch.leaf? (.num `LeanReachGenerated 1)).isNone &&
@@ -122,11 +131,11 @@ private unsafe def runTests : IO Unit := do
     (privateA, `Tests.PrivateA, {}),
     (privateB, `Tests.PrivateB, {})
   ]
-  let .error privateAmbiguity := privateIndex.resolve "LeanReachDuplicate.hidden" |
-    throw <| IO.userError "duplicate private user names were not ambiguous"
-  unless privateAmbiguity.contains "Tests.PrivateA" &&
-      privateAmbiguity.contains "Tests.PrivateB" do
-    throw <| IO.userError "private ambiguity omitted defining modules"
+  let privateMatches := privateIndex.exactMatches "LeanReachDuplicate.hidden" 10
+  unless privateMatches.size == 2 &&
+      privateMatches.any (·.moduleName == `Tests.PrivateA) &&
+      privateMatches.any (·.moduleName == `Tests.PrivateB) do
+    throw <| IO.userError "duplicate private user names were not preserved"
   let roots ← detectRoots
   unless roots.contains `Tests.Fixture do
     throw <| IO.userError "built local modules were not detected"
@@ -211,7 +220,7 @@ private unsafe def runTests : IO Unit := do
     unsafe Cache.savePPModule `Tests.Fixture
       (planned.erase `LeanReachFixture.cachedWrapped)
     try
-      discard <| unsafe withQueryFor #[`Tests.Fixture]
+      discard <| unsafe withLookupFor #[`Tests.Fixture]
         "LeanReachFixture.cachedWrapped" (Limits.uniform 0) fun _ _ =>
           (throw <| IO.userError "injected output failure" : IO Unit)
     catch _ => pure ()
@@ -232,58 +241,38 @@ private unsafe def runTests : IO Unit := do
   for query in #[
       "LeanReachFixture.cachedWrapped",
       "  LeanReachFixture.cachedWrapped  "] do
-    unsafe withQueryFor #[`Tests.Fixture]
-        query (Limits.uniform 0) fun session names => do
+    unsafe withLookupFor #[`Tests.Fixture]
+        query (Limits.uniform 0) fun session result => do
       check session.sourcePath.isEmpty
         "cached query unexpectedly prepared a source environment"
+      let .query names := result |
+        throw <| IO.userError "exact cached query became a regex search"
       let result ← session.describeQuery names
       check (result.target.signature.contains "✝")
         "cached query lost the serialized irreducible definition"
   let mut rejectedEmpty := false
   try
-    discard <| unsafe withQueryFor #[`Tests.Fixture] " "
+    discard <| unsafe withLookupFor #[`Tests.Fixture] " "
       (Limits.uniform 0) fun _ _ => pure ()
   catch error =>
     rejectedEmpty := (toString error).contains "declaration query cannot be empty"
   unless rejectedEmpty do
     throw <| IO.userError "empty declaration query was not rejected"
-  let .ok (some cachedQuery) ← unsafe QueryCache.resolve #[`Tests.Fixture]
-      "LeanReachFixture.Topic.ranked" |
-    throw <| IO.userError "exact query cache is missing"
-  let .ok expectedQuery :=
-      fixtureIndex.queryNames "LeanReachFixture.Topic.ranked" {} |
-    throw <| IO.userError "fixture query is missing"
-  unless cachedQuery.queryNames {} == expectedQuery do
+  let rankedCached ← unsafe cachedQuery #[`Tests.Fixture]
+    `LeanReachFixture.Topic.ranked
+  let expectedQuery := fixtureIndex.queryNamesAt `LeanReachFixture.Topic.ranked
+  unless rankedCached.queryNames {} == expectedQuery do
     throw <| IO.userError "cached query does not preserve ranking"
-  let .ok (some shortQuery) ← unsafe QueryCache.resolve #[`Tests.Fixture]
-      "doubleViaPrivate" |
-    throw <| IO.userError "unique short query did not resolve from its shard"
-  unless shortQuery.target.name == `LeanReachFixture.doubleViaPrivate do
-    throw <| IO.userError "short query resolved to the wrong declaration"
-  let .ok (some mathlibSubstring) ← unsafe QueryCache.resolve #[`Mathlib]
-      "isPrincipalIdealRing_of_isPrincipalIdealRing_isLocalization_maxima" |
-    throw <| IO.userError "Mathlib substring query did not use its search cache"
-  unless mathlibSubstring.target.name ==
-      `isPrincipalIdealRing_of_isPrincipalIdealRing_isLocalization_maximal do
-    throw <| IO.userError "Mathlib substring query resolved the wrong declaration"
-  let .ok (some privateQuery) ← unsafe QueryCache.resolve #[`Tests.Fixture]
-      "LeanReachFixture.hidden_double_zero" |
-    throw <| IO.userError "private declaration did not resolve from its user name"
-  unless privateQuery.target.name == hiddenTheorem do
-    throw <| IO.userError "private query lost its kernel identity"
-  let .error _ ← unsafe QueryCache.resolve #[`Tests.Fixture] "duplicateLeaf" |
-    throw <| IO.userError "ambiguous short query was not rejected"
   let privateRoots := #[`Tests.PrivateA, `Tests.PrivateB]
   discard <| unsafe QueryCache.build privateRoots
-  let .error cachedPrivateAmbiguity ← unsafe QueryCache.resolve privateRoots
-      "LeanReachDuplicate.hidden" |
-    throw <| IO.userError "cached duplicate private names were not ambiguous"
-  unless cachedPrivateAmbiguity.contains "Tests.PrivateA" &&
-      cachedPrivateAmbiguity.contains "Tests.PrivateB" do
-    throw <| IO.userError "cached private ambiguity omitted defining modules"
-  let .ok (some exactPrivate) ← unsafe QueryCache.resolve privateRoots
-      privateA.toString |
-    throw <| IO.userError "private kernel query key did not resolve"
+  let some cachedPrivateMatches ← unsafe QueryCache.exactQueries privateRoots
+      "LeanReachDuplicate.hidden" 10 |
+    throw <| IO.userError "cached private exact-name index is missing"
+  unless cachedPrivateMatches.size == 2 &&
+      cachedPrivateMatches.any (·.target.moduleName == `Tests.PrivateA) &&
+      cachedPrivateMatches.any (·.target.moduleName == `Tests.PrivateB) do
+    throw <| IO.userError "cached duplicate private names were not preserved"
+  let exactPrivate ← unsafe cachedQuery privateRoots privateA
   unless exactPrivate.target.name == privateA do
     throw <| IO.userError "private kernel query key resolved the wrong module"
   let duplicateLeafPattern ← regex "duplicateLeaf"
@@ -304,11 +293,11 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "cached empty search fell back to the complete index"
   unless missingSearch.isEmpty do
     throw <| IO.userError "cached empty search returned a declaration"
-  let .error missingQuery ← unsafe QueryCache.resolve #[`Tests.Fixture]
-      "not_a_declaration_name" |
-    throw <| IO.userError "cached missing query fell back to the complete index"
-  unless missingQuery == NameResolve.noMatchMessage "not_a_declaration_name" do
-    throw <| IO.userError "cached missing query returned the wrong error"
+  let some missingExact ← unsafe QueryCache.exactQueries #[`Tests.Fixture]
+      "not_a_declaration_name" 2 |
+    throw <| IO.userError "exact query cache is unavailable"
+  unless missingExact.isEmpty do
+    throw <| IO.userError "missing exact query returned a cached declaration"
   for (source, limit) in #[
       (r"double_[zZ]", 1),
       (r"double_(zero|eq)", 10),
@@ -337,35 +326,21 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "local query overlay is missing"
   unless overlay.baseRoot == `Mathlib && overlay.entries.size > 0 do
     throw <| IO.userError "local query overlay has the wrong base or no declarations"
-  let .error missingOverlay ← unsafe QueryCache.resolve layeredRoots
-      "not_a_declaration_name" |
-    throw <| IO.userError "overlay missing query fell back to the complete index"
-  unless missingOverlay == NameResolve.noMatchMessage "not_a_declaration_name" do
-    throw <| IO.userError "overlay missing query returned the wrong error"
   unless (overlay.cached? `LeanReachFixture.double).isSome &&
       (overlay.cached? `HAdd.hAdd).isSome do
     throw <| IO.userError "local query overlay is missing an affected delta"
   unless (overlay.cached? `Submodule.span_le).isNone do
     throw <| IO.userError "local query overlay copied an unaffected Mathlib query"
-  let .ok (some layeredLocal) ← unsafe QueryCache.resolve layeredRoots
-      "doubleViaPrivate" |
-    throw <| IO.userError "local declaration did not resolve through the overlay"
+  let layeredLocal ← unsafe cachedQuery layeredRoots
+    `LeanReachFixture.doubleViaPrivate
   unless layeredLocal.target.name == `LeanReachFixture.doubleViaPrivate do
     throw <| IO.userError "overlay resolved the wrong local declaration"
-  let .ok (some layeredSubstring) ← unsafe QueryCache.resolve layeredRoots
-      "cachedWrap" |
-    throw <| IO.userError "local substring did not resolve through the overlay"
-  unless layeredSubstring.target.name == `LeanReachFixture.cachedWrapped do
-    throw <| IO.userError "overlay substring resolved the wrong local declaration"
-  let .ok (some layeredRelations) ← unsafe QueryCache.resolve layeredRoots
-      "LeanReachFixture.double" |
-    throw <| IO.userError "local overlay relations are missing"
+  let layeredRelations ← unsafe cachedQuery layeredRoots
+    `LeanReachFixture.double
   unless layeredRelations.downstream.any
       (·.name == `LeanReachFixture.double_eq_add) do
     throw <| IO.userError "local overlay downstream relation is missing"
-  let .ok (some layeredBase) ← unsafe QueryCache.resolve layeredRoots
-      "Submodule.span_le" |
-    throw <| IO.userError "base declaration did not resolve through the overlay"
+  let layeredBase ← unsafe cachedQuery layeredRoots `Submodule.span_le
   unless layeredBase.target.name == `Submodule.span_le do
     throw <| IO.userError "overlay resolved the wrong base declaration"
   let localizationPattern ← regex "localization_maximal"
@@ -410,9 +385,7 @@ private unsafe def runTests : IO Unit := do
       unicodeClassExpected == #[`WeierstrassCurve.Φ_ne_zero] do
     throw <| IO.userError "Unicode class prefilter changed search results"
   let lazyRoots := #[`Tests.Main, `Mathlib]
-  let .ok (some lazyLocal) ← unsafe QueryCache.resolve lazyRoots
-      "LeanReachFixture.double" |
-    throw <| IO.userError "query did not include an imported local module"
+  let lazyLocal ← unsafe cachedQuery lazyRoots `LeanReachFixture.double
   unless lazyLocal.target.name == `LeanReachFixture.double do
     throw <| IO.userError "recovered overlay resolved the wrong local declaration"
   unless lazyLocal.downstream.any (·.name == `LeanReachFixture.double_eq_add) do
@@ -428,12 +401,12 @@ private unsafe def runTests : IO Unit := do
       throw <| IO.userError "module fragment is missing a private declaration"
     let query (name : String) (limits : Limits)
         (action : QueryResult → IO Unit) : IO Unit :=
-      runner.lookup name limits fun
+      runner name limits fun
         | .query names => do action (← session.describeQuery names)
         | .search _ =>
           throw <| IO.userError s!"exact declaration '{name}' became a regex search"
     let search (pattern : String) (action : Array Declaration → IO Unit) : IO Unit := do
-      runner.lookup pattern {} fun
+      runner pattern {} fun
         | .search names => do action (← session.describeNames names)
         | .query _ =>
           throw <| IO.userError s!"regex pattern '{pattern}' became an exact query"
@@ -547,7 +520,7 @@ private unsafe def runTests : IO Unit := do
       check (!result.isEmpty) "interactive session search is missing"
 
   withInteractiveSession privateRoots fun session runner =>
-    runner.lookup "LeanReachDuplicate.hidden" {} fun
+    runner "LeanReachDuplicate.hidden" {} fun
       | .search names => do
         let declarations ← session.describeNames names
         check (declarations.size == 2)
