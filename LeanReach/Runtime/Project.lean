@@ -142,8 +142,11 @@ private unsafe def workspaceLayout (workspace : Workspace) : IO Layout := do
   roots := roots.qsort Name.lt
   if roots.contains `Mathlib then
     roots := (roots.filter (· != `Mathlib)).push `Mathlib
+  let directSources := workspace.root.depConfigs.flatMap fun dependency =>
+    (workspace.findPackageByName? dependency.name).map
+      (·.leanLibs.map (·.srcDir)) |>.getD #[]
   let sourcePath :=
-    (workspace.root.leanLibs.map (·.srcDir) ++
+    (workspace.root.leanLibs.map (·.srcDir) ++ directSources ++
       workspace.leanSrcPath.toArray ++ #[workspace.lakeEnv.lake.srcDir])
       |>.toList.eraseDups.toArray
   return {
@@ -164,7 +167,7 @@ unsafe def loadLayout? (sysroot : FilePath) (refresh := false) :
   let key := s!"{dir}\u0000{sysroot}"
   unless refresh do
     if let some layout := (← loadedLayouts.get).get? key then return some layout
-  let cache := dir / ".lake" / "leanreach-project-9"
+  let cache := dir / ".lake" / "leanreach-project-10"
   unless refresh do
     if let some layout ← loadCached cache sysroot then
       loadedLayouts.modify (·.insert key layout)
