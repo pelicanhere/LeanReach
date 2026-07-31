@@ -8,7 +8,6 @@ dependencies. It reports:
 - ranked upstream and downstream declarations.
 
 It reads built `.olean` and `.ilean` files, including partially built local libraries.
-LeanReach currently targets Lean 4.32.0.
 
 ## Install
 
@@ -18,7 +17,7 @@ Add LeanReach to `lakefile.toml`:
 [[require]]
 name = "LeanReach"
 scope = "pelicanhere"
-rev = "main"
+rev = "v4.32.0"
 ```
 
 Then build it and ask Lake for the executable path:
@@ -29,14 +28,14 @@ lake build @LeanReach/leanreach
 lake query '@LeanReach/leanreach' --text
 ```
 
-With the default Lake layout, run:
+With the default Lake layout, the executable is usually at:
 
-```console
+```text
 .lake/packages/LeanReach/.lake/build/bin/leanreach
 ```
 
-Use the executable directly. `lake exe @LeanReach/leanreach --help` is only a convenient build
-smoke test.
+Use the executable directly. `lake exe @LeanReach/leanreach --help` can be used as a build smoke
+test.
 
 ## Usage
 
@@ -62,7 +61,7 @@ An exact, case-sensitive declaration name shows its dependencies. Every other in
 unanchored regex search. Use `(?i)` to ignore case, `^...$` to match the complete name, and `--`
 before a dash-leading pattern.
 
-Queries and searches return 10 declarations by default.
+Dependency lists and search results are limited to 10 entries by default.
 
 ```text
 -m, --module MODULE   override automatic project detection
@@ -115,5 +114,10 @@ python Benchmarks/run.py --stage my-change --query-set all --append-history
 python Benchmarks/plot.py
 ```
 
-See [docs/architecture.md](docs/architecture.md) for the design and
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for adapted work and licenses.
+See [docs/architecture.md](docs/architecture.md) for the design.
+
+## Acknowledgements
+
+- LeanReach draws on [Loogle](https://github.com/nomeata/loogle), by Joachim Breitner and
+  contributors, especially its environment, cache, CLI, and frontend design.
+- Regex matching uses [lean-regex](https://github.com/pandaman64/lean-regex) by pandaman64.
