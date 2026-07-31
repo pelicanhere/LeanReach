@@ -23,6 +23,7 @@ abbrev CachedQuery := Neighborhood LocatedName
 structure Index extends Relations where
   private entries : Array LocatedName
   private trigrams : Data.Trie (Array UInt32)
+  private rankFeatures : Array Rank.Features
 
 namespace Index
 
@@ -64,6 +65,7 @@ def buildFrom (byName : Declarations) : Index := Id.run do
   return {
     entries
     trigrams := trigramIndex
+    rankFeatures := entries.map Rank.features
     toRelations := {
       forward
       reverse
@@ -88,9 +90,11 @@ def size (index : Index) : Nat :=
 
 private def rankIds (index : Index) (source : UInt32)
     (ids : Array UInt32) (upstream : Bool) (limit : Nat) : Array UInt32 :=
-  let source := index.entries[source.toNat]!
-  Rank.select source ids
+  let sourceId := source.toNat
+  let source := index.entries[sourceId]!
+  Rank.selectWith source index.rankFeatures[sourceId]! ids
     (fun candidate => index.entries[candidate.toNat]!)
+    (fun candidate => index.rankFeatures[candidate.toNat]!)
     (fun candidate =>
       if upstream then index.upstreamPrior[candidate.toNat]!
       else index.downstreamPrior[candidate.toNat]!)
