@@ -118,8 +118,9 @@ lets a dependency provide reusable artifacts to downstream Lake projects.
 - direct used-constant arrays after private-helper collapse.
 
 Names share a parent-first module dictionary, and imports, declarations, and edges use varint
-dictionary references. The sidecar is keyed by the module's Lake `depHash`. Without a Lake trace,
-LeanReach hashes all available `.olean` layers.
+dictionary references. Sidecars are content-addressed by the emitted `.olean` layer hashes, so a
+transitive Lake dependency-hash change does not rebuild an unchanged fragment. Without output
+metadata, LeanReach hashes the available `.olean` layers directly.
 
 ### Search cache
 
@@ -144,7 +145,9 @@ When a view combines built local modules with Mathlib, Mathlib is the stable bas
 The overlay reuses the base declaration table rather than copying names, modules, or degree counts.
 Regex search reads an immutable local-name catalog; an exact hit builds a separate local
 forward/reverse relation sidecar, reads one base query shard, and patches that neighborhood on
-demand.
+demand. Once both overlay parts exist, LeanReach keeps them as an immutable snapshot. Changed
+modules append declaration-level, `Name`-keyed deltas; bounded chains or substantial churn trigger
+compaction into a new snapshot, after which obsolete artifacts are removed.
 
 ### Pretty-print cache
 
@@ -190,8 +193,8 @@ The current granularity is:
 
 - module fragments: per module hash;
 - PP: per module hash, resumable within one valid sidecar;
-- Mathlib plus local query view: persistent Mathlib base plus a regenerated local overlay;
-- local overlay catalog and relations: per ordered root view.
+- Mathlib plus local query view: persistent Mathlib base plus a local snapshot;
+- local overlay catalog and relations: module-output fingerprints plus incremental deltas.
 
 The detected built-module list is persisted under the target project's `.lake`. Running
 `leanreach cache` refreshes it; ordinary queries reuse it for fast process startup. Consequently, a
@@ -209,7 +212,7 @@ search chain.
 
 The remaining cold-cache cost is primarily Lean signature delaboration and formatting. Stable
 Mathlib sidecars should be built once and reused. Local module fragments and PP sidecars are reused
-per module; the small local overlay is regenerated from those fragments.
+per module; an edited module updates the local overlay without rematerializing the unchanged graph.
 
 ## Source layout
 
@@ -234,6 +237,7 @@ LeanReach/Cache/Storage.lean           persistence and root fingerprints
 LeanReach/Cache/Index.lean             `.olean` extraction and graph materialization
 LeanReach/Cache/Search.lean            sharded regex candidate persistence
 LeanReach/Cache/Overlay.lean           local graph overlay
+LeanReach/Cache/OverlayDelta.lean      local snapshot deltas and compaction
 LeanReach/Cache/Query.lean             exact-query shards and routing
 LeanReach/Cache/PrettyPrint.lean       module PP sidecars
 LeanReach/Cache/Build.lean             cache workers and orchestration

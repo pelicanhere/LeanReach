@@ -1,6 +1,6 @@
 import LeanReach.Cache.Index
 import LeanReach.Cache.Codec
-import LeanReach.Cache.Overlay
+import LeanReach.Cache.OverlayDelta
 import LeanReach.Cache.Search
 import LeanReach.Search.Match
 
@@ -101,8 +101,12 @@ private unsafe def baseRoot? (roots : Array Name) : IO (Option Name) := do
     if ← unsafe fullCachesBuilt #[root] then return some root
   return none
 
-private unsafe def readCatalog (roots : Array Name) : IO (Option QueryOverlay.Catalog) :=
-  if roots.size > 1 then unsafe QueryOverlay.loadCatalog roots else pure none
+private unsafe def readCatalog (roots : Array Name) :
+    IO (Option QueryOverlay.Catalog) := do
+  if roots.size ≤ 1 then return none
+  if let some catalog ← unsafe QueryOverlay.loadCatalog roots then
+    return some catalog
+  unsafe QueryOverlay.Incremental.loadCatalog roots
 
 unsafe def isBuilt (roots : Array Name) : IO Bool := do
   if roots.size == 1 then return ← unsafe fullCachesBuilt roots
@@ -125,10 +129,15 @@ private unsafe def loadRelations (roots : Array Name) (baseRoot : Name) :
     IO QueryOverlay.Relations := do
   if let some relations ← unsafe QueryOverlay.loadRelations roots then
     if relations.baseRoot == baseRoot then return relations
+  if let some relations ← unsafe QueryOverlay.Incremental.loadRelations roots then
+    if relations.baseRoot == baseRoot then return relations
   let some table ← unsafe SearchCache.loadTable #[baseRoot] |
     throw <| IO.userError s!"declaration table for '{baseRoot}' is unavailable"
-  let relations ← unsafe QueryOverlay.buildRelations roots baseRoot table.modules
+  let (relations, fragments) ←
+    unsafe QueryOverlay.buildRelationsWithFragments roots baseRoot table.modules
   unsafe QueryOverlay.saveRelations roots relations
+  unsafe QueryOverlay.Incremental.saveBaseline roots
+    relations.catalog relations fragments
   return relations
 
 unsafe def build (roots : Array Name) : IO Nat := do

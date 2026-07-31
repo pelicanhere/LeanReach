@@ -99,8 +99,11 @@ try {
     throw "LeanReach did not detect the built local module outside the configured glob"
   }
 
-  $unbuilt = & $LeanReach "LayoutRoot.unbuiltValue" --json 2>&1
-  if ($LASTEXITCODE -eq 0) {
+  $unbuilt = & $LeanReach "LayoutRoot.unbuiltValue" --json
+  if ($LASTEXITCODE -ne 0) {
+    throw "LeanReach failed to search for the unbuilt module"
+  }
+  if (($unbuilt | ConvertFrom-Json).items.Count -ne 0) {
     throw "LeanReach detected an unbuilt module: $unbuilt"
   }
   if (Test-Path $unbuiltOlean) {

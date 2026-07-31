@@ -20,10 +20,10 @@ structure Relations where
   reverse : NameMap (Array LocatedName)
 
 private def catalogPath (olean : System.FilePath) : System.FilePath :=
-  olean.withExtension "leanreach-query-overlay-catalog-2"
+  olean.withExtension "leanreach-query-overlay-catalog-6"
 
 private def relationsPath (olean : System.FilePath) : System.FilePath :=
-  olean.withExtension "leanreach-query-overlay-relations-3"
+  olean.withExtension "leanreach-query-overlay-relations-7"
 
 private initialize loadedCatalogs : IO.Ref (Std.HashMap String Catalog) ← IO.mkRef {}
 private initialize loadedRelations : IO.Ref (Std.HashMap String Relations) ← IO.mkRef {}
@@ -93,12 +93,11 @@ unsafe def buildCatalog (roots : Array Name) (baseRoot : Name)
     Name.lt left.name right.name
   return { baseRoot, localNames }
 
-unsafe def buildRelations (roots : Array Name) (baseRoot : Name)
-    (baseModules : Array Name) : IO Relations := do
+def relationsFromFragments (baseRoot : Name)
+    (fragments : Array (Name × Cache.ModuleFragment)) : Relations := Id.run do
   let mut entries : NameMap Entry := {}
-  for (moduleName, declarations) in ← unsafe Cache.moduleClosure roots
-      (excludedModules baseRoot baseModules) do
-    for (name, dependencies) in declarations do
+  for (moduleName, fragment) in fragments do
+    for (name, dependencies) in fragment.declarations do
       let target := { name, moduleName }
       entries := entries.alter name fun previous => some {
         target
@@ -112,6 +111,13 @@ unsafe def buildRelations (roots : Array Name) (baseRoot : Name)
       reverse := reverse.alter dependency fun targets =>
         some ((targets.getD #[]).push entry.target)
   return { baseRoot, entries, reverse }
+
+unsafe def buildRelationsWithFragments (roots : Array Name) (baseRoot : Name)
+    (baseModules : Array Name) :
+    IO (Relations × Array (Name × Cache.ModuleFragment)) := do
+  let fragments ← unsafe Cache.moduleFragments roots
+    (excludedModules baseRoot baseModules)
+  return (relationsFromFragments baseRoot fragments, fragments)
 
 def Relations.catalog (relations : Relations) : Catalog := {
   baseRoot := relations.baseRoot

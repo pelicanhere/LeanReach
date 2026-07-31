@@ -58,17 +58,24 @@ private unsafe def readFragment (moduleName : Name) (olean : System.FilePath) :
     regions.forM CompactedRegion.free
     throw error
 
-private unsafe def loadFragment (moduleName : Name) : IO ModuleFragment := do
+private def fragmentPath (olean : System.FilePath) (fingerprint : String) :=
+  olean.withExtension s!"leanreach-module-10-{hash fingerprint}"
+
+unsafe def storedModuleFragment (moduleName : Name)
+    (hash : String) : IO (Option ModuleFragment) := do
+  let path := fragmentPath (← findOLean moduleName) hash
+  unless ← path.pathExists do return none
+  try return ModuleFragment.decode (← IO.FS.readBinFile path) hash
+  catch _ => return none
+
+unsafe def moduleFragment (moduleName : Name) : IO ModuleFragment := do
   let olean ← findOLean moduleName
-  let hash? ← depHash? olean
-  -- Module-fragment cache format 9.
-  let path := olean.withExtension "leanreach-module-9"
+  let hash? ← oleanHash? olean
+  -- Module-fragment cache format 10.
   if let some hash := hash? then
-    if ← path.pathExists then
-      try
-        if let some fragment := ModuleFragment.decode (← IO.FS.readBinFile path) hash then
-          return fragment
-      catch _ => pure ()
+    if let some fragment ← unsafe storedModuleFragment moduleName hash then
+      return fragment
+    let path := fragmentPath olean hash
     try
       let (fragment, regions) ← readFragment moduleName olean
       try saveBytes path (fragment.encode hash)
@@ -78,17 +85,18 @@ private unsafe def loadFragment (moduleName : Name) : IO ModuleFragment := do
     catch _ => pure ()
   return (← readFragment moduleName olean).1
 
-private unsafe def moduleData (moduleName : Name) :
-    IO (Array Name × Array (Name × Array Name)) := do
-  let fragment ← unsafe loadFragment moduleName
-  return (fragment.imports, fragment.declarations)
+unsafe def removeStoredModuleFragment (moduleName : Name) (hash : String) : IO Unit := do
+  try
+    let path := fragmentPath (← findOLean moduleName) hash
+    if ← path.pathExists then IO.FS.removeFile path
+  catch _ => pure ()
 
 unsafe def moduleNames (moduleName : Name) : IO (Array Name) :=
-  return (← unsafe moduleData moduleName).2.map (·.1)
+  return (← unsafe moduleFragment moduleName).declarations.map (·.1)
 
 private unsafe def foldClosure {α : Type} (roots : Array Name)
     (excluded : NameHashSet) (initial : α)
-    (visit : α → Name → Array (Name × Array Name) → IO α) : IO α := do
+    (visit : α → Name → ModuleFragment → IO α) : IO α := do
   let mut pending := #[]
   let mut seen := excluded
   let mut result := initial
@@ -102,11 +110,12 @@ private unsafe def foldClosure {α : Type} (roots : Array Name)
       let some moduleName := pending.back? | break
       pending := pending.pop
       batch := batch.push moduleName
-    let tasks ← batch.mapM fun moduleName => IO.asTask (unsafe moduleData moduleName)
+    let tasks ← batch.mapM fun moduleName =>
+      IO.asTask (unsafe moduleFragment moduleName)
     for (moduleName, task) in batch.zip tasks do
-      let (imports, moduleDeclarations) ← IO.ofExcept task.get
-      result ← visit result moduleName moduleDeclarations
-      for imported in imports do
+      let fragment ← IO.ofExcept task.get
+      result ← visit result moduleName fragment
+      for imported in fragment.imports do
         unless seen.contains imported do
           seen := seen.insert imported
           pending := pending.push imported
@@ -114,13 +123,19 @@ private unsafe def foldClosure {α : Type} (roots : Array Name)
 
 unsafe def moduleClosure (roots : Array Name) (excluded : NameHashSet := {}) :
     IO (Array (Name × Array (Name × Array Name))) :=
-  unsafe foldClosure roots excluded #[] fun modules moduleName declarations =>
-    pure (modules.push (moduleName, declarations))
+  unsafe foldClosure roots excluded #[] fun modules moduleName fragment =>
+    pure (modules.push (moduleName, fragment.declarations))
+
+unsafe def moduleFragments (roots : Array Name) (excluded : NameHashSet := {}) :
+    IO (Array (Name × ModuleFragment)) :=
+  unsafe foldClosure roots excluded #[] fun modules moduleName fragment =>
+    pure (modules.push (moduleName, fragment))
 
 unsafe def materializeIndex (roots : Array Name) : IO Index := do
   let declarations ← unsafe foldClosure roots {} ({} : Index.Declarations)
-      fun result moduleName entries =>
-    pure <| entries.foldl (init := result) fun result (name, dependencies) =>
+      fun result moduleName fragment =>
+    pure <| fragment.declarations.foldl (init := result)
+        fun result (name, dependencies) =>
       result.add name moduleName dependencies
   return Index.buildFrom declarations
 

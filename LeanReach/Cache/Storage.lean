@@ -65,6 +65,22 @@ def depHash? (olean : System.FilePath) : IO (Option String) := do
     toString <$> Lake.computeFileHash path
   return if hashes.isEmpty then none else some (String.intercalate ":" hashes.toList)
 
+/-- Hashes only the emitted `.olean` layers, excluding transitive build inputs. -/
+def oleanHash? (olean : System.FilePath) : IO (Option String) := do
+  let trace := olean.withExtension "trace"
+  if ← trace.pathExists then
+    try
+      if let .ok metadata := Lake.BuildMetadata.parse (← IO.FS.readFile trace) then
+        if let some outputs := metadata.outputs? then
+          let hashes : Except String (Array String) :=
+            outputs.getObjValAs? (Array String) "o"
+          if let .ok hashes := hashes then
+            if !hashes.isEmpty then return some (String.intercalate ":" hashes.toList)
+    catch _ => pure ()
+  let hashes ← (← (oleanParts olean).filterM (·.pathExists)).mapM fun path =>
+    toString <$> Lake.computeFileHash path
+  return if hashes.isEmpty then none else some (String.intercalate ":" hashes.toList)
+
 private def rootStamp (olean : System.FilePath) : IO String := do
   let trace := olean.withExtension "trace"
   let paths ←

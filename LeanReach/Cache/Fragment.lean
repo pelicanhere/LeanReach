@@ -52,11 +52,12 @@ private def decodeRef (dictionary : Array Name)
   let some name := dictionary[id - 1]? | failure
   return name
 
-def encode (fragment : ModuleFragment) (depHash : String) : ByteArray := Id.run do
+def encode (fragment : ModuleFragment) (fingerprint : String) : ByteArray := Id.run do
   let (dictionary, ids) := fragment.dictionary
   let idOf := fun name => (ids.find? name).getD 0
   let mut bytes :=
-    Codec.pushBytes (Codec.pushBytes ByteArray.empty "LRM9".toUTF8) depHash.toUTF8
+    Codec.pushBytes
+      (Codec.pushBytes ByteArray.empty "LRM10".toUTF8) fingerprint.toUTF8
   bytes := Codec.pushNat bytes dictionary.size
   for name in dictionary do bytes := encodeName ids bytes name
   bytes := Codec.pushNat bytes fragment.imports.size
@@ -69,10 +70,10 @@ def encode (fragment : ModuleFragment) (depHash : String) : ByteArray := Id.run 
       bytes := Codec.pushNat bytes (idOf dependency)
   return bytes
 
-def decode (bytes : ByteArray) (depHash : String) : Option ModuleFragment :=
+def decode (bytes : ByteArray) (fingerprint : String) : Option ModuleFragment :=
   Codec.Decoder.runToEnd (bytes := bytes) do
-    guard ((← Codec.Decoder.readBytes bytes) == "LRM9".toUTF8)
-    guard ((← Codec.Decoder.readBytes bytes) == depHash.toUTF8)
+    guard ((← Codec.Decoder.readBytes bytes) == "LRM10".toUTF8)
+    guard ((← Codec.Decoder.readBytes bytes) == fingerprint.toUTF8)
     let nameCount ← Codec.Decoder.readNat bytes
     let mut dictionary := #[]
     for _ in [0:nameCount] do

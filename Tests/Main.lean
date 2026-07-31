@@ -80,6 +80,54 @@ private unsafe def runTests : IO Unit := do
       (Cache.ModuleFragment.decode
         (fragment.encode "fragment-test") "stale-hash").isNone)
     "module fragment codec changed names, edges, or dependency validation"
+  let oldTarget : LocatedName := {
+    name := `LeanReachFixture.old, moduleName := `Tests.Fixture
+  }
+  let keptTarget : LocatedName := {
+    name := `LeanReachFixture.kept, moduleName := `Tests.Fixture
+  }
+  let newTarget : LocatedName := {
+    name := `LeanReachFixture.new, moduleName := `Tests.Fixture
+  }
+  let oldEntry : QueryOverlay.Entry := {
+    target := oldTarget
+    dependencies := ({} : NameSet).insert `HAdd.hAdd
+  }
+  let newEntry : QueryOverlay.Entry := {
+    target := newTarget
+    dependencies := ({} : NameSet).insert `HAdd.hAdd |>.insert `Nat
+  }
+  let delta : QueryOverlay.Incremental.Delta := {
+    removed := #[oldEntry], added := #[newEntry]
+  }
+  let deltaCatalog := delta.applyCatalog {
+    baseRoot := `Mathlib, localNames := #[oldTarget, keptTarget]
+  }
+  let deltaRelations := delta.applyRelations {
+    baseRoot := `Mathlib
+    entries := ({} : NameMap QueryOverlay.Entry).insert oldTarget.name oldEntry
+    reverse := ({} : NameMap (Array LocatedName)).insert `HAdd.hAdd #[oldTarget]
+  }
+  check (deltaCatalog.localNames.map (·.name) ==
+      #[keptTarget.name, newTarget.name].qsort Name.lt &&
+      !deltaRelations.entries.contains oldTarget.name &&
+      deltaRelations.entries.contains newTarget.name &&
+      (deltaRelations.reverse.find? `HAdd.hAdd).any
+        (·.any fun target => target.name == newTarget.name) &&
+      (deltaRelations.reverse.find? `Nat).any
+        (·.any fun target => target.name == newTarget.name))
+    "incremental overlay delta changed catalog or reverse-edge semantics"
+  let inverse : QueryOverlay.Incremental.Delta := {
+    removed := #[newEntry], added := #[oldEntry]
+  }
+  let restoredCatalog := inverse.applyCatalog deltaCatalog
+  let restoredRelations := inverse.applyRelations deltaRelations
+  check (restoredCatalog.localNames.map (·.name) ==
+      #[oldTarget.name, keptTarget.name].qsort Name.lt &&
+      restoredRelations.entries.contains oldTarget.name &&
+      !restoredRelations.entries.contains newTarget.name &&
+      (restoredRelations.reverse.find? `Nat).isNone)
+    "incremental overlay did not compose inverse deltas"
   check (NameSearch.leaf? `Submodule.span_le == some "span_le" &&
       (NameSearch.leaf? (.num `LeanReachGenerated 1)).isNone &&
       (NameSearch.leaf? .anonymous).isNone)
@@ -420,7 +468,7 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "local catalog search eagerly built relations"
   let layeredRelations ← unsafe cachedQuery layeredRoots
     `LeanReachFixture.double
-  let some relations ← unsafe QueryOverlay.loadRelations layeredRoots |
+  let some relations ← unsafe QueryOverlay.Incremental.loadRelations layeredRoots |
     throw <| IO.userError "an exact hit did not build layered relations"
   unless relations.baseRoot == localCatalog.baseRoot &&
       relations.entries.size > 0 &&
