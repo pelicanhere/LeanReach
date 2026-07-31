@@ -36,10 +36,7 @@ private def collapseInternal (internal : NameMap NameSet) (dependencies : NameSe
 
 private unsafe def readFragment (moduleName : Name) (olean : System.FilePath) :
     IO (ModuleFragment × Array CompactedRegion) := do
-  let parts ← unsafe ModuleData.readParts olean
-  let some (all, _) := parts.back? |
-    throw <| IO.userError s!"empty module data for '{moduleName}'"
-  let regions := parts.map (·.2)
+  let (all, regions) ← unsafe ModuleData.read moduleName olean
   try
     let source ← sourceNames olean
     let internal := all.constants.foldl (init := ({} : NameMap NameSet)) fun result info =>

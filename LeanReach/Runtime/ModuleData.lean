@@ -4,11 +4,14 @@ namespace LeanReach.ModuleData
 
 open Lean
 
-unsafe def readParts (olean : System.FilePath) :
-    IO (Array (ModuleData × CompactedRegion)) := do
+unsafe def read (moduleName : Name) (olean : System.FilePath) :
+    IO (ModuleData × Array CompactedRegion) := do
   let additional ← #[OLeanLevel.server, OLeanLevel.private].map
     (·.adjustFileName olean) |>.filterM (·.pathExists)
-  readModuleDataParts (#[olean] ++ additional)
+  let parts ← readModuleDataParts (#[olean] ++ additional)
+  let some (data, _) := parts.back? |
+    throw <| IO.userError s!"empty module data for '{moduleName}'"
+  return (data, parts.map (·.2))
 
 private def privateModule? (name : Name) : Option Name :=
   match privatePrefix? name with
@@ -31,10 +34,8 @@ unsafe def withPrivateOverlay {α : Type} (env : Environment) (moduleName : Name
   let started ← IO.monoNanosNow
   let mut regions : Array CompactedRegion := #[]
   try
-    let parts ← unsafe readParts (← findOLean moduleName)
-    regions := parts.map (·.2)
-    let some (data, _) := parts.back? |
-      throw <| IO.userError s!"empty module data for '{moduleName}'"
+    let (data, loadedRegions) ← unsafe read moduleName (← findOLean moduleName)
+    regions := loadedRegions
     let mut modules : NameMap (NameMap ConstantInfo) := {}
     modules := modules.insert moduleName (constantMap data)
     let mut env := env
@@ -49,10 +50,8 @@ unsafe def withPrivateOverlay {α : Type} (env : Environment) (moduleName : Name
       let constants ← match modules.find? owner with
         | some constants => pure constants
         | none => do
-          let parts ← unsafe readParts (← findOLean owner)
-          for (_, region) in parts do regions := regions.push region
-          let some (data, _) := parts.back? |
-            throw <| IO.userError s!"empty module data for '{owner}'"
+          let (data, loadedRegions) ← unsafe read owner (← findOLean owner)
+          regions := regions ++ loadedRegions
           let result := constantMap data
           modules := modules.insert owner result
           pure result
