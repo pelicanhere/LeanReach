@@ -115,11 +115,6 @@ private unsafe def isBaseMetadataBuilt (roots : Array Name) : IO Bool := do
   return (← Cache.markerMatches (baseMetadataMarkerPath olean) depHash) &&
     (← (baseMetadataPath olean).pathExists)
 
-private unsafe def loadBaseModules (roots : Array Name) :
-    IO (Option (Array Name)) := do
-  let (olean, depHash, _) ← unsafe Cache.rootData roots
-  unsafe Cache.loadPart (Array Name) (baseModulesPath olean) depHash
-
 private unsafe def loadBaseMetadata (roots : Array Name) :
     IO (Option QueryOverlay.BaseMetadata) := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
@@ -157,7 +152,9 @@ private unsafe def ensureBaseMetadata (roots : Array Name) :
   return base
 
 private unsafe def ensureBaseModules (roots : Array Name) : IO (Array Name) := do
-  if let some modules ← unsafe loadBaseModules roots then return modules
+  let (olean, depHash, _) ← unsafe Cache.rootData roots
+  if let some modules ← unsafe Cache.loadPart (Array Name)
+      (baseModulesPath olean) depHash then return modules
   let modules := (← unsafe ensureBaseMetadata roots).modules
   try unsafe saveBaseModules roots modules
   catch _ => IO.eprintln "leanreach: could not write base module cache"
@@ -173,10 +170,6 @@ private unsafe def baseRoot? (roots : Array Name) : IO (Option Name) := do
 private unsafe def readCatalog (roots : Array Name) : IO (Option QueryOverlay.Catalog) :=
   if roots.size > 1 then unsafe QueryOverlay.loadCatalog roots else pure none
 
-private unsafe def readRelations (roots : Array Name) :
-    IO (Option QueryOverlay.Relations) :=
-  if roots.size > 1 then unsafe QueryOverlay.loadRelations roots else pure none
-
 private unsafe def fullCachesBuilt (roots : Array Name) : IO Bool :=
   return (← unsafe isFullBuilt roots) &&
     (← unsafe SearchCache.isBuilt roots) &&
@@ -185,7 +178,7 @@ private unsafe def fullCachesBuilt (roots : Array Name) : IO Bool :=
 unsafe def isBuilt (roots : Array Name) : IO Bool := do
   if roots.size == 1 then return ← unsafe fullCachesBuilt roots
   let some catalog ← unsafe readCatalog roots | return false
-  let some relations ← unsafe readRelations roots | return false
+  let some relations ← unsafe QueryOverlay.loadRelations roots | return false
   return (← unsafe fullCachesBuilt #[catalog.baseRoot]) &&
     relations.baseRoot == catalog.baseRoot
 
@@ -253,11 +246,11 @@ private unsafe def loadCatalog (roots : Array Name) :
   unsafe QueryOverlay.saveCatalog roots catalog
   return some catalog
 
-private unsafe def loadRelations (roots : Array Name)
-    (catalog : QueryOverlay.Catalog) : IO QueryOverlay.Relations := do
-  if let some relations ← unsafe readRelations roots then
-    if relations.baseRoot == catalog.baseRoot then return relations
-  unsafe buildRelations roots catalog.baseRoot
+private unsafe def loadRelations (roots : Array Name) (baseRoot : Name) :
+    IO QueryOverlay.Relations := do
+  if let some relations ← unsafe QueryOverlay.loadRelations roots then
+    if relations.baseRoot == baseRoot then return relations
+  unsafe buildRelations roots baseRoot
 
 unsafe def build (roots : Array Name) : IO Nat := do
   if roots.size == 1 then return ← unsafe buildFullCaches roots
@@ -267,12 +260,7 @@ unsafe def build (roots : Array Name) : IO Nat := do
     | none => unsafe baseRoot? roots
   let some baseRoot := baseRoot? | return ← unsafe buildFullCaches roots
   let count ← unsafe buildFullCaches #[baseRoot]
-  let relations ←
-    match ← unsafe readRelations roots with
-    | some relations =>
-      if relations.baseRoot == baseRoot then pure relations
-      else unsafe buildRelations roots baseRoot
-    | none => unsafe buildRelations roots baseRoot
+  let relations ← unsafe loadRelations roots baseRoot
   if catalog?.isNone then
     unsafe QueryOverlay.saveCatalog roots relations.catalog
   return max relations.entries.size count
@@ -317,7 +305,7 @@ unsafe def exactQueries (roots : Array Name) (query : String)
     (NameSearch.exactMatch name ·.name) |>.take limit
   let some baseResults ← unsafe exactFull #[catalog.baseRoot] query limit | return none
   if localTargets.isEmpty && baseResults.isEmpty then return some #[]
-  let relations ← unsafe loadRelations roots catalog
+  let relations ← unsafe loadRelations roots catalog.baseRoot
   unless !localTargets.isEmpty ||
       baseResults.any (relations.affects ·.target.name) do
     return some baseResults

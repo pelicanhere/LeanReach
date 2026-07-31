@@ -80,15 +80,12 @@ unsafe def loadRelations (roots : Array Name) : IO (Option Relations) := do
   loadedRelations.modify (·.insert key relations)
   return some relations
 
-def Relations.local? (data : Relations) (name : Name) : Option LocatedName :=
-  data.entries.find? name |>.map (·.target)
-
 def Relations.affects (data : Relations) (name : Name) : Bool :=
   data.entries.contains name || data.reverse.contains name
 
 private def Relations.moduleOf? (data : Relations) (base : BaseMetadata) (name : Name) :
     Option LocatedName :=
-  data.local? name <|> base.located? name
+  (data.entries.find? name |>.map (·.target)) <|> base.located? name
 
 def Relations.queryFromBase (data : Relations) (base : BaseMetadata) (target : LocatedName)
     (cached? : Option CachedQuery) : CachedQuery :=
