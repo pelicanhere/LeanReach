@@ -1,9 +1,9 @@
-import LeanReach.PrettyPrint.Printer
+import LeanReach.PrettyPrint.Declaration
 import LeanReach.Search.Index
 
 namespace LeanReach
 
-open Lean Meta
+open Lean
 
 abbrev QueryResult := Neighborhood Declaration
 
@@ -14,17 +14,6 @@ instance : ToJson QueryResult where
     ("downstream", toJson result.downstream)
   ]
 
-structure Limits where
-  upstream : Nat := 10
-  downstream : Nat := 10
-  search : Nat := 20
-
-def Limits.uniform (limit : Nat) : Limits :=
-  { upstream := limit, downstream := limit, search := limit }
-
-def Limits.usesCachedQuery (limits : Limits) : Bool :=
-  limits.upstream ≤ cachedQueryLimit && limits.downstream ≤ cachedQueryLimit
-
 structure Session where
   sourcePath : SearchPath
   private declarations : IO.Ref (NameMap Declaration)
@@ -32,21 +21,17 @@ structure Session where
 def Session.create (sourcePath : SearchPath) : IO Session :=
   return { sourcePath, declarations := ← IO.mkRef {} }
 
-def Session.ppCache (session : Session) : IO (NameMap Declaration) :=
-  session.declarations.get
-
-def Session.merge (session : Session) (declarations : NameMap Declaration) : IO Unit := do
-  session.declarations.modify fun current => Std.TreeMap.union current declarations
+def Session.merge (session : Session) (declarations : NameMap Declaration) : IO Unit :=
+  session.declarations.modify (·.insertMany declarations)
 
 def Session.missing (session : Session) (names : Array Name) : IO (Array Name) := do
-  let cached ← session.declarations.get
-  return names.filter fun name => !cached.contains name
+  return Declaration.missingFrom (← session.declarations.get) names
 
-private def describe (session : Session) (name : Name) : CoreM Declaration := do
-  if let some declaration := (← session.declarations.get).find? name then
-    return declaration
-  let declaration ← prettyPrintDeclaration session.sourcePath name
-  session.declarations.modify (·.insert name declaration)
+private def describe (declarations : NameMap Declaration) (name : Name) : IO Declaration := do
+  let some declaration := declarations.find? name |
+    throw <| IO.userError s!"declaration '{name}' was not prepared"
+  unless declaration.hasSource do
+    throw <| IO.userError s!"declaration '{name}' has no source location"
   return declaration
 
 abbrev QueryNames := Neighborhood Name
@@ -61,37 +46,29 @@ def CachedQuery.queryNames (query : CachedQuery) (limits : Limits) : QueryNames 
 def CachedQuery.moduleOf? (query : CachedQuery) (name : Name) : Option Name :=
   if query.target.name == name then some query.target.moduleName
   else
-    (query.upstream ++ query.downstream).find? (·.name == name) |>.map (·.moduleName)
+    (query.upstream.find? (·.name == name) <|>
+      query.downstream.find? (·.name == name)).map (·.moduleName)
 
-def Index.queryNames (index : Index) (query : String) (limits : Limits := {}) :
-    Except String QueryNames := do
-  let target ← index.resolve query
-  return {
+def Index.queryNamesAt (index : Index) (target : Name)
+    (limits : Limits := {}) : QueryNames :=
+  {
     target
     upstream := index.upstream target limits.upstream
     downstream := index.downstream target limits.downstream
   }
 
 def Session.describeNames (session : Session) (items : Array Name) :
-    CoreM (Array Declaration) :=
-  items.mapM (describe session)
+    IO (Array Declaration) := do
+  let declarations ← session.declarations.get
+  items.mapM (describe declarations)
 
 def Session.describeQuery (session : Session) (names : QueryNames) :
-    CoreM QueryResult := do
+    IO QueryResult := do
+  let declarations ← session.declarations.get
   return {
-    target := ← describe session names.target
-    upstream := ← session.describeNames names.upstream
-    downstream := ← session.describeNames names.downstream
+    target := ← describe declarations names.target
+    upstream := ← names.upstream.mapM (describe declarations)
+    downstream := ← names.downstream.mapM (describe declarations)
   }
-
-def Session.query (session : Session) (index : Index) (query : String)
-    (limits : Limits := {}) :
-    CoreM QueryResult := do
-  session.describeQuery (← Lean.ofExcept (index.queryNames query limits))
-
-def Session.search (session : Session) (index : Index) (query : String)
-    (limit : Nat := 20) :
-    CoreM (Array Declaration) :=
-  session.describeNames (index.search query limit)
 
 end LeanReach

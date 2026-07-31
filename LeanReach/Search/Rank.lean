@@ -1,4 +1,4 @@
-import LeanReach.Search.Name
+import LeanReach.Search.Match
 import LeanReach.Search.TopK
 import LeanReach.Search.Types
 
@@ -10,29 +10,66 @@ universe u
 
 namespace Rank
 
-private def commonPrefixLength : List Name → List Name → Nat
-  | a :: as, b :: bs => if a == b then commonPrefixLength as bs + 1 else 0
-  | _, _ => 0
+structure Features where
+  name : Name
+  nameDepth : Nat
+  moduleDepth : Nat
+  tokens : Array String
+  deriving Inhabited
+
+private def commonPrefixLength (left right : Name)
+    (leftDepth rightDepth : Nat) : Nat := Id.run do
+  let mut left := left
+  let mut right := right
+  let mut leftDepth := leftDepth
+  let mut rightDepth := rightDepth
+  while leftDepth > rightDepth do
+    left := left.getPrefix
+    leftDepth := leftDepth - 1
+  while rightDepth > leftDepth do
+    right := right.getPrefix
+    rightDepth := rightDepth - 1
+  while left != right do
+    left := left.getPrefix
+    right := right.getPrefix
+    leftDepth := leftDepth - 1
+  return leftDepth
 
 private def diceScore (left right shared : Nat) : Float :=
   let total := left + right
   if total == 0 then 0.0 else 2.0 * shared.toFloat / total.toFloat
 
-private def prefixSimilarity (left right : List Name) : Float :=
-  diceScore left.length right.length (commonPrefixLength left right)
+private def prefixSimilarity (left right : Name)
+    (leftDepth rightDepth : Nat) : Float :=
+  diceScore leftDepth rightDepth
+    (commonPrefixLength left right leftDepth rightDepth)
 
-private def significantParts (name : Name) : List String :=
-  ((NameSearch.leaf (privateToUserName name)).toLower.splitOn "_").filter (·.length ≥ 3)
+private def significantParts (name : Name) : Array String :=
+  (((NameSearch.leaf? (privateToUserName name)).getD "").toLower.splitOn "_")
+    |>.filter (·.length ≥ 3)
+    |>.eraseDups
+    |>.toArray
 
-private def tokenSimilarity (left right : List String) : Float :=
-  diceScore left.length right.length (left.countP right.contains)
+def features (declaration : LocatedName) : Features :=
+  let name := privateToUserName declaration.name
+  {
+    name
+    nameDepth := name.getNumParts
+    moduleDepth := declaration.moduleName.getNumParts
+    tokens := significantParts declaration.name
+  }
 
-private def affinity (source : LocatedName) (sourceName sourceModule : List Name)
-    (sourceParts : List String) (candidate : LocatedName) : Float :=
+private def tokenSimilarity (left right : Array String) : Float :=
+  diceScore left.size right.size (left.countP right.contains)
+
+private def affinity (source : LocatedName) (sourceFeatures : Features)
+    (candidate : LocatedName) (candidateFeatures : Features) : Float :=
   ((if source.moduleName == candidate.moduleName then 3.0 else 0.0) +
-    3.0 * prefixSimilarity sourceName (privateToUserName candidate.name).components +
-    2.0 * prefixSimilarity sourceModule candidate.moduleName.components +
-    4.0 * tokenSimilarity sourceParts (significantParts candidate.name)) / 8.0
+    3.0 * prefixSimilarity sourceFeatures.name candidateFeatures.name
+      sourceFeatures.nameDepth candidateFeatures.nameDepth +
+    2.0 * prefixSimilarity source.moduleName candidate.moduleName
+      sourceFeatures.moduleDepth candidateFeatures.moduleDepth +
+    4.0 * tokenSimilarity sourceFeatures.tokens candidateFeatures.tokens) / 8.0
 
 private def rankPositions (size limit : Nat) (score : Nat → Float)
     (name : Nat → Name) : Array Nat :=
@@ -55,20 +92,25 @@ def priors (forward reverse : Array (Array UInt32))
   forward.mapIdx fun id dependencies =>
     prior forward.size reverse[id]!.size dependencies.size upstream
 
-def select {α : Type u} [Inhabited α] (source : LocatedName) (candidates : Array α)
-    (located : α → LocatedName) (candidatePrior : α → Float)
-    (limit : Nat) : Array α :=
-  let sourceName := (privateToUserName source.name).components
-  let sourceModule := source.moduleName.components
-  let sourceParts := significantParts source.name
+def selectWith {α : Type u} [Inhabited α] (source : LocatedName)
+    (sourceFeatures : Features) (candidates : Array α)
+    (located : α → LocatedName) (candidateFeatures : α → Features)
+    (candidatePrior : α → Float) (limit : Nat) : Array α :=
   let candidateAt position := candidates[position]!
   let positions := rankPositions candidates.size limit
     (fun position =>
       let candidate := candidateAt position
       candidatePrior candidate *
-        (1.0 + affinity source sourceName sourceModule sourceParts (located candidate)))
+        (1.0 + affinity source sourceFeatures
+          (located candidate) (candidateFeatures candidate)))
     (fun position => (located (candidateAt position)).name)
   positions.map candidateAt
+
+def select {α : Type u} [Inhabited α] (source : LocatedName) (candidates : Array α)
+    (located : α → LocatedName) (candidatePrior : α → Float)
+    (limit : Nat) : Array α :=
+  selectWith source (features source) candidates located
+    (features ∘ located) candidatePrior limit
 
 end Rank
 end LeanReach

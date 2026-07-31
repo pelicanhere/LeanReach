@@ -1,5 +1,7 @@
+import Lean.DeclarationRange
 import Lean.Server.References
 import Lean.Util.Path
+import LeanReach.Runtime.Environment
 
 namespace LeanReach
 
@@ -24,13 +26,25 @@ def sourceNames (olean : System.FilePath) : IO NameHashSet := do
   let some ilean ← loadIlean? olean | return {}
   return foldDefinitions ilean {} fun names name _ => names.insert name
 
-def moduleSource (sourcePath : SearchPath) (moduleName : Name) :
+private unsafe def rangePositions (env : Environment) (names : Array Name) :
+    IO (NameMap Lsp.Position) :=
+  unsafe runCore env do
+    let mut positions := {}
+    for name in names do
+      if let some ranges ← findDeclarationRanges? name then
+        positions := positions.insert name ranges.selectionRange.toLspRange.start
+    return positions
+
+unsafe def moduleSource (sourcePath : SearchPath) (env : Environment)
+    (moduleName : Name) (names : Array Name) :
     IO (Option String × NameMap Lsp.Position) := do
-  let olean ← findOLean moduleName
-  let positions ← match ← loadIlean? olean with
-    | none => pure {}
-    | some ilean => pure <| foldDefinitions ilean {} fun positions name position =>
-        positions.insert name position
+  let mut positions ← unsafe rangePositions env names
+  let missing := names.filter fun name => !positions.contains name
+  unless missing.isEmpty do
+    let wanted : NameHashSet := Std.HashSet.ofArray missing
+    if let some ilean ← loadIlean? (← findOLean moduleName) then
+      positions := foldDefinitions ilean positions fun positions name position =>
+        if wanted.contains name then positions.insert name position else positions
   return ((← sourcePath.findModuleWithExt "lean" moduleName).map (·.toString), positions)
 
 end LeanReach

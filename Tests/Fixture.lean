@@ -1,4 +1,4 @@
-import Lean
+import LeanReach
 
 namespace LeanReachFixture
 

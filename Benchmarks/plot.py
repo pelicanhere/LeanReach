@@ -11,8 +11,10 @@ from pathlib import Path
 
 COLORS = {
     "leanreach_session": "#16a34a",
+    "rg_session": "#f97316",
     "leanreach_process": "#2563eb",
-    "rg": "#f97316",
+    "rg_process": "#dc2626",
+    "rg": "#a855f7",
 }
 
 
@@ -24,6 +26,11 @@ def main() -> None:
     )
     for row in csv.DictReader(source.open(encoding="utf-8")):
         samples[row["stage"]][row["tool"]].append(float(row["latency_ms"]))
+    unknown = {
+        tool for stage in samples.values() for tool in stage if tool not in COLORS
+    }
+    if unknown:
+        raise SystemExit(f"unknown benchmark tools: {', '.join(sorted(unknown))}")
 
     stages = list(samples)
     values = [
@@ -101,7 +108,7 @@ def main() -> None:
     target.write_text(
         f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}">
 <rect width="100%" height="100%" fill="white"/>
-<text x="{left}" y="28" font-size="18" font-family="sans-serif">Distinct-query latency samples (log scale)</text>
+<text x="{left}" y="28" font-size="18" font-family="sans-serif">Search latency samples (log scale)</text>
 {grid_svg}
 <line x1="{left}" y1="{top+plot_height}" x2="{width-right}" y2="{top+plot_height}" stroke="#444"/>
 {points_svg}

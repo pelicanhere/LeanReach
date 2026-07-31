@@ -1,6 +1,16 @@
 {"version": "1.2.0",
  "packagesDir": ".lake/packages",
- "packages": [],
+ "packages":
+ [{"url": "https://github.com/pandaman64/lean-regex.git",
+   "type": "git",
+   "subDir": "regex",
+   "scope": "",
+   "rev": "e9dcea72668042ff3a2ade88efbc639b1c0fc119",
+   "name": "Regex",
+   "manifestFile": "lake-manifest.json",
+   "inputRev": "v4.32.0",
+   "inherited": false,
+   "configFile": "lakefile.toml"}],
  "name": "LeanReach",
  "lakeDir": ".lake",
  "fixedToolchain": false}

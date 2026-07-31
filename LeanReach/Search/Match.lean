@@ -1,20 +1,44 @@
-import LeanReach.Search.Name
+module
+
+public import Lean.Data.Name
+public import Lean.PrivateName
+
+@[expose] public section
 
 namespace LeanReach.NameSearch
 
 open Lean
 
-universe u v
+def leaf? : Name → Option String
+  | .str _ value => some value
+  | _ => none
 
-def normalizedName (name : Name) : String :=
-  (privateToUserName name).toString.toLower
+def exactMatch (query candidate : Name) : Bool :=
+  candidate == query ||
+    (!isPrivateName query && privateToUserName candidate == query)
+
+def findSorted? (size : Nat) (nameAt : Nat → Name) (target : Name) : Option Nat := Id.run do
+  let mut lo := 0
+  let mut hi := size
+  while lo < hi do
+    let mid := (lo + hi) / 2
+    let candidate := nameAt mid
+    if candidate == target then return some mid
+    if Name.lt candidate target then lo := mid + 1 else hi := mid
+  return none
 
 def trigrams (value : String) : Array String := Id.run do
   let mut result := #[]
-  let length := value.length
-  for offset in [0:length] do
-    if length < offset + 3 then break
-    result := result.push ((value.drop offset).take 3).copy
+  let mut start := value.startPos
+  let mut stop := start
+  for _ in [0:3] do
+    let some next := stop.next? | return result
+    stop := next
+  while true do
+    result := result.push (value.extract start stop)
+    let some nextStop := stop.next? | break
+    start := start.next!
+    stop := nextStop
   return result
 
 def rarestTrigram? (grams : Array String)
@@ -23,37 +47,6 @@ def rarestTrigram? (grams : Array String)
   for gram in grams do
     let count := (count? gram).getD 0
     if selected.all (count < ·.2) then selected := some (gram, count)
-  return selected.map (·.1)
-
-def exact (query : String) (name : Name) : Bool :=
-  normalizedName name == query
-
-def leafMatches (query : String) (name : Name) : Bool :=
-  (leaf (privateToUserName name)).toLower == query
-
-private def bucket? (query : String) (name : Name) : Option Nat :=
-  let candidate := normalizedName name
-  if candidate == query then some 0
-  else if candidate.endsWith ("." ++ query) then some 1
-  else if candidate.contains query then some 2
-  else none
-
-def buckets {α : Type u} {β : Type v} (query : String)
-    (items : Array α) (project : α → Option β) (nameOf : β → Name)
-    (limit : Nat) : Array (Array β) := Id.run do
-  let query := query.toLower
-  let mut buckets : Array (Array β) := #[#[], #[], #[]]
-  for item in items do
-    let some item := project item | continue
-    let name := nameOf item
-    if let some bucket := bucket? query name then
-      if buckets[bucket]!.size < limit then
-        buckets := buckets.modify bucket (·.push item)
-  return buckets
-
-def collect {α : Type u} {β : Type v} (query : String)
-    (items : Array α) (project : α → Option β) (nameOf : β → Name)
-    (limit : Nat) : Array β :=
-  (buckets query items project nameOf limit).flatten.take limit
+  return selected.bind fun (gram, count) => if count == 0 then none else some gram
 
 end LeanReach.NameSearch
