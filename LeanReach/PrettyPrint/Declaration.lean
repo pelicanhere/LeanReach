@@ -1,4 +1,5 @@
-import Lean
+import Lean.Data.Json
+import Lean.PrivateName
 
 namespace LeanReach
 
@@ -9,6 +10,13 @@ structure Declaration where
   file : Option String
   line : Nat
   column : Nat
+
+def Declaration.hasSource (declaration : Declaration) : Bool :=
+  declaration.file.isSome && declaration.line > 0 && declaration.column > 0
+
+def Declaration.missingFrom (declarations : Lean.NameMap Declaration)
+    (names : Array Lean.Name) : Array Lean.Name :=
+  names.filter fun name => (declarations.find? name).all (!·.hasSource)
 
 instance : Lean.ToJson Declaration where
   toJson d :=

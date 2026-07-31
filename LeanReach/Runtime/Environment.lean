@@ -1,19 +1,9 @@
 import Lean.Environment
-import Lean.Util.Path
 import LeanReach.Runtime.Project
 
 namespace LeanReach
 
 open Lean
-
-private def workspaceRoots : IO (List System.FilePath) := do
-  let cwd ← (← Project.findDir?).getDM IO.currentDir
-  let packages := cwd / ".lake" / "packages"
-  let mut roots := [cwd]
-  if ← packages.isDir then
-    for entry in ← packages.readDir do
-      if ← entry.path.isDir then roots := roots.concat entry.path
-  return roots
 
 private def leanSysroot : IO System.FilePath := do
   if let some root ← IO.getEnv "LEAN_SYSROOT" then
@@ -26,38 +16,28 @@ private def leanSysroot : IO System.FilePath := do
   findSysroot
 
 private def initializeSearchPath (sysroot : System.FilePath)
-    (roots : List System.FilePath) : IO Unit := do
-  match ← IO.getEnv "LEAN_PATH" with
-  | some path => searchPathRef.set (System.SearchPath.parse path)
-  | none =>
-    let mut paths := []
-    for root in roots do
-      let path := root / ".lake" / "build" / "lib" / "lean"
-      if ← path.isDir then paths := paths.concat path
-    initSearchPath sysroot paths
+    (layout? : Option Project.Layout) : IO Unit :=
+  initSearchPath sysroot (layout?.map (·.leanPath.toList) |>.getD [])
 
 private def sourceSearchPath (sysroot : System.FilePath)
-    (roots : List System.FilePath) : IO SearchPath := do
-  let mut fallback := []
-  for root in roots do
-    fallback := fallback.concat root
-    let source := root / "src"
-    if ← source.isDir then fallback := fallback.concat source
-  fallback := fallback.concat (sysroot / "src" / "lean")
-  match ← IO.getEnv "LEAN_SRC_PATH" with
-  | some path => return System.SearchPath.parse path ++ fallback
-  | none => return fallback
+    (layout? : Option Project.Layout) : IO SearchPath := do
+  let mut paths := layout?.map (·.sourcePath) |>.getD #[]
+  if let some path ← IO.getEnv "LEAN_SRC_PATH" then
+    paths := paths ++ (System.SearchPath.parse path).toArray
+  return (paths.push (sysroot / "src" / "lean")).toList
+
+private unsafe def prepareLayout : IO (System.FilePath × Option Project.Layout) := do
+  let sysroot ← leanSysroot
+  let layout? ← unsafe Project.loadLayout? sysroot
+  initializeSearchPath sysroot layout?
+  return (sysroot, layout?)
 
 unsafe def prepareSearchPath : IO Unit := do
-  let roots ← workspaceRoots
-  let sysroot ← leanSysroot
-  initializeSearchPath sysroot roots
+  discard <| unsafe prepareLayout
 
 unsafe def prepareEnvironment : IO SearchPath := do
-  let roots ← workspaceRoots
-  let sysroot ← leanSysroot
-  initializeSearchPath sysroot roots
-  sourceSearchPath sysroot roots
+  let (sysroot, layout?) ← unsafe prepareLayout
+  sourceSearchPath sysroot layout?
 
 unsafe def runCore {α : Type} (env : Environment) (action : CoreM α) : IO α :=
   Core.CoreM.toIO'
@@ -71,9 +51,10 @@ unsafe def importEnvironment (modules : Array Name) (leakEnv := false) : IO Envi
   importModules (loadExts := true) (leakEnv := leakEnv) imports {}
 
 unsafe def detectRoots (refresh := false) : IO (Array Name) := do
-  let roots ← unsafe Project.detectRoots (← leanSysroot) refresh
-  if roots.isEmpty then
+  let some layout ← unsafe Project.loadLayout? (← leanSysroot) refresh |
     throw <| IO.userError "could not detect a built local lean_lib or required Mathlib; use --module"
-  return roots
+  if layout.roots.isEmpty then
+    throw <| IO.userError "could not detect a built local lean_lib or required Mathlib; use --module"
+  return layout.roots
 
 end LeanReach

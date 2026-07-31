@@ -1,3 +1,4 @@
+import LeanReach.Cache.Fragment
 import LeanReach.Cache.Storage
 import LeanReach.Runtime.ModuleData
 import LeanReach.Runtime.Source
@@ -17,14 +18,6 @@ Released under the Apache License 2.0.
 private def isBlacklisted (name : Name) : Bool :=
   (privateToUserName name).isInternalDetail
 
-private def catalogVersion := 7
-private def relationsVersion := 8
-private def fragmentVersion := 7
-
-private structure ModuleFragment where
-  imports : Array Name
-  declarations : Array (Name × NameSet)
-
 private def collapseInternal (internal : NameMap NameSet) (dependencies : NameSet) : NameSet :=
   Id.run do
     let mut pending : Array Name := #[]
@@ -43,88 +36,101 @@ private def collapseInternal (internal : NameMap NameSet) (dependencies : NameSe
 
 private unsafe def readFragment (moduleName : Name) (olean : System.FilePath) :
     IO (ModuleFragment × Array CompactedRegion) := do
-  let parts ← unsafe ModuleData.readParts olean
-  let some (all, _) := parts.back? |
-    throw <| IO.userError s!"empty module data for '{moduleName}'"
-  let source ← sourceNames olean
-  let (constants, internal) := all.constants.foldl
-      (init := (({} : NameMap ConstantInfo), ({} : NameMap NameSet))) fun state info =>
-    let constants := state.1.insert info.name info
-    let internal :=
-      if source.contains info.name && !isBlacklisted info.name then state.2
-      else state.2.insert info.name info.getUsedConstantsAsSet
-    (constants, internal)
-  return ({
-    imports := all.imports.map (·.module)
-    declarations := all.constants.filterMap fun visibleInfo =>
-      let name := visibleInfo.name
-      if source.contains name && !isBlacklisted name then
-        let info := (constants.find? name).getD visibleInfo
-        some (name, collapseInternal internal info.getUsedConstantsAsSet)
-      else none
-  }, parts.map (·.2))
+  let (all, regions) ← unsafe ModuleData.read moduleName olean
+  try
+    let source ← sourceNames olean
+    let internal := all.constants.foldl (init := ({} : NameMap NameSet)) fun result info =>
+      if source.contains info.name && !isBlacklisted info.name then result
+      else result.insert info.name info.getUsedConstantsAsSet
+    return ({
+      imports := all.imports.map (·.module)
+      declarations := all.constants.filterMap fun visibleInfo =>
+        let name := visibleInfo.name
+        if source.contains name && !isBlacklisted name then
+          some (name,
+            (collapseInternal internal visibleInfo.getUsedConstantsAsSet).toArray)
+        else none
+    }, regions)
+  catch error =>
+    regions.forM CompactedRegion.free
+    throw error
 
-private unsafe def writeFragment (moduleName : Name) (olean path : System.FilePath)
-    (hash : String) : IO Unit := do
-  let regions ← show IO (Array CompactedRegion) from do
-    let (fragment, regions) ← readFragment moduleName olean
-    pickle path (hash, fragment) moduleName
-    return regions
-  regions.forM CompactedRegion.free
+private def fragmentPath (olean : System.FilePath) (fingerprint : String) :=
+  olean.withExtension s!"leanreach-module-10-{hash fingerprint}"
 
-private unsafe def loadFragment (moduleName : Name) : IO ModuleFragment := do
+unsafe def storedModuleFragment (moduleName : Name)
+    (hash : String) : IO (Option ModuleFragment) := do
+  let path := fragmentPath (← findOLean moduleName) hash
+  unless ← path.pathExists do return none
+  try return ModuleFragment.decode (← IO.FS.readBinFile path) hash
+  catch _ => return none
+
+unsafe def moduleFragment (moduleName : Name) : IO ModuleFragment := do
   let olean ← findOLean moduleName
-  let hash? ← depHash? olean
-  let path := olean.withExtension s!"leanreach-module-{fragmentVersion}"
+  let hash? ← oleanHash? olean
+  -- Module-fragment cache format 10.
   if let some hash := hash? then
-    if let some fragment ← unsafe loadPart ModuleFragment path hash then return fragment
+    if let some fragment ← unsafe storedModuleFragment moduleName hash then
+      return fragment
+    let path := fragmentPath olean hash
     try
-      writeFragment moduleName olean path hash
-      if let some fragment ← unsafe loadPart ModuleFragment path hash then return fragment
+      let (fragment, regions) ← readFragment moduleName olean
+      try saveBytes path (fragment.encode hash)
+      finally regions.forM CompactedRegion.free
+      if let some fragment := ModuleFragment.decode (← IO.FS.readBinFile path) hash then
+        return fragment
     catch _ => pure ()
   return (← readFragment moduleName olean).1
 
-unsafe def moduleNames (moduleName : Name) : IO (Array Name) := do
-  return (← unsafe loadFragment moduleName).declarations.map (·.1)
+unsafe def removeStoredModuleFragment (moduleName : Name) (hash : String) : IO Unit := do
+  removeFileIfExists (fragmentPath (← findOLean moduleName) hash)
 
-unsafe def moduleDeclarations (moduleName : Name) : IO (Array (Name × NameSet)) := do
-  return (← unsafe loadFragment moduleName).declarations
+unsafe def moduleNames (moduleName : Name) : IO (Array Name) :=
+  return (← unsafe moduleFragment moduleName).declarations.map (·.1)
 
-private unsafe def buildIndex (roots : Array Name) : IO Index := do
-  let mut pending := roots
-  let mut seen : NameHashSet := {}
-  let mut declarations := #[]
+private unsafe def foldClosure {α : Type} (roots : Array Name)
+    (excluded : NameHashSet) (initial : α)
+    (visit : α → Name → ModuleFragment → IO α) : IO α := do
+  let mut pending := #[]
+  let mut seen := excluded
+  let mut result := initial
+  for root in roots do
+    unless seen.contains root do
+      seen := seen.insert root
+      pending := pending.push root
   while !pending.isEmpty do
     let mut batch := #[]
     while batch.size < 32 do
       let some moduleName := pending.back? | break
       pending := pending.pop
-      unless seen.contains moduleName do
-        seen := seen.insert moduleName
-        batch := batch.push moduleName
-    let tasks ← batch.mapM fun moduleName => IO.asTask (unsafe loadFragment moduleName)
+      batch := batch.push moduleName
+    let tasks ← batch.mapM fun moduleName =>
+      IO.asTask (unsafe moduleFragment moduleName)
     for (moduleName, task) in batch.zip tasks do
       let fragment ← IO.ofExcept task.get
-      pending := pending ++ fragment.imports
-      for (name, dependencies) in fragment.declarations do
-        declarations := declarations.push (name, moduleName, dependencies)
-  return Index.build declarations
+      result ← visit result moduleName fragment
+      for imported in fragment.imports do
+        unless seen.contains imported do
+          seen := seen.insert imported
+          pending := pending.push imported
+  return result
 
-unsafe def loadIndex (roots : Array Name) (loadRelations := true) : IO Index := do
-  let (olean, depHash, root) ← unsafe rootData roots
-  let stem := if roots.size == 1 then "leanreach" else "leanreach-roots"
-  let catalogPath := olean.withExtension s!"{stem}-catalog-{catalogVersion}"
-  let relationsPath := olean.withExtension s!"{stem}-relations-{relationsVersion}"
-  if let some catalog ← unsafe loadPart Catalog catalogPath depHash then
-    if !loadRelations then return Index.ofParts catalog default
-    if let some relations ← unsafe loadPart Relations relationsPath depHash then
-      return Index.ofParts catalog relations
-  let index ← buildIndex roots
-  try
-    pickle catalogPath (depHash, index.catalog) (Name.str root "_leanreachCatalog")
-    pickle relationsPath (depHash, index.relations) (Name.str root "_leanreachRelations")
-  catch _ => IO.eprintln "leanreach: could not write root index cache"
-  if loadRelations then return index
-  return Index.ofParts index.catalog default
+unsafe def moduleClosure (roots : Array Name) (excluded : NameHashSet := {}) :
+    IO (Array (Name × Array (Name × Array Name))) :=
+  unsafe foldClosure roots excluded #[] fun modules moduleName fragment =>
+    pure (modules.push (moduleName, fragment.declarations))
+
+unsafe def moduleFragments (roots : Array Name) (excluded : NameHashSet := {}) :
+    IO (Array (Name × ModuleFragment)) :=
+  unsafe foldClosure roots excluded #[] fun modules moduleName fragment =>
+    pure (modules.push (moduleName, fragment))
+
+unsafe def materializeIndex (roots : Array Name) : IO Index := do
+  let declarations ← unsafe foldClosure roots {} ({} : Index.Declarations)
+      fun result moduleName fragment =>
+    pure <| fragment.declarations.foldl (init := result)
+        fun result (name, dependencies) =>
+      result.add name moduleName dependencies
+  return Index.buildFrom declarations
 
 end LeanReach.Cache

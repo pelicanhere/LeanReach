@@ -3,12 +3,11 @@
 LeanReach is a Lean-native companion to `rg` for finding declarations and navigating direct
 dependencies. It reports:
 
-- Lean-pretty-printed signatures and non-Prop definition bodies;
+- Pretty-printed signatures and non-Prop definition bodies;
 - source files, lines, and columns;
 - ranked upstream and downstream declarations.
 
-LeanReach reads built `.olean` and `.ilean` files. It supports Mathlib, local `lean_lib` modules,
-and partially built Lake projects.
+It reads built `.olean` and `.ilean` files, including partially built local libraries.
 
 ## Install
 
@@ -17,11 +16,11 @@ Add LeanReach to `lakefile.toml`:
 ```toml
 [[require]]
 name = "LeanReach"
-scope = "pelicanhere"
-rev = "main"
+git = "https://github.com/pelicanhere/LeanReach.git"
+rev = "v4.32.0"
 ```
 
-Then build it:
+Then build it and ask Lake for the executable path:
 
 ```console
 lake update LeanReach
@@ -29,38 +28,40 @@ lake build @LeanReach/leanreach
 lake query '@LeanReach/leanreach' --text
 ```
 
-The last command prints the executable's absolute path. With the default Lake layout it is:
+With the default Lake layout, the executable is usually at:
 
 ```text
 .lake/packages/LeanReach/.lake/build/bin/leanreach
 ```
 
-Use that executable directly. `lake exe @LeanReach/leanreach --help` is useful as a quick build
-smoke test.
+Use the executable directly. `lake exe @LeanReach/leanreach --help` can be used as a build smoke
+test.
 
 ## Usage
 
 ```console
-# Search declaration names.
-./.lake/packages/LeanReach/.lake/build/bin/leanreach search span_le
+# Search declaration names with an unanchored regex.
+./.lake/packages/LeanReach/.lake/build/bin/leanreach 'span_(le|eq)'
 
-# Show one declaration and its dependencies.
+# Show one declaration and its direct dependencies.
 ./.lake/packages/LeanReach/.lake/build/bin/leanreach Submodule.span_le
 
 # Emit JSON.
 ./.lake/packages/LeanReach/.lake/build/bin/leanreach Submodule.span_le --json
 
-# Build or resume caches for the detected project.
+# Precompute caches for fast repeated queries.
 ./.lake/packages/LeanReach/.lake/build/bin/leanreach cache
 
-# Cache selected modules.
-./.lake/packages/LeanReach/.lake/build/bin/leanreach cache Mathlib.LinearAlgebra.Span.Defs
-
 # Override project detection.
-./.lake/packages/LeanReach/.lake/build/bin/leanreach --module Mathlib.LinearAlgebra.Span.Defs Submodule.span_le
+./.lake/packages/LeanReach/.lake/build/bin/leanreach \
+  --module Mathlib.LinearAlgebra.Span.Defs Submodule.span_le
 ```
 
-Queries return 10 upstream and 10 downstream declarations by default. Search returns 20 names.
+An exact, case-sensitive declaration name shows its dependencies. Every other input is an
+unanchored regex search. Use `(?i)` to ignore case, `^...$` to match the complete name, and `--`
+before a dash-leading pattern.
+
+Dependency lists and search results are limited to 10 entries by default.
 
 ```text
 -m, --module MODULE   override automatic project detection
@@ -71,6 +72,13 @@ Queries return 10 upstream and 10 downstream declarations by default. Search ret
 -h, --help            show help
 ```
 
+## Cache
+
+Queries work without a prepared cache, but the first lookup may need to index built modules and
+pretty-print selected declarations. Run `cache` once to build persistent dependency, search, and
+pretty-print data for the detected project. Interrupted cache builds resume, and changed modules
+are updated incrementally.
+
 ## Agent sessions
 
 Keep one process alive for a chain of queries:
@@ -79,34 +87,35 @@ Keep one process alive for a chain of queries:
 ./.lake/packages/LeanReach/.lake/build/bin/leanreach --interactive --json
 ```
 
-Each input line is a declaration name or `search PATTERN`. The process returns and flushes one JSON
+Each input line follows the same exact-name-or-regex rule. The process returns and flushes one JSON
 value per line.
 
 ## Project detection
 
 Run LeanReach from the target project or a subdirectory. It discovers built local `lean_lib`
-modules and Mathlib when required by that project. Modules without an `.olean` are skipped; after
-building more modules, run the executable with `cache` to refresh the project view.
+modules and Mathlib when required. Modules without an `.olean` are skipped. After building more
+modules, run `cache` to refresh the detected project view.
 
-Caches are stored beside the corresponding `.olean` files and invalidated by Lake dependency
-hashes. Generated caches and binaries are not tracked by this repository.
+Caches live beside the corresponding `.olean` files and are invalidated by Lake dependency hashes.
 
 ## Build from source
 
 ```console
 lake build
 ./.lake/build/bin/leanreach --help
-lake build leanreach_tests
 lake exe leanreach_tests
 ```
 
-## Frontend and benchmarks
+## Frontend
 
 ```console
-python Frontend/server.py --project-dir /path/to/project
-python Benchmarks/run.py --project-dir /path/to/mathlib-project
-python Benchmarks/plot.py
+python .lake/packages/LeanReach/Frontend/server.py --project-dir .
 ```
 
-See [docs/architecture.md](docs/architecture.md) for the design and
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for adapted work and licenses.
+See [docs/architecture.md](docs/architecture.md) for the design.
+
+## Acknowledgements
+
+- LeanReach draws on [Loogle](https://github.com/nomeata/loogle), by Joachim Breitner and
+  contributors, especially its environment, cache, CLI, and frontend design.
+- Regex matching uses [lean-regex](https://github.com/pandaman64/lean-regex) by pandaman64.

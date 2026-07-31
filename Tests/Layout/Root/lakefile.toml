@@ -1,0 +1,14 @@
+name = "LayoutRootProject"
+srcDir = "source"
+buildDir = ".lake/root-build"
+leanLibDir = "olean"
+packagesDir = ".lake/vendor"
+
+[[require]]
+name = "LayoutDependency"
+path = "../Dependency"
+
+[[lean_lib]]
+name = "LayoutRoot"
+srcDir = "lean"
+globs = ["LayoutRoot"]

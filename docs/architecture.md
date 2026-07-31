@@ -5,15 +5,12 @@ built. It deliberately avoids embeddings, a materialized transitive DAG, and sou
 Lean remains the authority for declaration identity, dependency extraction, pretty-printing, and
 source positions.
 
-The LeanReach package itself depends only on the Lean toolchain. References to Mathlib below mean
-Mathlib built by the host Lake project being queried, not a package dependency of LeanReach.
-
 ## Query pipeline
 
 ```text
 Lake project discovery
   → module fragments
-  → catalog + direct relation index
+  → shared declaration table + sharded direct adjacency
   → name resolution
   → upstream/downstream candidate lookup
   → dependency ranking
@@ -22,11 +19,11 @@ Lake project discovery
 ```
 
 Name matching, graph lookup, mathematical ranking, and pretty-printing are separate stages. Changing
-substring matching therefore does not alter dependency scores, and changing a score does not affect
+pattern matching therefore does not alter dependency scores, and changing a score does not affect
 exact-name resolution.
 
-The three query stages reuse `Neighborhood α`: cached plans contain located names, PP plans contain
-Lean names, and output contains rendered declarations.
+Across these stages, `Neighborhood α` carries located names in cached plans, Lean names in PP
+plans, and rendered declarations in output.
 
 ## Dependency semantics
 
@@ -36,37 +33,38 @@ For a declaration `A`, LeanReach calls `ConstantInfo.getUsedConstantsAsSet` on t
 - Upstream of `A` is the set of direct outgoing neighbors.
 - Downstream of `B` is the set of declarations with a direct edge to `B`.
 - Type and value dependencies are intentionally presented as one relation.
-- Compiler-generated or private helpers are transitively collapsed back to their public
-  dependencies.
+- Non-source implementation details are transitively collapsed back to their source declarations.
 
 The complete private `.olean` layer is required while extracting fragments because exported and
-server layers may omit opaque theorem values. Searchable public declarations are filtered with
-`.ilean` definitions and a small generated-name blacklist.
+server layers may omit opaque theorem values. Searchable source declarations, including explicit
+private declarations, are selected from `.ilean` definitions; generated implementation details are
+filtered separately.
 
 This graph is a navigation index, not a runtime call graph and not a transitive proof-dependency DAG.
 
 ## Name matching
 
-The catalog is sorted by full Lean `Name`. For a search string, results are grouped in this order:
+A complete, case-sensitive declaration name selects dependency navigation. Otherwise the same
+input is compiled as an unanchored, case-sensitive regex. Cached and in-memory execution use the
+same final matcher.
 
-1. case-insensitive complete name;
-2. final name component;
-3. general substring.
+The pattern AST yields only trigrams proven to occur on every successful path. Each regex
+alternative selects its rarest posting, the selected postings are merged, and the complete regex is
+then checked. Patterns without a safe trigram scan the compact cached name table. Limits are applied
+only after the complete match.
 
-Queries of at least three characters use the rarest available trigram posting. Shorter queries scan
-the compact name table. Cached and in-memory searches use the same bounded bucket collector.
-
-Exact dependency queries first try a case-sensitive complete `Name`. A unique final component can be
-resolved from a query shard; otherwise LeanReach loads the complete catalog to preserve ambiguity
-reporting.
+Mode selection uses only a complete kernel name or complete user-visible private name. Suffix and
+substring uniqueness never change the command mode: agents search first, then copy a returned
+complete name to navigate its dependencies.
 
 ## Dependency ranking
 
 Ranking operates only on the direct neighbors of the target. It does not inspect declaration kinds
 and has no theorem, instance, projection, or name blacklist branches.
 
-For a candidate used by `users` of `N` indexed declarations and itself using `dependencies`
-declarations, the graph prior has three named components:
+For each candidate, `users` is the number of indexed declarations that use it, `dependencies` is
+the number it uses, and `N` is the total number of indexed declarations. The graph prior has three
+components:
 
 ```text
 specificity = log(1 + (N - users + 0.5) / (users + 0.5))
@@ -77,7 +75,7 @@ upstreamPrior   = specificity · confidence + substance
 downstreamPrior = log(1 + users) + substance
 ```
 
-The source affinity is normalized once:
+The affinity term is:
 
 ```text
 affinity =
@@ -108,41 +106,36 @@ adding theorem/instance branches, name blacklists, a second-order graph pass, or
 
 ## Persistent cache layers
 
-Object caches use Lean module data; exact-query shards and small markers use compact text. Cache
-files live beside an `.olean`, which lets a dependency provide reusable artifacts to downstream
-Lake projects.
+Module fragments and exact-query shards use compact binary formats. The remaining structured
+caches use Lean module data, and small markers use text. Cache files live beside an `.olean`, which
+lets a dependency provide reusable artifacts to downstream Lake projects.
 
 ### Module fragment
 
-`Cache.Index` stores, per module:
+`Cache.Fragment` stores, per module:
 
 - imports;
-- searchable public declaration names;
-- direct used-constant sets after private-helper collapse.
+- searchable declaration names, including user-written private declarations;
+- direct used-constant arrays after private-helper collapse.
 
-The sidecar is keyed by the module's Lake `depHash`. Without a Lake trace, LeanReach hashes all
-available `.olean` layers.
-
-### Catalog and relations
-
-A root view materializes:
-
-- a name-to-module catalog and trigram postings;
-- forward and reverse declaration-ID arrays;
-- precomputed upstream and downstream graph priors.
-
-Catalog and relations are separate files so name search need not map the full graph.
+Names share a parent-first module dictionary, and imports, declarations, and edges use varint
+dictionary references. Sidecars are content-addressed by the emitted `.olean` layer hashes, so a
+transitive Lake dependency-hash change does not rebuild an unchanged fragment. Without output
+metadata, LeanReach hashes the available `.olean` layers directly.
 
 ### Search cache
 
-The disk name index has a compact declaration/module table, a trigram-frequency directory, and 256
-posting shards. Posting IDs are delta-varint encoded in `ByteArray`s. A query maps only the selected
-posting shard and the name table.
+The shared declaration table stores sorted names, module ownership, the module list, and direct
+forward/reverse degree counts. Search adds a trigram-frequency directory and 256 posting shards.
+Posting IDs are delta-varint encoded in `ByteArray`s. A regex query reads the table and only the
+selected posting shard.
 
 ### Query cache and local overlay
 
-The default Top-10 upstream and downstream results are stored in 1024 exact-query shards. Limits
-above 10 fall back to the complete relation index.
+Complete direct upstream and downstream ID arrays are split across 1024 exact-query shards. IDs and
+counts use UInt32 varints; each shard validates its own dependency hash before use. Exact queries
+read one shard. The default ten results are pre-ranked in place; wider requests rank the complete
+neighborhood on demand. Arbitrary limits therefore do not require a persisted root graph.
 
 When a view combines built local modules with Mathlib, Mathlib is the stable base and
 `Cache.Overlay` stores only:
@@ -150,14 +143,19 @@ When a view combines built local modules with Mathlib, Mathlib is the stable bas
 - local declarations and their outgoing edges;
 - reverse edges from base or local declarations into the local layer.
 
-The overlay ranks merged base and local candidates with the same `Rank.select` implementation. It
-does not copy the full Mathlib query plan.
+The overlay reuses the base declaration table rather than copying names, modules, or degree counts.
+Regex search reads an immutable local-name catalog; an exact hit builds a separate local
+forward/reverse relation sidecar, reads one base query shard, and patches that neighborhood on
+demand. Once both overlay parts exist, LeanReach keeps them as an immutable snapshot. Changed
+modules append declaration-level, `Name`-keyed deltas; bounded chains or substantial churn trigger
+compaction into a new snapshot, after which obsolete artifacts are removed.
 
 ### Pretty-print cache
 
-The PP cache stores a `NameMap Declaration` per defining module. A root marker records that all modules
-in a view have complete PP sidecars. A valid partial sidecar can be resumed declaration by
-declaration; changing the module hash invalidates that module as a unit.
+The PP cache stores a `NameMap Declaration` per defining module. A root marker records that all
+modules in a view have complete PP sidecars. A valid partial sidecar can be resumed declaration by
+declaration; changing the module hash invalidates that module as a unit. Loaded sidecars are reused
+within a process and revalidated before an incremental merge.
 
 `Cache.Build` owns cache construction and worker scheduling. Four persistent workers share one
 immutable imported environment by default. Each completed module is checkpointed immediately.
@@ -172,13 +170,15 @@ Private constants needed by a public signature or body are added to a temporary 
 Structure fields and constructors share a module-local signature memo. Declarations retain source
 order to keep generated meta names as deterministic as Lean permits.
 
-Source positions come from `.ilean` selection ranges. Files are found through the current Lake
-project, dependency source roots, and the Lean sysroot source tree.
+Source positions use Lean declaration ranges when available and `.ilean` selection ranges as a
+fallback. Files are found through the current Lake project, dependency source roots, and the Lean
+sysroot source tree.
 
 `cache --profile` reports:
 
 - root import;
 - private overlay preparation;
+- source lookup and PP planning;
 - signature PP;
 - body PP;
 - sidecar writes.
@@ -194,8 +194,8 @@ The current granularity is:
 
 - module fragments: per module hash;
 - PP: per module hash, resumable within one valid sidecar;
-- Mathlib plus local query view: persistent Mathlib base plus a regenerated local overlay;
-- root catalog and relations: per ordered root view.
+- Mathlib plus local query view: persistent Mathlib base plus a local snapshot;
+- local overlay catalog and relations: module-output fingerprints plus incremental deltas.
 
 The detected built-module list is persisted under the target project's `.lake`. Running
 `leanreach cache` refreshes it; ordinary queries reuse it for fast process startup. Consequently, a
@@ -207,20 +207,22 @@ roots are stored in a canonical order so filesystem enumeration cannot invalidat
 One-shot queries avoid importing a root environment when every selected declaration is already
 pretty-printed. PP-cold queries import only the modules required for the selected result.
 
-Interactive mode keeps the dependency index and in-memory PP map alive across commands. This avoids
-repeated Lean runtime startup and is the intended interface for agents performing a search chain.
+Interactive mode keeps loaded declaration tables, query shards, and PP maps alive across commands.
+This avoids repeated Lean runtime startup and is the intended interface for agents performing a
+search chain.
 
 The remaining cold-cache cost is primarily Lean signature delaboration and formatting. Stable
 Mathlib sidecars should be built once and reused. Local module fragments and PP sidecars are reused
-per module; the small local overlay and global rank summary are regenerated from those fragments.
+per module; an edited module updates the local overlay without rematerializing the unchanged graph.
 
 ## Source layout
 
 ```text
 LeanReach/Search/Types.lean           shared located-name and neighborhood models
-LeanReach/Search/Name.lean            reusable Lean name decomposition
-LeanReach/Search/Match.lean           matching and bounded result buckets
+LeanReach/Search/Match.lean           exact matching, name normalization, and trigrams
+LeanReach/Search/Pattern.lean         regex compilation and candidate plans
 LeanReach/Search/Rank.lean            dependency scoring and Top-K selection
+LeanReach/Search/TopK.lean            bounded heap selection
 LeanReach/Search/Index.lean           catalog, direct graph, and lookup
 LeanReach/Runtime/Project.lean        Lake project and built-module discovery
 LeanReach/Runtime/Environment.lean    search paths, imports, and CoreM execution
@@ -230,28 +232,21 @@ LeanReach/PrettyPrint/Declaration.lean cached and JSON declaration model
 LeanReach/PrettyPrint/Timing.lean      PP stage measurements
 LeanReach/PrettyPrint/Printer.lean     Lean declaration formatting
 LeanReach/PrettyPrint/Module.lean      module PP environment preparation
+LeanReach/Cache/Codec.lean             binary varints and decoder cursor
+LeanReach/Cache/Fragment.lean          compact module-fragment encoding
 LeanReach/Cache/Storage.lean           persistence and root fingerprints
-LeanReach/Cache/Index.lean             module fragments and graph indexes
-LeanReach/Cache/Search.lean            sharded substring-search persistence
+LeanReach/Cache/Index.lean             `.olean` extraction and graph materialization
+LeanReach/Cache/Search.lean            sharded regex candidate persistence
 LeanReach/Cache/Overlay.lean           local graph overlay
+LeanReach/Cache/OverlayDelta.lean      local snapshot deltas and compaction
 LeanReach/Cache/Query.lean             exact-query shards and routing
 LeanReach/Cache/PrettyPrint.lean       module PP sidecars
 LeanReach/Cache/Build.lean             cache workers and orchestration
 LeanReach/Query.lean                   cross-layer query construction
 LeanReach.lean                         public session orchestration
 Main.lean                              CLI and output
+Tests/Unit.lean                        storage, codec, index, and regex units
+Tests/Session.lean                     interactive query contracts
+Tests/Layout/Test.ps1                  custom Lake layout integration
+Tests/Main.lean                        test runner
 ```
-
-## Benchmark discipline
-
-`Benchmarks/run.py` compares a chain of distinct searches. It does not report repeated lookup of one
-name as first-use latency. The current harness uses `.lake/build/bin/leanreach.exe`; run
-`lake build` and precompute `leanreach.exe cache` first. A fair cached comparison:
-
-1. builds the complete LeanReach cache beforehand;
-2. primes executable and catalog startup without querying a benchmark declaration;
-3. uses distinct names once each;
-4. compares a long-lived LeanReach session, fresh LeanReach processes, and fresh `rg` processes;
-5. records every sample in `Benchmarks/history.csv`.
-
-`Benchmarks/plot.py` renders the history as a logarithmic scatter plot with median markers.

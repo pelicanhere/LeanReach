@@ -1,8 +1,8 @@
 import Lean.PrettyPrinter.Delaborator.Builtins
+import Lean.PrettyPrinter
 import Lean.Structure
 import LeanReach.PrettyPrint.Declaration
 import LeanReach.PrettyPrint.Timing
-import LeanReach.Runtime.Source
 
 namespace LeanReach
 
@@ -76,14 +76,14 @@ private def needsBody (info : ConstantInfo) : MetaM Bool := do
   if ← try isProp info.type catch _ => pure false then return false
   return info.value? (allowOpaque := true) |>.isSome
 
-def prettyPrintPlan (names : Array Name) : CoreM (Array Name × Array Name) := do
+def prettyPrintPlan (names : Array Name) : MetaM (Array Name × Array Name) := do
   let env ← getEnv
   let mut bodies := #[]
   let mut overlay := #[]
   let mut overlaid : NameHashSet := {}
   for name in names do
     if let some info := env.find? name then
-      if ← MetaM.run' (needsBody info) then
+      if ← needsBody info then
         bodies := bodies.push name
       else
         if info.type.getUsedConstantsAsSet.any fun dependency => !env.contains dependency then
@@ -97,51 +97,39 @@ def prettyPrintPlan (names : Array Name) : CoreM (Array Name × Array Name) := d
   return (bodies, overlay)
 
 private def prettyPrintKnownDeclaration (cache : SignatureCache)
-    (moduleName : Name) (source : Option String × NameMap Lsp.Position) (name : Name)
-    (includeBody : Bool) : CoreM (Declaration × PPTiming) := do
+    (moduleName : String) (source : Option String × NameMap Lsp.Position) (name : Name)
+    (includeBody : Bool) : MetaM (Declaration × PPTiming) := do
   let env ← getEnv
   let some info := env.find? name | throwError "unknown declaration '{name}'"
-  let position := source.2.find? name
-  let (signature, timing) ← MetaM.run' (prettyPrintConstant cache name info includeBody)
+  let some file := source.1 |
+    throwError "source file for '{name}' was not found"
+  let some position := source.2.find? name |
+    throwError "source position for '{name}' was not found"
+  let (signature, timing) ← prettyPrintConstant cache name info includeBody
   return ({
       name := name.toString
       signature
-      moduleName := moduleName.toString
-      file := source.1
-      line := position.map (·.line + 1) |>.getD 0
-      column := position.map (·.character + 1) |>.getD 0
+      moduleName
+      file := some file
+      line := position.line + 1
+      column := position.character + 1
     }, timing)
 
 def prettyPrintModuleWithBodies (moduleName : Name)
     (source : Option String × NameMap Lsp.Position)
     (names : Array Name) (bodies : NameHashSet) :
-    CoreM (NameMap Declaration × PPTiming) := do
+    MetaM (NameMap Declaration × PPTiming) := do
   let cache ← IO.mkRef {}
+  let moduleNameString := moduleName.toString
   let mut declarations := {}
   let mut timing := {}
   for name in names do
     let (declaration, elapsed) ←
-      try prettyPrintKnownDeclaration cache moduleName source name (bodies.contains name)
+      try prettyPrintKnownDeclaration cache moduleNameString source name (bodies.contains name)
       catch error =>
         throwError m!"could not pretty-print '{name}' from '{moduleName}': {error.toMessageData}"
     declarations := declarations.insert name declaration
     timing := timing + elapsed
   return (declarations, timing)
-
-def prettyPrintDeclaration (sourcePath : SearchPath) (name : Name) :
-    CoreM Declaration := do
-  let cache ← IO.mkRef {}
-  let some moduleName ← findModuleOf? name | throwError "unknown module for '{name}'"
-  withEnv ((← getEnv).setMainModule moduleName) do
-    let some info := (← getEnv).find? name | throwError "unknown declaration '{name}'"
-    return (← prettyPrintKnownDeclaration cache moduleName
-      (← moduleSource sourcePath moduleName) name (← MetaM.run' (needsBody info))).1
-
-def prettyPrintModule (sourcePath : SearchPath) (moduleName : Name)
-    (names : Array Name) : CoreM (NameMap Declaration) := do
-  let source ← moduleSource sourcePath moduleName
-  let bodies := (← prettyPrintPlan names).1.foldl
-    (init := ({} : NameHashSet)) fun bodies name => bodies.insert name
-  return (← prettyPrintModuleWithBodies moduleName source names bodies).1
 
 end LeanReach

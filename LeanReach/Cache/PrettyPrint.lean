@@ -1,38 +1,55 @@
 import LeanReach.Cache.Storage
 import LeanReach.PrettyPrint.Declaration
+import LeanReach.Search.Types
 
 namespace LeanReach.Cache
 
 open Lean
 
-private def version := 3
-private def rootVersion := 6
+private def ppPath (olean : System.FilePath) : System.FilePath :=
+  -- Module PP cache format 3.
+  olean.withExtension "leanreach-pp-3"
+
+private abbrev PPStamp := IO.FS.SystemTime × UInt64
+private abbrev CachedPP := Option PPStamp × NameMap Declaration
+
+private initialize loadedPP : IO.Ref (Std.HashMap String CachedPP) ← IO.mkRef {}
+
+private def ppStamp? (path : System.FilePath) : IO (Option PPStamp) := do
+  unless ← path.pathExists do return none
+  try
+    let metadata ← path.metadata
+    return some (metadata.modified, metadata.byteSize)
+  catch _ => return none
 
 unsafe def loadPPModule (moduleName : Name) : IO (NameMap Declaration) := do
   let olean ← findOLean moduleName
   let some depHash ← depHash? olean | return {}
-  let path := olean.withExtension s!"leanreach-pp-{version}"
-  return (← unsafe loadPart (NameMap Declaration) path depHash).getD {}
+  let path := ppPath olean
+  let stamp ← ppStamp? path
+  let key := loadedKey path depHash
+  if let some (cachedStamp, declarations) := (← loadedPP.get).get? key then
+    if cachedStamp == stamp then return declarations
+  let declarations :=
+    (← unsafe loadPart (NameMap Declaration) path depHash).getD {}
+  loadedPP.modify (·.insert key (stamp, declarations))
+  return declarations
 
 private unsafe def ppRootData (roots : Array Name) :
-    IO (System.FilePath × String × Name) := do
-  let (olean, depHash, root) ← unsafe rootData roots
-  let stem := if roots.size == 1 then "root" else "roots"
-  return (olean.withExtension s!"leanreach-pp-{stem}-{rootVersion}", depHash, root)
+    IO (System.FilePath × String) := do
+  let (olean, depHash, _) ← unsafe rootData roots
+  -- Single-root marker format 8; multi-root marker format 9.
+  let suffix := if roots.size == 1 then "root-8" else "roots-9"
+  return (olean.withExtension s!"leanreach-pp-{suffix}", depHash)
 
 unsafe def isFullyPP (roots : Array Name) : IO Bool := do
-  let (path, depHash, _) ← unsafe ppRootData roots
-  return (← unsafe loadPart Bool path depHash).getD false
+  let (path, depHash) ← unsafe ppRootData roots
+  markerMatches path depHash
 
 unsafe def loadPP (moduleOf? : Name → Option Name)
     (names : Array Name) : IO (NameMap Declaration) := do
-  let mut byModule : NameMap (Array Name) := {}
-  for name in names do
-    if let some moduleName := moduleOf? name then
-      byModule := byModule.alter moduleName fun names =>
-        some ((names.getD #[]).push name)
   let mut declarations := {}
-  for (moduleName, names) in byModule do
+  for (moduleName, names) in groupNamesByModule moduleOf? names do
     let cached ← unsafe loadPPModule moduleName
     for name in names do
       if let some declaration := cached.find? name then
@@ -43,22 +60,17 @@ unsafe def savePPModule (moduleName : Name) (declarations : NameMap Declaration)
     IO Unit := do
   let olean ← findOLean moduleName
   let some depHash ← depHash? olean | return
-  let path := olean.withExtension s!"leanreach-pp-{version}"
-  pickle path (depHash, declarations) (Name.str moduleName "_leanreachPP")
+  let path := ppPath olean
+  savePart path depHash declarations (Name.str moduleName "_leanreachPP")
+  loadedPP.modify (·.erase (loadedKey path depHash))
 
-unsafe def savePP (before after : NameMap Declaration) : IO Unit := do
-  let mut additions : NameMap (NameMap Declaration) := {}
-  for (name, declaration) in after do
-    unless before.contains name do
-      let moduleName := declaration.moduleName.toName
-      additions := additions.alter moduleName fun declarations =>
-        some ((declarations.getD {}).insert name declaration)
-  for (moduleName, added) in additions do
-    unsafe savePPModule moduleName
-      (Std.TreeMap.union (← unsafe loadPPModule moduleName) added)
+unsafe def mergePPModule (moduleName : Name) (added : NameMap Declaration) :
+    IO Unit := do
+  let current ← unsafe loadPPModule moduleName
+  unsafe savePPModule moduleName (current.insertMany added)
 
 unsafe def markFullyPP (roots : Array Name) : IO Unit := do
-  let (path, depHash, root) ← unsafe ppRootData roots
-  pickle path (depHash, true) (Name.str root "_leanreachPPRoot")
+  let (path, depHash) ← unsafe ppRootData roots
+  IO.FS.writeFile path depHash
 
 end LeanReach.Cache

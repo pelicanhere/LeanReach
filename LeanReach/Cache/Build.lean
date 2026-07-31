@@ -9,7 +9,7 @@ namespace LeanReach
 
 open Lean
 
-private abbrev Input := Name × Array Name × NameMap Declaration
+private abbrev Input := Name × Array Name
 private abbrev Output := Name × Except IO.Error (Nat × PPTiming)
 
 private def parallelism : IO Nat := do
@@ -17,24 +17,19 @@ private def parallelism : IO Nat := do
   let some workers := value.toNat? | return 4
   return max 1 (min workers 32)
 
-private unsafe def saveModule (moduleName : Name) (before added : NameMap Declaration) :
-    IO (Nat × Nat) := do
-  let started ← IO.monoNanosNow
-  unsafe Cache.savePPModule moduleName (Std.TreeMap.union before added)
-  return (added.size, (← IO.monoNanosNow) - started)
-
 private unsafe def addMissingInput (inputs : Array Input)
     (moduleName : Name) (names : Array Name) : IO (Array Input) := do
   let before ← unsafe Cache.loadPPModule moduleName
-  let missing := names.filter fun name => !before.contains name
-  return if missing.isEmpty then inputs else inputs.push (moduleName, missing, before)
+  let missing := Declaration.missingFrom before names
+  return if missing.isEmpty then inputs else inputs.push (moduleName, missing)
 
 private unsafe def completedModules (roots : Array Name) : IO NameHashSet := do
   let mut completed : NameHashSet := {}
   for root in roots do
     if ← unsafe Cache.isFullyPP #[root] then
-      for moduleName in (← unsafe Cache.loadIndex #[root] false).modules do
-        completed := completed.insert moduleName
+      if let some table ← unsafe SearchCache.loadTable #[root] then
+        for moduleName in table.modules do
+          completed := completed.insert moduleName
   return completed
 
 private unsafe def worker (sourcePath : SearchPath) (env : Environment)
@@ -42,12 +37,15 @@ private unsafe def worker (sourcePath : SearchPath) (env : Environment)
     (next finished : IO.Ref Nat) (outputs : Array (IO.Promise Output)) : IO Unit := do
   while true do
     let index ← next.modifyGet fun index => (index, index + 1)
-    let some (moduleName, names, before) := inputs[index]? | return
+    let some (moduleName, names) := inputs[index]? | return
     let result ← try
       let (added, timing) ← unsafe prettyPrintModuleIO
         sourcePath env moduleName names moduleOf?
-      let (count, writeNanos) ← unsafe saveModule moduleName before added
-      pure <| .ok (count, { timing with sidecarWriteNanos := writeNanos })
+      let started ← IO.monoNanosNow
+      unsafe Cache.mergePPModule moduleName added
+      pure <| .ok (added.size, {
+        timing with sidecarWriteNanos := (← IO.monoNanosNow) - started
+      })
     catch error => pure (.error error)
     let slot ← finished.modifyGet fun slot => (slot, slot + 1)
     let some output := outputs[slot]? | unreachable!
@@ -67,9 +65,8 @@ private unsafe def buildModules (sourcePath : SearchPath) (env : Environment)
   let mut count := 0
   let mut timing := {}
   let mut failure? := none
-  for done in [0:inputs.size] do
-    let some output := outputs[done]? | unreachable!
-    let some (moduleName, result) ← IO.wait output.result? | unreachable!
+  for (output, done) in outputs.zipIdx do
+    let (moduleName, result) ← IO.wait output.result!
     match result with
     | .ok (added, elapsed) =>
       count := count + added
@@ -87,19 +84,23 @@ private unsafe def timedImport (modules : Array Name) : IO (Environment × Nat) 
   return (env, (← IO.monoNanosNow) - started)
 
 private unsafe def buildInputs (sourcePath : SearchPath) (inputs : Array Input)
+    (imports : Array Name := inputs.map (·.1))
     (moduleOf? : Name → Option Name := fun _ => none)
     (progress : Name → Nat → IO Unit := fun _ _ => pure ()) :
     IO (Nat × PPTiming) := do
   if inputs.isEmpty then return (0, {})
-  let (env, importNanos) ← unsafe timedImport (inputs.map (·.1))
+  let (env, importNanos) ← unsafe timedImport imports
   let (count, timing) ← unsafe buildModules sourcePath env inputs moduleOf? progress
   return (count, { timing with importNanos })
 
 unsafe def buildPPModules (modules : Array Name) : IO (Nat × PPTiming) := do
   let sourcePath ← prepareEnvironment
   let mut inputs : Array Input := #[]
+  let mut seen : NameHashSet := {}
   for moduleName in modules do
-    inputs ← unsafe addMissingInput inputs moduleName (← unsafe Cache.moduleNames moduleName)
+    unless seen.contains moduleName do
+      seen := seen.insert moduleName
+      inputs ← unsafe addMissingInput inputs moduleName (← unsafe Cache.moduleNames moduleName)
   unsafe buildInputs sourcePath inputs
 
 /-- Pretty-print every declaration below a root, checkpointing once per defining module. -/
@@ -120,17 +121,16 @@ unsafe def buildPPRoots (roots : Array Name)
   if ppReady then return (0, {})
   let (inputs, moduleOf?) : Array Input × (Name → Option Name) ←
     if completed.isEmpty then
-      let index ← unsafe Cache.loadIndex roots false
+      let some table ← unsafe SearchCache.loadTable roots |
+        throw <| IO.userError "declaration table is unavailable"
       let mut inputs := #[]
-      for (moduleName, names) in index.declarationsByModule do
+      for (moduleName, names) in table.declarationsByModule do
         inputs ← unsafe addMissingInput inputs moduleName names
-      pure (inputs, index.moduleOf?)
+      pure (inputs, table.moduleOf?)
     else
       let mut inputs := #[]
-      for moduleName in roots do
-        unless completed.contains moduleName do
-          inputs ← unsafe addMissingInput inputs moduleName
-            (← unsafe Cache.moduleNames moduleName)
+      for (moduleName, declarations) in ← unsafe Cache.moduleClosure roots completed do
+        inputs ← unsafe addMissingInput inputs moduleName (declarations.map (·.1))
       pure (inputs, fun _ => none)
   let report := fun moduleName done => progress moduleName done inputs.size
   let (count, timing) ←
@@ -140,7 +140,7 @@ unsafe def buildPPRoots (roots : Array Name)
         unsafe buildModules sourcePath env inputs moduleOf? report
       pure (count, { timing with importNanos })
     else
-      unsafe buildInputs sourcePath inputs moduleOf? report
+      unsafe buildInputs sourcePath inputs roots moduleOf? report
   unsafe Cache.markFullyPP roots
   return (count, timing)
 
