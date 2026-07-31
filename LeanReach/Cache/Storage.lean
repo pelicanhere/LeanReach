@@ -5,10 +5,24 @@ namespace LeanReach.Cache
 
 open Lean
 
+private initialize nextTempId : IO.Ref Nat ← IO.mkRef 0
+
+private def tempPath (path : System.FilePath) : IO System.FilePath := do
+  let pid ← IO.Process.getPID
+  let id ← nextTempId.modifyGet fun id => (id, id + 1)
+  return System.FilePath.mk s!"{path}.tmp-{pid}-{id}"
+
 /-- Save a compacted Lean object with its dependency hash. Adapted from Loogle's `Pickle` module. -/
 def savePart {α : Type} (path : System.FilePath) (depHash : String)
-    (value : α) (key : Name) : IO Unit :=
-  saveModuleData path key (unsafe unsafeCast (depHash, value))
+    (value : α) (key : Name) : IO Unit := do
+  let temp ← tempPath path
+  try
+    saveModuleData temp key (unsafe unsafeCast (depHash, value))
+    IO.FS.rename temp path
+  finally
+    try
+      if ← temp.pathExists then IO.FS.removeFile temp
+    catch _ => pure ()
 
 unsafe def loadPart (α : Type) (path : System.FilePath) (depHash : String) :
     IO (Option α) := do

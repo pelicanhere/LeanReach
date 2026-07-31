@@ -26,6 +26,9 @@ private def baseMetadataPath (olean : System.FilePath) : System.FilePath :=
 private def baseMetadataMarkerPath (olean : System.FilePath) : System.FilePath :=
   olean.withExtension "leanreach-base-metadata-root-1"
 
+private def baseModulesPath (olean : System.FilePath) : System.FilePath :=
+  olean.withExtension "leanreach-base-modules-1"
+
 private initialize loadedBaseMetadata :
     IO.Ref (Std.HashMap String QueryOverlay.BaseMetadata) ← IO.mkRef {}
 
@@ -112,6 +115,11 @@ private unsafe def isBaseMetadataBuilt (roots : Array Name) : IO Bool := do
   return (← Cache.markerMatches (baseMetadataMarkerPath olean) depHash) &&
     (← (baseMetadataPath olean).pathExists)
 
+private unsafe def loadBaseModules (roots : Array Name) :
+    IO (Option (Array Name)) := do
+  let (olean, depHash, _) ← unsafe Cache.rootData roots
+  unsafe Cache.loadPart (Array Name) (baseModulesPath olean) depHash
+
 private unsafe def loadBaseMetadata (roots : Array Name) :
     IO (Option QueryOverlay.BaseMetadata) := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
@@ -124,6 +132,11 @@ private unsafe def loadBaseMetadata (roots : Array Name) :
   loadedBaseMetadata.modify (·.insert key base)
   return some base
 
+private unsafe def saveBaseModules (roots modules : Array Name) : IO Unit := do
+  let (olean, depHash, root) ← unsafe Cache.rootData roots
+  Cache.savePart (baseModulesPath olean) depHash modules
+    (Name.str root "_leanreachBaseModules")
+
 private unsafe def saveBaseMetadata (roots : Array Name)
     (base : QueryOverlay.BaseMetadata) : IO Unit := do
   let (olean, depHash, root) ← unsafe Cache.rootData roots
@@ -131,6 +144,8 @@ private unsafe def saveBaseMetadata (roots : Array Name)
   Cache.savePart (baseMetadataPath olean) depHash base
     (Name.str root "_leanreachBaseMetadata")
   IO.FS.writeFile (baseMetadataMarkerPath olean) depHash
+  try unsafe saveBaseModules roots base.modules
+  catch _ => IO.eprintln "leanreach: could not write base module cache"
 
 private unsafe def ensureBaseMetadata (roots : Array Name) :
     IO QueryOverlay.BaseMetadata := do
@@ -141,6 +156,13 @@ private unsafe def ensureBaseMetadata (roots : Array Name) :
   catch _ => IO.eprintln "leanreach: could not write base metadata cache"
   return base
 
+private unsafe def ensureBaseModules (roots : Array Name) : IO (Array Name) := do
+  if let some modules ← unsafe loadBaseModules roots then return modules
+  let modules := (← unsafe ensureBaseMetadata roots).modules
+  try unsafe saveBaseModules roots modules
+  catch _ => IO.eprintln "leanreach: could not write base module cache"
+  return modules
+
 private unsafe def baseRoot? (roots : Array Name) : IO (Option Name) := do
   if roots.size < 2 then return none
   if roots.contains `Mathlib then return some `Mathlib
@@ -148,17 +170,24 @@ private unsafe def baseRoot? (roots : Array Name) : IO (Option Name) := do
     if ← unsafe isFullBuilt #[root] then return some root
   return none
 
-private unsafe def readOverlay (roots : Array Name) : IO (Option QueryOverlay.Data) :=
-  if roots.size > 1 then unsafe QueryOverlay.load roots else pure none
+private unsafe def readCatalog (roots : Array Name) : IO (Option QueryOverlay.Catalog) :=
+  if roots.size > 1 then unsafe QueryOverlay.loadCatalog roots else pure none
 
-unsafe def isBuilt (roots : Array Name) : IO Bool := do
-  if let some overlay ← unsafe readOverlay roots then
-    return (← unsafe isFullBuilt #[overlay.baseRoot]) &&
-      (← unsafe SearchCache.isBuilt #[overlay.baseRoot]) &&
-      (← unsafe isBaseMetadataBuilt #[overlay.baseRoot])
+private unsafe def readRelations (roots : Array Name) :
+    IO (Option QueryOverlay.Relations) :=
+  if roots.size > 1 then unsafe QueryOverlay.loadRelations roots else pure none
+
+private unsafe def fullCachesBuilt (roots : Array Name) : IO Bool :=
   return (← unsafe isFullBuilt roots) &&
     (← unsafe SearchCache.isBuilt roots) &&
     (← unsafe isBaseMetadataBuilt roots)
+
+unsafe def isBuilt (roots : Array Name) : IO Bool := do
+  if roots.size == 1 then return ← unsafe fullCachesBuilt roots
+  let some catalog ← unsafe readCatalog roots | return false
+  let some relations ← unsafe readRelations roots | return false
+  return (← unsafe fullCachesBuilt #[catalog.baseRoot]) &&
+    relations.baseRoot == catalog.baseRoot
 
 private unsafe def buildFull (roots : Array Name) (index : Index) : IO Nat := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
@@ -206,28 +235,47 @@ private unsafe def buildFullCaches (roots : Array Name) : IO Nat := do
       pure base.entries.size
   return max queryCount (max searchCount baseCount)
 
-private unsafe def buildOverlay (roots : Array Name) (baseRoot : Name) :
-    IO QueryOverlay.Data := do
-  let base ← unsafe ensureBaseMetadata #[baseRoot]
-  let graph ← unsafe QueryOverlay.buildGraph roots baseRoot base.modules
-  unsafe QueryOverlay.save roots graph
-  return graph
+private unsafe def buildRelations (roots : Array Name) (baseRoot : Name) :
+    IO QueryOverlay.Relations := do
+  let baseModules ← unsafe ensureBaseModules #[baseRoot]
+  let relations ← unsafe QueryOverlay.buildRelations roots baseRoot baseModules
+  unsafe QueryOverlay.saveRelations roots relations
+  return relations
 
-private unsafe def loadOverlay (roots : Array Name) : IO (Option QueryOverlay.Data) := do
-  if let some overlay ← unsafe readOverlay roots then return some overlay
+private unsafe def loadCatalog (roots : Array Name) :
+    IO (Option QueryOverlay.Catalog) := do
+  if let some catalog ← unsafe readCatalog roots then return some catalog
   let some baseRoot ← unsafe baseRoot? roots | return none
   unless (← unsafe isFullBuilt #[baseRoot]) &&
       (← unsafe SearchCache.isBuilt #[baseRoot]) do return none
-  return some (← unsafe buildOverlay roots baseRoot)
+  let baseModules ← unsafe ensureBaseModules #[baseRoot]
+  let catalog ← unsafe QueryOverlay.buildCatalog roots baseRoot baseModules
+  unsafe QueryOverlay.saveCatalog roots catalog
+  return some catalog
+
+private unsafe def loadRelations (roots : Array Name)
+    (catalog : QueryOverlay.Catalog) : IO QueryOverlay.Relations := do
+  if let some relations ← unsafe readRelations roots then
+    if relations.baseRoot == catalog.baseRoot then return relations
+  unsafe buildRelations roots catalog.baseRoot
 
 unsafe def build (roots : Array Name) : IO Nat := do
-  if let some overlay ← unsafe readOverlay roots then
-    return ← unsafe buildFullCaches #[overlay.baseRoot]
-  if let some baseRoot ← unsafe baseRoot? roots then
-    let count ← unsafe buildFullCaches #[baseRoot]
-    let overlay ← unsafe buildOverlay roots baseRoot
-    return max overlay.entries.size count
-  unsafe buildFullCaches roots
+  if roots.size == 1 then return ← unsafe buildFullCaches roots
+  let catalog? ← unsafe readCatalog roots
+  let baseRoot? ← match catalog? with
+    | some catalog => pure (some catalog.baseRoot)
+    | none => unsafe baseRoot? roots
+  let some baseRoot := baseRoot? | return ← unsafe buildFullCaches roots
+  let count ← unsafe buildFullCaches #[baseRoot]
+  let relations ←
+    match ← unsafe readRelations roots with
+    | some relations =>
+      if relations.baseRoot == baseRoot then pure relations
+      else unsafe buildRelations roots baseRoot
+    | none => unsafe buildRelations roots baseRoot
+  if catalog?.isNone then
+    unsafe QueryOverlay.saveCatalog roots relations.catalog
+  return max relations.entries.size count
 
 private unsafe def loadShard (roots : Array Name) (name : Name) :
     IO (Option (Array Name × List String)) := do
@@ -262,34 +310,36 @@ private unsafe def exactFull (roots : Array Name) (query : String)
 unsafe def exactQueries (roots : Array Name) (query : String)
     (limit : Nat) : IO (Option (Array CachedQuery)) := do
   if limit == 0 then return some #[]
-  let overlay? ← unsafe loadOverlay roots
-  let some overlay := overlay? | return ← unsafe exactFull roots query limit
+  let catalog? ← unsafe loadCatalog roots
+  let some catalog := catalog? | return ← unsafe exactFull roots query limit
   let name := query.toName
-  let localTargets := overlay.localNames.filter
+  let localTargets := catalog.localNames.filter
     (NameSearch.exactMatch name ·.name) |>.take limit
-  let some baseResults ← unsafe exactFull #[overlay.baseRoot] query limit | return none
+  let some baseResults ← unsafe exactFull #[catalog.baseRoot] query limit | return none
+  if localTargets.isEmpty && baseResults.isEmpty then return some #[]
+  let relations ← unsafe loadRelations roots catalog
   unless !localTargets.isEmpty ||
-      baseResults.any (overlay.affects ·.target.name) do
+      baseResults.any (relations.affects ·.target.name) do
     return some baseResults
-  let base ← unsafe ensureBaseMetadata #[overlay.baseRoot]
+  let base ← unsafe ensureBaseMetadata #[catalog.baseRoot]
   let localResults := localTargets.map fun target =>
-    overlay.queryFromBase base target none
+    relations.queryFromBase base target none
   let baseResults := baseResults.map fun cached =>
-    if overlay.affects cached.target.name then
-      overlay.queryFromBase base cached.target (some cached)
+    if relations.affects cached.target.name then
+      relations.queryFromBase base cached.target (some cached)
     else cached
   return some (mergeResults (·.target.name) localResults baseResults limit)
 
 unsafe def search (roots : Array Name) (pattern : SearchPattern)
     (limit : Nat) : IO (Option (Array LocatedName)) := do
-  let overlay? ← unsafe loadOverlay roots
-  let some overlay := overlay? | do
+  let catalog? ← unsafe loadCatalog roots
+  let some catalog := catalog? | do
     return ← unsafe SearchCache.search roots pattern limit
-  let some base ← unsafe SearchCache.search #[overlay.baseRoot] pattern limit |
+  let some base ← unsafe SearchCache.search #[catalog.baseRoot] pattern limit |
     return none
   return some <| mergeResults (·.name)
-    (pattern.collect overlay.localNames.size
-      (fun id => overlay.localNames[id]!) some (·.name) limit)
+    (pattern.collect catalog.localNames.size
+      (fun id => catalog.localNames[id]!) some (·.name) limit)
     base limit
 
 end LeanReach.QueryCache

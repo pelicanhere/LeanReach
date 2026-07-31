@@ -54,14 +54,17 @@ unsafe def isFullyPP (roots : Array Name) : IO Bool := do
 
 unsafe def loadPP (moduleOf? : Name → Option Name)
     (names : Array Name) : IO (NameMap Declaration) := do
-  let mut modules : NameSet := {}
+  let mut byModule : NameMap (Array Name) := {}
   for name in names do
     if let some moduleName := moduleOf? name then
-      modules := modules.insert moduleName
+      byModule := byModule.alter moduleName fun names =>
+        some ((names.getD #[]).push name)
   let mut declarations := {}
-  for moduleName in modules do
-    declarations := Std.TreeMap.union declarations
-      (← unsafe loadPPModule moduleName)
+  for (moduleName, names) in byModule do
+    let cached ← unsafe loadPPModule moduleName
+    for name in names do
+      if let some declaration := cached.find? name then
+        declarations := declarations.insert name declaration
   return declarations
 
 unsafe def savePPModule (moduleName : Name) (declarations : NameMap Declaration) :

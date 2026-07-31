@@ -82,13 +82,15 @@ def measure_process(command: list[str | Path], timeout: float) -> tuple[float, s
 
 
 def measure_session(
-    executable: Path, queries: tuple[tuple[str, str], ...], timeout: float
+    executable: Path,
+    queries: tuple[tuple[str, str], ...],
+    timeout: float,
+    module_args: list[str],
 ) -> list[tuple[float, int]]:
     process = subprocess.Popen(
         [
             executable,
-            "--module",
-            "Mathlib",
+            *module_args,
             "--limit",
             "10",
             "--interactive",
@@ -154,6 +156,11 @@ def main() -> None:
     parser.add_argument("--append-history", action="store_true")
     parser.add_argument("--skip-session", action="store_true")
     parser.add_argument(
+        "--auto-roots",
+        action="store_true",
+        help="benchmark the auto-detected local view instead of Mathlib alone",
+    )
+    parser.add_argument(
         "--query-set", choices=("all", "session", "process"), default="all"
     )
     parser.add_argument("--timeout", type=float, default=300)
@@ -168,13 +175,13 @@ def main() -> None:
     mathlib = root / ".lake/packages/mathlib/Mathlib"
     if not executable.exists():
         raise SystemExit("Run 'lake build' first.")
+    module_args = [] if args.auto_roots else ["--module", "Mathlib"]
 
     measure_process([executable, "--help"], args.timeout)
     measure_process(
         [
             executable,
-            "--module",
-            "Mathlib",
+            *module_args,
             "__leanreach_benchmark_ready__",
             "--json",
         ],
@@ -194,7 +201,9 @@ def main() -> None:
     )
     rows = []
     if run_session:
-        session = measure_session(executable, SESSION_QUERIES, args.timeout)
+        session = measure_session(
+            executable, SESSION_QUERIES, args.timeout, module_args
+        )
         for (query, _), (latency, found) in zip(
             SESSION_QUERIES, session, strict=True
         ):
@@ -204,8 +213,7 @@ def main() -> None:
             latency, output = measure_process(
                 [
                     executable,
-                    "--module",
-                    "Mathlib",
+                    *module_args,
                     query,
                     "--limit",
                     "10",
@@ -235,6 +243,7 @@ def main() -> None:
 
     if not rows:
         raise SystemExit("No benchmark set selected.")
+    view = "auto-detected roots" if args.auto_roots else "Mathlib root"
     records = [
         {
             "stage": args.stage,
@@ -242,7 +251,7 @@ def main() -> None:
             "tool": tool,
             "latency_ms": f"{latency:.3f}",
             "found": found,
-            "note": "one use per run from a fixed corpus with complete PP sidecars",
+            "note": f"one use per run from a fixed corpus with complete PP sidecars; {view}",
         }
         for query, tool, latency, found in rows
     ]

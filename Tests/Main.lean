@@ -37,6 +37,16 @@ private def checkBaseMetadata (index : Index) (names : Array Name) : IO Unit := 
       s!"overlay base metadata changed '{name}'"
 
 private unsafe def runTests : IO Unit := do
+  IO.FS.withTempDir fun dir => do
+    let path := dir / "cache"
+    Cache.savePart path "test" (1 : Nat) `LeanReachTests
+    let some first ← unsafe Cache.loadPart Nat path "test" |
+      throw <| IO.userError "new cache could not be read"
+    check (first == 1) "new cache stored the wrong value"
+    Cache.savePart path "test" (2 : Nat) `LeanReachTests
+    let some value ← unsafe Cache.loadPart Nat path "test" |
+      throw <| IO.userError "atomically replaced cache could not be read"
+    check (value == 2) "cache replacement kept the stale value"
   check (NameSearch.leaf? `Submodule.span_le == some "span_le" &&
       (NameSearch.leaf? (.num `LeanReachGenerated 1)).isNone &&
       (NameSearch.leaf? .anonymous).isNone)
@@ -346,28 +356,52 @@ private unsafe def runTests : IO Unit := do
     unless cached.map (·.name) == expected do
       throw <| IO.userError s!"cached regex differs for '{source}'"
   let layeredRoots := #[`Tests.Fixture, `Mathlib]
-  discard <| unsafe QueryCache.build layeredRoots
-  let some overlay ← unsafe QueryOverlay.load layeredRoots |
-    throw <| IO.userError "local query overlay is missing"
-  unless overlay.baseRoot == `Mathlib && overlay.entries.size > 0 do
-    throw <| IO.userError "local query overlay has the wrong base or no declarations"
-  unless overlay.affects `LeanReachFixture.double &&
-      overlay.affects `HAdd.hAdd do
+  let localCatalog ← unsafe QueryOverlay.buildCatalog layeredRoots `Mathlib
+    mathlibIndex.modules
+  unless localCatalog.baseRoot == `Mathlib &&
+      localCatalog.localNames.any (·.name == `LeanReachFixture.double) do
+    throw <| IO.userError "lightweight local catalog is missing a declaration"
+  unsafe QueryOverlay.saveCatalog layeredRoots localCatalog
+  let staleRelations : QueryOverlay.Relations := {
+    baseRoot := `Tests.PrivateA, entries := {}, reverse := {}
+  }
+  unsafe QueryOverlay.saveRelations layeredRoots staleRelations
+  let some layeredMissing ← unsafe QueryCache.exactQueries layeredRoots
+      "definitely_missing_layered_declaration" 10 |
+    throw <| IO.userError "layered exact cache is unavailable"
+  let some afterMissing ← unsafe QueryOverlay.loadRelations layeredRoots |
+    throw <| IO.userError "stale layered relation sentinel disappeared"
+  unless layeredMissing.isEmpty && afterMissing.baseRoot == staleRelations.baseRoot do
+    throw <| IO.userError "an exact miss eagerly built layered relations"
+  let localPattern ← regex r"^LeanReachFixture\."
+  let some catalogSearch ← unsafe QueryCache.search layeredRoots localPattern 10 |
+    throw <| IO.userError "local catalog search is unavailable"
+  let some afterSearch ← unsafe QueryOverlay.loadRelations layeredRoots |
+    throw <| IO.userError "stale layered relation sentinel disappeared"
+  unless catalogSearch.map (·.name) == fixtureIndex.searchAll localPattern 10 &&
+      afterSearch.baseRoot == staleRelations.baseRoot do
+    throw <| IO.userError "local catalog search eagerly built relations"
+  let layeredRelations ← unsafe cachedQuery layeredRoots
+    `LeanReachFixture.double
+  let some relations ← unsafe QueryOverlay.loadRelations layeredRoots |
+    throw <| IO.userError "an exact hit did not build layered relations"
+  unless relations.baseRoot == localCatalog.baseRoot &&
+      relations.entries.size > 0 &&
+      relations.affects `LeanReachFixture.double &&
+      relations.affects `HAdd.hAdd do
     throw <| IO.userError "local query overlay is missing an affected delta"
-  unless !overlay.affects `Submodule.span_le do
+  unless !relations.affects `Submodule.span_le do
     throw <| IO.userError "local query overlay marked an unaffected Mathlib query"
   let layeredLocal ← unsafe cachedQuery layeredRoots
     `LeanReachFixture.doubleViaPrivate
   unless layeredLocal.target.name == `LeanReachFixture.doubleViaPrivate do
     throw <| IO.userError "overlay resolved the wrong local declaration"
-  let layeredRelations ← unsafe cachedQuery layeredRoots
-    `LeanReachFixture.double
   unless layeredRelations.downstream.any
       (·.name == `LeanReachFixture.double_eq_add) do
     throw <| IO.userError "local overlay downstream relation is missing"
   let baseHAdd ← unsafe cachedQuery #[`Mathlib] `HAdd.hAdd
   let layeredHAdd ← unsafe cachedQuery layeredRoots `HAdd.hAdd
-  let expectedHAdd := overlay.queryFromBase
+  let expectedHAdd := relations.queryFromBase
     (QueryOverlay.BaseMetadata.ofIndex mathlibIndex) baseHAdd.target (some baseHAdd)
   unless layeredHAdd.queryNames {} == expectedHAdd.queryNames {} do
     throw <| IO.userError "lazy overlay query changed affected base relations"
@@ -381,7 +415,6 @@ private unsafe def runTests : IO Unit := do
   unless layeredSearch.map (·.name) ==
       mathlibIndex.search localizationPattern 10 do
     throw <| IO.userError "overlay substring search changed search ordering"
-  let localPattern ← regex r"^LeanReachFixture\."
   for limit in #[1, 2, 10] do
     let some cached ← unsafe QueryCache.search layeredRoots localPattern limit |
       throw <| IO.userError "overlay regex cache is missing"

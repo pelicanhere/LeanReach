@@ -148,11 +148,12 @@ When a view combines built local modules with Mathlib, Mathlib is the stable bas
 - reverse edges from base or local declarations into the local layer.
 
 A compact base-metadata sidecar stores sorted located names, module ownership, and forward/reverse
-degree counts. This is sufficient for the same `Rank.select` formula without loading the complete
-base catalog and relation graph.
+degree counts. A separate small module list lets a rebuilt local view exclude the stable base
+without touching that metadata.
 
-The overlay does not copy Mathlib query plans. Regex searches use only its local-name catalog;
-an exact query reads one base query shard and patches that neighborhood on demand.
+The overlay does not copy Mathlib query plans. Regex search reads an immutable local-name catalog;
+an exact hit builds a separate local forward/reverse relation sidecar, reads one base query shard,
+and patches that neighborhood on demand.
 
 ### Pretty-print cache
 
