@@ -134,19 +134,13 @@ def searchAll (index : Index) (pattern : SearchPattern)
 
 def search (index : Index) (pattern : SearchPattern)
     (limit : Nat := 20) : Array Name :=
-  match pattern.candidatePlan with
-  | .all => index.searchAll pattern limit
-  | .empty => #[]
-  | plan@(.postings _) =>
-    match plan.select (index.trigrams.find? · |>.map (·.size)) with
-    | .empty => #[]
-    | .postings alternatives =>
-      let ids := alternatives.foldl (init := #[]) fun ids grams =>
-        let candidates := grams[0]? >>= index.trigrams.find? |>.getD #[]
-        SearchPattern.mergeSortedIds ids candidates
-      pattern.collect ids.size (fun id => ids[id]!)
-        (fun id => index.entries[id.toNat]?) (·.name) limit |>.map (·.name)
-    | .all => index.searchAll pattern limit
+  match pattern.candidatePlan.select (index.trigrams.find? · |>.map (·.size)) with
+  | none => index.searchAll pattern limit
+  | some grams =>
+    let ids := Id.run <| SearchPattern.mergePostingsM grams fun gram =>
+      pure ((index.trigrams.find? gram).getD #[])
+    pattern.collect ids.size (fun id => ids[id]!)
+      (fun id => index.entries[id.toNat]?) (·.name) limit |>.map (·.name)
 
 private def related (index : Index) (name : Name) (upstream : Bool)
     (limit : Nat) : Array Name :=

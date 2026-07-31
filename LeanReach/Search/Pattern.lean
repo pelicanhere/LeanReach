@@ -313,19 +313,20 @@ def candidatePlan (pattern : SearchPattern) : CandidatePlan :=
 
 /--
 Uses a loaded posting directory to retain the rarest required trigram in each
-possible regex branch. A missing trigram proves that branch has no candidates.
+possible regex branch. `none` requests a full scan; `some #[]` proves that no
+branch has candidates.
 -/
 def CandidatePlan.select (plan : CandidatePlan)
-    (count? : String → Option Nat) : CandidatePlan :=
+    (count? : String → Option Nat) : Option (Array String) :=
   match plan with
   | .postings alternatives => Id.run do
       let mut selected := #[]
       for grams in alternatives do
         if let some gram := NameSearch.rarestTrigram? grams count? then
-          unless selected.any (·[0]? == some gram) do
-            selected := selected.push #[gram]
-      return if selected.isEmpty then .empty else .postings selected
-  | plan => plan
+          unless selected.contains gram do selected := selected.push gram
+      return some selected
+  | .all => none
+  | .empty => some #[]
 
 /-- Merges sorted, duplicate-free declaration ID arrays. -/
 def mergeSortedIds (left right : Array UInt32) : Array UInt32 := Id.run do
@@ -347,6 +348,12 @@ def mergeSortedIds (left right : Array UInt32) : Array UInt32 := Id.run do
         if a == b then i := i + 1
     else break
   return result ++ left.extract i left.size ++ right.extract j right.size
+
+def mergePostingsM {m : Type → Type} [Monad m] (grams : Array String)
+    (posting : String → m (Array UInt32)) : m (Array UInt32) := do
+  let mut ids := #[]
+  for gram in grams do ids := mergeSortedIds ids (← posting gram)
+  return ids
 
 def isMatch (pattern : SearchPattern) (name : Name) : Bool :=
   pattern.compiled.test (privateToUserName name).toString

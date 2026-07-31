@@ -215,20 +215,16 @@ unsafe def search (roots : Array Name) (pattern : SearchPattern)
         unsafe Cache.loadPart (Data.Trie UInt32)
           (path view.roots view.olean "directory") view.depHash |
       return none
-    match plan.select (directory.find? · |>.map (·.toNat)) with
-    | .empty => return some #[]
-    | .all => findAll
-    | .postings alternatives =>
-      let mut ids := #[]
-      for grams in alternatives do
-        let some gram := grams[0]? | continue
+    let some grams := plan.select (directory.find? · |>.map (·.toNat)) |
+      return ← findAll
+    let some ids ← OptionT.run do
+      SearchPattern.mergePostingsM grams fun gram => OptionT.mk do
         let some postings ← unsafe loadPostings view (shard gram) | return none
-        let candidates :=
-          (postings.find? gram >>= Cache.Codec.unpackDeltas).getD #[]
-        ids := SearchPattern.mergeSortedIds ids candidates
-      if ids.isEmpty then return some #[]
-      let some table ← unsafe loadViewTable view | return none
-      return some (pattern.collect ids.size (fun id => ids[id]!)
-        table.locatedAt? (·.name) limit)
+        return some ((postings.find? gram >>= Cache.Codec.unpackDeltas).getD #[]) |
+      return none
+    if ids.isEmpty then return some #[]
+    let some table ← unsafe loadViewTable view | return none
+    return some (pattern.collect ids.size (fun id => ids[id]!)
+      table.locatedAt? (·.name) limit)
 
 end LeanReach.SearchCache

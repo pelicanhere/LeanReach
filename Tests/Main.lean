@@ -189,9 +189,9 @@ private unsafe def runTests : IO Unit := do
   let selectedPlan := SearchPattern.CandidatePlan.postings #[
     #["abc"], #["abc", "def"]
   ] |>.select fun gram => if gram == "abc" then some 1 else some 2
-  let .postings selected := selectedPlan |
+  let some selected := selectedPlan |
     throw <| IO.userError "candidate planning discarded a valid posting"
-  check (selected == #[#["abc"]])
+  check (selected == #["abc"])
     "candidate planning retained a duplicate posting"
   let manyAs := "x" ++ String.ofList (List.replicate 17 'a') ++ "y"
   let repetitionNames := #["xaay".toName, "xaaay".toName, manyAs.toName]
