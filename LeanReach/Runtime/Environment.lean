@@ -26,14 +26,17 @@ private def sourceSearchPath (sysroot : System.FilePath)
     paths := paths ++ (System.SearchPath.parse path).toArray
   return (paths.push (sysroot / "src" / "lean")).toList
 
-unsafe def prepareSearchPath : IO Unit := do
-  let sysroot ← leanSysroot
-  initializeSearchPath sysroot (← unsafe Project.loadLayout? sysroot)
-
-unsafe def prepareEnvironment : IO SearchPath := do
+private unsafe def prepareLayout : IO (System.FilePath × Option Project.Layout) := do
   let sysroot ← leanSysroot
   let layout? ← unsafe Project.loadLayout? sysroot
   initializeSearchPath sysroot layout?
+  return (sysroot, layout?)
+
+unsafe def prepareSearchPath : IO Unit := do
+  discard <| unsafe prepareLayout
+
+unsafe def prepareEnvironment : IO SearchPath := do
+  let (sysroot, layout?) ← unsafe prepareLayout
   sourceSearchPath sysroot layout?
 
 unsafe def runCore {α : Type} (env : Environment) (action : CoreM α) : IO α :=

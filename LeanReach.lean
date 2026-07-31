@@ -17,31 +17,23 @@ private def normalizeQuery (query : String) : IO String := do
   if query.isEmpty then throw <| IO.userError "declaration query cannot be empty"
   return query
 
-private unsafe def runPreparedSession {α : Type} (moduleOf? : Name → Option Name)
-    (session : Session) (missing : Array Name) (leakEnv : Bool)
-    (action : IO α) : IO α := do
-  let mut added : NameMap (NameMap Declaration) := {}
+private unsafe def prepareMissing (moduleOf? : Name → Option Name)
+    (session : Session) (missing : Array Name) (leakEnv : Bool) : IO Unit := do
   let byModule := groupNamesByModule moduleOf? missing
   unless byModule.isEmpty do
-    let env ← importEnvironment (byModule.toArray.map (·.1)) (leakEnv := leakEnv)
+    let env ← importEnvironment byModule.keysArray (leakEnv := leakEnv)
     for (moduleName, names) in byModule do
       let (declarations, _) ← unsafe prettyPrintModuleIO
         session.sourcePath env moduleName names moduleOf?
-      added := added.insert moduleName declarations
-  unless added.isEmpty do
-    for (_, declarations) in added do session.merge declarations
-    try
-      for (moduleName, declarations) in added do
-        unsafe Cache.mergePPModule moduleName declarations
-    catch _ => IO.eprintln "leanreach: could not write PP sidecar"
-  action
+      session.merge declarations
+      try unsafe Cache.mergePPModule moduleName declarations
+      catch _ => IO.eprintln "leanreach: could not write PP sidecar"
 
-private unsafe def runSession {α : Type} (moduleOf? : Name → Option Name) (session : Session)
-    (names : Array Name) (leakEnv : Bool) (action : IO α) : IO α := do
+private unsafe def prepareSession (moduleOf? : Name → Option Name) (session : Session)
+    (names : Array Name) (leakEnv : Bool) : IO Unit := do
   let missing ← session.missing names
   session.merge (← unsafe Cache.loadPP moduleOf? missing)
-  unsafe runPreparedSession moduleOf? session
-    (← session.missing missing) leakEnv action
+  unsafe prepareMissing moduleOf? session (← session.missing missing) leakEnv
 
 private unsafe def withFreshSession {α : Type} (moduleOf? : Name → Option Name)
     (names : Array Name) (action : Session → IO α) : IO α := do
@@ -50,7 +42,8 @@ private unsafe def withFreshSession {α : Type} (moduleOf? : Name → Option Nam
   let sourcePath ← if missing.isEmpty then pure [] else prepareEnvironment
   let session ← Session.create sourcePath
   session.merge declarations
-  unsafe runPreparedSession moduleOf? session missing true (action session)
+  unsafe prepareMissing moduleOf? session missing true
+  action session
 
 inductive LookupNames where
   | query (names : QueryNames)
@@ -65,11 +58,9 @@ private structure LookupPlan where
   result : LookupNames
 
 private def cachedSearchPlan (targets : Array LocatedName) : LookupPlan :=
-  let (names, modules) := targets.foldl
-    (init := (#[], ({} : NameMap Name)))
-    fun (names, modules) target =>
-      (names.push target.name, modules.insert target.name target.moduleName)
-  { moduleOf? := modules.find?, result := .search names }
+  let modules : NameMap Name := ({} : NameMap Name).insertMany <|
+    targets.map fun target => (target.name, target.moduleName)
+  { moduleOf? := modules.find?, result := .search (targets.map (·.name)) }
 
 private unsafe def selectSearch (roots : Array Name) (pattern : SearchPattern)
     (limit : Nat) (loadIndex : IO Index) : IO LookupPlan := do
@@ -139,8 +130,8 @@ unsafe def withInteractiveSession {α : Type} (roots : Array Name)
     let source ← normalizeQuery source
     let plan ← unsafe selectLookup roots source limits
       (unsafe loadIndexOnce roots indexCache)
-    discard <| unsafe runSession plan.moduleOf? session plan.result.all false
-      (next plan.result)
+    unsafe prepareSession plan.moduleOf? session plan.result.all false
+    next plan.result
   action session lookup
 
 end LeanReach

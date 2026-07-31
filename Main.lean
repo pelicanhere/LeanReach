@@ -9,6 +9,7 @@ open Lean
 inductive Command where
   | lookup (pattern : String)
   | cache (modules : Array Name)
+  | interactive
 
 structure Config where
   root? : Option Name := none
@@ -169,9 +170,9 @@ private def validate (config : Config) : CliMainM Unit := do
 private unsafe def Config.roots (config : Config) (refresh := false) : IO (Array Name) :=
   config.root?.map (#[·]) |>.getDM (detectRoots refresh)
 
-private unsafe def execute (config : Config) (command? : Option Command) : IO UInt32 := do
-  match command? with
-  | some (.cache modules) =>
+private unsafe def execute (config : Config) (command : Command) : IO UInt32 := do
+  match command with
+  | .cache modules =>
     profiled config.profile "cache" do
       if modules.isEmpty then
         let roots ← config.roots true
@@ -182,12 +183,12 @@ private unsafe def execute (config : Config) (command? : Option Command) : IO UI
         printPP config roots result
       else
         printPP config modules (← buildPPModules modules)
-  | some (.lookup pattern) =>
+  | .lookup pattern =>
     profiled config.profile "lookup" do
       let roots ← config.roots
       withLookupFor roots pattern config.limits
         (printLookupNames config pattern)
-  | none =>
+  | .interactive =>
     withInteractiveSession (← config.roots) fun session runner =>
       runInteractive session runner config
   return 0
@@ -212,12 +213,12 @@ private unsafe def cli : CliM UInt32 := do
     return 0
   let command ←
     if config.interactive then
-      if arguments.isEmpty then pure none
+      if arguments.isEmpty then pure .interactive
       else throw <| Lake.CliError.unexpectedArguments arguments.toList
     else
       match arguments.toList with
-      | "cache" :: modules => pure (some (.cache <| modules.toArray.map (·.toName)))
-      | [pattern] => pure (some (.lookup pattern))
+      | "cache" :: modules => pure (.cache <| modules.toArray.map (·.toName))
+      | [pattern] => pure (.lookup pattern)
       | arguments => throw <| Lake.CliError.unexpectedArguments arguments
   unsafe execute config command
 
