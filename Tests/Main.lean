@@ -13,28 +13,29 @@ private def check (condition : Bool) (message : String) : IO Unit :=
 private def regex (source : String) : IO SearchPattern :=
   IO.ofExcept <| SearchPattern.compileRegex source |>.mapError IO.userError
 
-private unsafe def cachedQuery (roots : Array Name) (name : Name) :
-    IO CachedQuery := do
-  let results ← QueryCache.exactQueries roots name.toString { search := 2 }
+private unsafe def cachedQuery (roots : Array Name) (name : Name)
+    (limits : Limits := {}) : IO CachedQuery := do
+  let results ← QueryCache.exactQueries roots name.toString
+    { limits with search := 2 }
   let some results := results |
     throw <| IO.userError s!"query cache is unavailable for '{name}'"
   let some query := results.find? (·.target.name == name) |
     throw <| IO.userError s!"query cache is missing '{name}'"
   return query
 
-private def checkBaseMetadata (index : Index) (names : Array Name) : IO Unit := do
-  let base := QueryOverlay.BaseMetadata.ofIndex index
-  check (base.isValid && base.entries.size == index.size &&
-      base.modules == index.modules)
-    "overlay base metadata changed index dimensions"
+private def checkTable (index : Index) (table : SearchCache.Table)
+    (names : Array Name) : IO Unit := do
+  check (table.isValid && table.size == index.size &&
+      table.modules == index.modules)
+    "declaration table changed index dimensions"
   for name in names do
     let some expected := index.located? name |
-      throw <| IO.userError s!"metadata fixture '{name}' is missing"
-    let some actual := base.located? name |
-      throw <| IO.userError s!"metadata lookup lost '{name}'"
+      throw <| IO.userError s!"table fixture '{name}' is missing"
+    let some actual := table.located? name |
+      throw <| IO.userError s!"table lookup lost '{name}'"
     check (actual.name == expected.name && actual.moduleName == expected.moduleName &&
-        base.relationCounts name == index.relationCounts name)
-      s!"overlay base metadata changed '{name}'"
+        table.relationCounts name == index.relationCounts name)
+      s!"declaration table changed '{name}'"
 
 private unsafe def runTests : IO Unit := do
   IO.FS.withTempDir fun dir => do
@@ -168,8 +169,9 @@ private unsafe def runTests : IO Unit := do
   let localRoots := roots.filter (· != `Mathlib)
   unless localRoots == localRoots.qsort Name.lt do
     throw <| IO.userError "built local modules were not detected deterministically"
-  let mathlibIndex ← unsafe Cache.loadIndex #[`Mathlib] true
-  checkBaseMetadata mathlibIndex #[
+  let mathlibIndex ← unsafe Cache.materializeIndex #[`Mathlib]
+  let mathlibTable := SearchCache.Table.ofIndex mathlibIndex
+  checkTable mathlibIndex mathlibTable #[
     `Submodule.span_le, `HAdd.hAdd,
     `isPrincipalIdealRing_of_isPrincipalIdealRing_isLocalization_maximal
   ]
@@ -190,8 +192,9 @@ private unsafe def runTests : IO Unit := do
       `IsPrincipalIdealRing.of_finite_maximals] do
     unless pidRank.contains expected do
       throw <| IO.userError s!"PID proof dependency '{expected}' is poorly ranked"
-  let fixtureIndex ← unsafe Cache.loadIndex #[`Tests.Fixture] true
-  checkBaseMetadata fixtureIndex #[
+  let fixtureIndex ← unsafe Cache.materializeIndex #[`Tests.Fixture]
+  let fixtureTable := SearchCache.Table.ofIndex fixtureIndex
+  checkTable fixtureIndex fixtureTable #[
     `LeanReachFixture.double, `LeanReachFixture.Topic.ranked
   ]
   let completed := (fixtureIndex.modules.foldl
@@ -298,6 +301,13 @@ private unsafe def runTests : IO Unit := do
   let expectedQuery := fixtureIndex.queryNamesAt `LeanReachFixture.Topic.ranked
   unless rankedCached.queryNames {} == expectedQuery do
     throw <| IO.userError "cached query does not preserve ranking"
+  for limit in #[1, 10, 37, 100] do
+    let limits := Limits.uniform limit
+    let cached ← unsafe cachedQuery #[`Tests.Fixture]
+      `LeanReachFixture.Topic.ranked limits
+    unless cached.queryNames limits ==
+        fixtureIndex.queryNamesAt `LeanReachFixture.Topic.ranked limits do
+      throw <| IO.userError s!"cached query changed limit {limit}"
   let privateRoots := #[`Tests.PrivateA, `Tests.PrivateB]
   discard <| unsafe QueryCache.build privateRoots
   let some cachedPrivateMatches ← unsafe QueryCache.exactQueries privateRoots
@@ -400,9 +410,14 @@ private unsafe def runTests : IO Unit := do
       (·.name == `LeanReachFixture.double_eq_add) do
     throw <| IO.userError "local overlay downstream relation is missing"
   let baseHAdd ← unsafe cachedQuery #[`Mathlib] `HAdd.hAdd
+  let wideLimits : Limits := { upstream := 37, downstream := 100, search := 2 }
+  let wideHAdd ← unsafe cachedQuery #[`Mathlib] `HAdd.hAdd wideLimits
+  unless wideHAdd.queryNames wideLimits ==
+      mathlibIndex.queryNamesAt `HAdd.hAdd wideLimits do
+    throw <| IO.userError "full adjacency cache truncated a wide query"
   let layeredHAdd ← unsafe cachedQuery layeredRoots `HAdd.hAdd
   let expectedHAdd := relations.queryFromBase
-    (QueryOverlay.BaseMetadata.ofIndex mathlibIndex) baseHAdd.target (some baseHAdd)
+    mathlibTable baseHAdd.target (some baseHAdd) {}
   unless layeredHAdd.queryNames {} == expectedHAdd.queryNames {} do
     throw <| IO.userError "lazy overlay query changed affected base relations"
   let layeredBase ← unsafe cachedQuery layeredRoots `Submodule.span_le

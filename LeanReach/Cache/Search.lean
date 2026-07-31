@@ -8,13 +8,79 @@ open Lean
 
 private def shardCount := 256
 
-private abbrev NameTable := Array Name × Array UInt32 × Array Name
+structure Table where
+  names : Array Name
+  owners : Array UInt32
+  modules : Array Name
+  forwardCounts : Array UInt32
+  reverseCounts : Array UInt32
+
+def Table.ofIndex (index : Index) : Table := Id.run do
+  let (entries, _) := index.catalog
+  let (reverseCounts, forwardCounts) := index.relationCountsById
+  let mut moduleIds : NameMap UInt32 := {}
+  let mut modules := #[]
+  let mut names := #[]
+  let mut owners := #[]
+  for entry in entries do
+    let owner ← match moduleIds.find? entry.moduleName with
+      | some owner => pure owner
+      | none =>
+        let owner := modules.size.toUInt32
+        moduleIds := moduleIds.insert entry.moduleName owner
+        modules := modules.push entry.moduleName
+        pure owner
+    names := names.push entry.name
+    owners := owners.push owner
+  return { names, owners, modules, forwardCounts, reverseCounts }
+
+def Table.isValid (table : Table) : Bool :=
+  table.names.size == table.owners.size &&
+    table.names.size == table.forwardCounts.size &&
+    table.names.size == table.reverseCounts.size &&
+    table.owners.all (·.toNat < table.modules.size)
+
+def Table.size (table : Table) : Nat :=
+  table.names.size
+
+def Table.locatedAt? (table : Table) (id : UInt32) : Option LocatedName := do
+  let name ← table.names[id.toNat]?
+  let owner ← table.owners[id.toNat]?
+  let moduleName ← table.modules[owner.toNat]?
+  return { name, moduleName }
+
+def Table.locatedAt! (table : Table) (id : UInt32) : LocatedName :=
+  table.locatedAt? id |>.get!
+
+private def Table.findId? (table : Table) (name : Name) : Option UInt32 :=
+  NameSearch.findSorted? table.size (table.names[·]!) name |>.map (·.toUInt32)
+
+def Table.located? (table : Table) (name : Name) : Option LocatedName :=
+  table.findId? name >>= table.locatedAt?
+
+def Table.relationCounts (table : Table) (name : Name) : Nat × Nat :=
+  match table.findId? name with
+  | some id =>
+    (table.reverseCounts[id.toNat]?.map (·.toNat) |>.getD 0,
+      table.forwardCounts[id.toNat]?.map (·.toNat) |>.getD 0)
+  | none => (0, 0)
+
+def Table.moduleOf? (table : Table) (name : Name) : Option Name :=
+  table.located? name |>.map (·.moduleName)
+
+def Table.declarationsByModule (table : Table) : NameMap (Array Name) := Id.run do
+  let mut declarations : NameMap (Array Name) := {}
+  for id in [0:table.size] do
+    let entry := table.locatedAt! id.toUInt32
+    declarations := declarations.alter entry.moduleName fun names =>
+      some ((names.getD #[]).push entry.name)
+  return declarations
 
 private structure View where
   roots : Array Name
   olean : System.FilePath
   depHash : String
-  table : IO.Ref (Option NameTable)
+  table : IO.Ref (Option Table)
   directory : IO.Ref (Option (Data.Trie UInt32))
   postings : IO.Ref (Array (Option (Data.Trie ByteArray)))
 
@@ -24,8 +90,8 @@ private def stem (roots : Array Name) :=
   if roots.size == 1 then "leanreach-search" else "leanreach-roots-search"
 
 private def path (roots : Array Name) (olean : System.FilePath) (part : String) :=
-  -- Search cache format 4.
-  olean.withExtension s!"{stem roots}-4-{part}"
+  -- Search cache format 5.
+  olean.withExtension s!"{stem roots}-5-{part}"
 
 private def markerPath (roots : Array Name) (olean : System.FilePath) :=
   path roots olean "root"
@@ -60,9 +126,11 @@ private def memoize {α : Type} (slot : IO.Ref (Option α))
   slot.set (some value)
   return some value
 
-private unsafe def loadTable (view : View) : IO (Option NameTable) :=
-  memoize view.table <| unsafe Cache.loadPart NameTable
-    (path view.roots view.olean "names") view.depHash
+private unsafe def loadViewTable (view : View) : IO (Option Table) :=
+  memoize view.table <| do
+    let table? ← unsafe Cache.loadPart Table
+      (path view.roots view.olean "table") view.depHash
+    return table?.filter (·.isValid)
 
 private unsafe def loadDirectory (view : View) :
     IO (Option (Data.Trie UInt32)) :=
@@ -84,6 +152,11 @@ private def ready (roots : Array Name) (olean : System.FilePath)
 unsafe def isBuilt (roots : Array Name) : IO Bool := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
   ready roots olean depHash
+
+unsafe def loadTable (roots : Array Name) : IO (Option Table) := do
+  let (olean, depHash, _) ← unsafe Cache.rootData roots
+  unless ← ready roots olean depHash do return none
+  unsafe loadViewTable (← loadView roots olean depHash)
 
 private def packIds (ids : Array UInt32) : ByteArray := Id.run do
   let mut bytes := ByteArray.empty
@@ -139,30 +212,14 @@ private def unpackIds (bytes : ByteArray) : Array UInt32 := Id.run do
       scale := scale * 128
   return ids
 
-private def makeNameTable (entries : Array LocatedName) : NameTable := Id.run do
-  let mut ids : NameMap UInt32 := {}
-  let mut modules := #[]
-  let mut names := #[]
-  let mut owners := #[]
-  for entry in entries do
-    let id ← match ids.find? entry.moduleName with
-      | some id => pure id
-      | none =>
-        let id := modules.size.toUInt32
-        ids := ids.insert entry.moduleName id
-        modules := modules.push entry.moduleName
-        pure id
-    names := names.push entry.name
-    owners := owners.push id
-  return (names, owners, modules)
-
 unsafe def build (roots : Array Name) (index : Index) : IO Nat := do
   let (olean, depHash, root) ← unsafe Cache.rootData roots
   if ← ready roots olean depHash then return 0
   let (entries, trigrams) := index.catalog
+  let table := Table.ofIndex index
   let (directory, shards) := collectPostings trigrams
-  Cache.savePart (path roots olean "names") depHash (makeNameTable entries)
-    (Name.str root "_leanreachSearchNames")
+  Cache.savePart (path roots olean "table") depHash table
+    (Name.str root "_leanreachSearchTable")
   Cache.savePart (path roots olean "directory") depHash directory
     (Name.str root "_leanreachSearchDirectory")
   let mut offset := 0
@@ -177,17 +234,10 @@ unsafe def build (roots : Array Name) (index : Index) : IO Nat := do
   IO.FS.writeFile (markerPath roots olean) depHash
   return entries.size
 
-private def located? (table : NameTable) (id : UInt32) : Option LocatedName := do
-  let (names, owners, modules) := table
-  let name ← names[id.toNat]?
-  let owner ← owners[id.toNat]?
-  let moduleName ← modules[owner.toNat]?
-  return { name, moduleName }
-
-private def findPatternMatches (table : NameTable) (size : Nat)
+private def findPatternMatches (table : Table) (size : Nat)
     (idAt : Nat → UInt32) (pattern : SearchPattern)
     (limit : Nat) : Array LocatedName :=
-  pattern.collect size idAt (located? table) (·.name) limit
+  pattern.collect size idAt table.locatedAt? (·.name) limit
 
 unsafe def search (roots : Array Name) (pattern : SearchPattern)
     (limit : Nat) : IO (Option (Array LocatedName)) := do
@@ -196,8 +246,8 @@ unsafe def search (roots : Array Name) (pattern : SearchPattern)
   if limit == 0 then return some #[]
   let view ← loadView roots olean depHash
   let findAll := do
-    let some table ← unsafe loadTable view | return none
-    return some (findPatternMatches table table.1.size
+    let some table ← unsafe loadViewTable view | return none
+    return some (findPatternMatches table table.size
       (fun id => id.toUInt32) pattern limit)
   match pattern.candidatePlan with
   | .all => findAll
@@ -215,7 +265,7 @@ unsafe def search (roots : Array Name) (pattern : SearchPattern)
         let candidates := (postings.find? gram).map unpackIds |>.getD #[]
         ids := SearchPattern.mergeSortedIds ids candidates
       if ids.isEmpty then return some #[]
-      let some table ← unsafe loadTable view | return none
+      let some table ← unsafe loadViewTable view | return none
       return some (findPatternMatches table ids.size
         (fun id => ids[id]!) pattern limit)
 

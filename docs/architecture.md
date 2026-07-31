@@ -10,7 +10,7 @@ source positions.
 ```text
 Lake project discovery
   → module fragments
-  → catalog + direct relation index
+  → shared declaration table + sharded direct adjacency
   → name resolution
   → upstream/downstream candidate lookup
   → dependency ranking
@@ -105,9 +105,9 @@ adding theorem/instance branches, name blacklists, a second-order graph pass, or
 
 ## Persistent cache layers
 
-Object caches use Lean module data; exact-query shards and small markers use compact text. Cache
-files live beside an `.olean`, which lets a dependency provide reusable artifacts to downstream
-Lake projects.
+Object caches use Lean module data. Exact-query shards use a compact binary format; small markers
+use text. Cache files live beside an `.olean`, which lets a dependency provide reusable artifacts to
+downstream Lake projects.
 
 ### Module fragment
 
@@ -120,26 +120,19 @@ Lake projects.
 The sidecar is keyed by the module's Lake `depHash`. Without a Lake trace, LeanReach hashes all
 available `.olean` layers.
 
-### Catalog and relations
-
-A root view materializes:
-
-- a name-to-module catalog and trigram postings;
-- forward and reverse declaration-ID arrays;
-- precomputed upstream and downstream graph priors.
-
-Catalog and relations are separate files so name search need not map the full graph.
-
 ### Search cache
 
-The disk name index has a compact declaration/module table, a trigram-frequency directory, and 256
-posting shards. Posting IDs are delta-varint encoded in `ByteArray`s. A query maps only the selected
-posting shard and the name table.
+The shared declaration table stores sorted names, module ownership, the module list, and direct
+forward/reverse degree counts. Search adds a trigram-frequency directory and 256 posting shards.
+Posting IDs are delta-varint encoded in `ByteArray`s. A regex query reads the table and only the
+selected posting shard.
 
 ### Query cache and local overlay
 
-The default Top-10 upstream and downstream results are stored in 1024 exact-query shards. Limits
-above 10 fall back to the complete relation index.
+Complete direct upstream and downstream ID arrays are split across 1024 exact-query shards. IDs and
+counts use UInt32 varints; each shard validates its own dependency hash before use. Exact queries
+read one shard. The default ten results are pre-ranked in place; wider requests rank the complete
+neighborhood on demand. Arbitrary limits therefore do not require a persisted root graph.
 
 When a view combines built local modules with Mathlib, Mathlib is the stable base and
 `Cache.Overlay` stores only:
@@ -147,13 +140,10 @@ When a view combines built local modules with Mathlib, Mathlib is the stable bas
 - local declarations and their outgoing edges;
 - reverse edges from base or local declarations into the local layer.
 
-A compact base-metadata sidecar stores sorted located names, module ownership, and forward/reverse
-degree counts. A separate small module list lets a rebuilt local view exclude the stable base
-without touching that metadata.
-
-The overlay does not copy Mathlib query plans. Regex search reads an immutable local-name catalog;
-an exact hit builds a separate local forward/reverse relation sidecar, reads one base query shard,
-and patches that neighborhood on demand.
+The overlay reuses the base declaration table rather than copying names, modules, or degree counts.
+Regex search reads an immutable local-name catalog; an exact hit builds a separate local
+forward/reverse relation sidecar, reads one base query shard, and patches that neighborhood on
+demand.
 
 ### Pretty-print cache
 
@@ -200,7 +190,7 @@ The current granularity is:
 - module fragments: per module hash;
 - PP: per module hash, resumable within one valid sidecar;
 - Mathlib plus local query view: persistent Mathlib base plus a regenerated local overlay;
-- root catalog and relations: per ordered root view.
+- local overlay catalog and relations: per ordered root view.
 
 The detected built-module list is persisted under the target project's `.lake`. Running
 `leanreach cache` refreshes it; ordinary queries reuse it for fast process startup. Consequently, a
@@ -212,12 +202,13 @@ roots are stored in a canonical order so filesystem enumeration cannot invalidat
 One-shot queries avoid importing a root environment when every selected declaration is already
 pretty-printed. PP-cold queries import only the modules required for the selected result.
 
-Interactive mode keeps the dependency index and in-memory PP map alive across commands. This avoids
-repeated Lean runtime startup and is the intended interface for agents performing a search chain.
+Interactive mode keeps loaded declaration tables, query shards, and PP maps alive across commands.
+This avoids repeated Lean runtime startup and is the intended interface for agents performing a
+search chain.
 
 The remaining cold-cache cost is primarily Lean signature delaboration and formatting. Stable
 Mathlib sidecars should be built once and reused. Local module fragments and PP sidecars are reused
-per module; the small local overlay and global rank summary are regenerated from those fragments.
+per module; the small local overlay is regenerated from those fragments.
 
 ## Source layout
 

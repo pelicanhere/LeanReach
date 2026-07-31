@@ -1,4 +1,5 @@
 import LeanReach.Cache.Index
+import LeanReach.Cache.Search
 import LeanReach.Search.Rank
 
 namespace LeanReach.QueryOverlay
@@ -17,38 +18,6 @@ structure Relations where
   baseRoot : Name
   entries : NameMap Entry
   reverse : NameMap (Array LocatedName)
-
-structure BaseMetadata where
-  entries : Array LocatedName
-  modules : Array Name
-  reverseCounts : Array UInt32
-  forwardCounts : Array UInt32
-
-def BaseMetadata.ofIndex (index : Index) : BaseMetadata :=
-  let (reverseCounts, forwardCounts) := index.relationCountsById
-  {
-    entries := index.catalog.1
-    modules := index.modules
-    reverseCounts
-    forwardCounts
-  }
-
-def BaseMetadata.isValid (base : BaseMetadata) : Bool :=
-  base.entries.size == base.reverseCounts.size &&
-    base.entries.size == base.forwardCounts.size
-
-private def BaseMetadata.findId? (base : BaseMetadata) (name : Name) : Option Nat :=
-  NameSearch.findSorted? base.entries.size (base.entries[·]!.name) name
-
-def BaseMetadata.located? (base : BaseMetadata) (name : Name) : Option LocatedName :=
-  base.findId? name >>= fun id => base.entries[id]?
-
-def BaseMetadata.relationCounts (base : BaseMetadata) (name : Name) : Nat × Nat :=
-  match base.findId? name with
-  | some id =>
-    (base.reverseCounts[id]?.map (·.toNat) |>.getD 0,
-      base.forwardCounts[id]?.map (·.toNat) |>.getD 0)
-  | none => (0, 0)
 
 private def catalogPath (olean : System.FilePath) : System.FilePath :=
   olean.withExtension "leanreach-query-overlay-catalog-1"
@@ -83,12 +52,13 @@ unsafe def loadRelations (roots : Array Name) : IO (Option Relations) := do
 def Relations.affects (data : Relations) (name : Name) : Bool :=
   data.entries.contains name || data.reverse.contains name
 
-private def Relations.moduleOf? (data : Relations) (base : BaseMetadata) (name : Name) :
-    Option LocatedName :=
+private def Relations.moduleOf? (data : Relations) (base : SearchCache.Table)
+    (name : Name) : Option LocatedName :=
   (data.entries.find? name |>.map (·.target)) <|> base.located? name
 
-def Relations.queryFromBase (data : Relations) (base : BaseMetadata) (target : LocatedName)
-    (cached? : Option CachedQuery) : CachedQuery :=
+def Relations.queryFromBase (data : Relations) (base : SearchCache.Table)
+    (target : LocatedName) (cached? : Option CachedQuery) (limits : Limits) :
+    CachedQuery :=
   let upstream :=
     match data.entries.find? target.name with
     | some entry => entry.dependencies.toArray.filterMap (data.moduleOf? base)
@@ -105,8 +75,8 @@ def Relations.queryFromBase (data : Relations) (base : BaseMetadata) (target : L
           ((data.reverse.find? candidate.name).map (·.size)).getD 0
         let forwardCount := data.entries.find? candidate.name
           |>.map (·.dependencies.size) |>.getD baseForward
-        Rank.prior base.entries.size reverseCount forwardCount upstream)
-      cachedQueryLimit
+        Rank.prior base.size reverseCount forwardCount upstream)
+      (if upstream then limits.upstream else limits.downstream)
   {
     target
     upstream := rank true upstream

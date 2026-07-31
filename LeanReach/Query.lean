@@ -14,9 +14,6 @@ instance : ToJson QueryResult where
     ("downstream", toJson result.downstream)
   ]
 
-def Limits.usesCachedQuery (limits : Limits) : Bool :=
-  limits.upstream ≤ cachedQueryLimit && limits.downstream ≤ cachedQueryLimit
-
 structure Session where
   sourcePath : SearchPath
   private declarations : IO.Ref (NameMap Declaration)

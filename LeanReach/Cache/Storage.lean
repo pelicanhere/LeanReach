@@ -7,19 +7,27 @@ open Lean
 
 private initialize nextTempId : IO.Ref Nat ← IO.mkRef 0
 
-/-- Save a compacted Lean object with its dependency hash. Adapted from Loogle's `Pickle` module. -/
-def savePart {α : Type} (path : System.FilePath) (depHash : String)
-    (value : α) (key : Name) : IO Unit := do
+private def writeAtomically (path : System.FilePath)
+    (write : System.FilePath → IO Unit) : IO Unit := do
   let pid ← IO.Process.getPID
   let id ← nextTempId.modifyGet fun id => (id, id + 1)
   let temp := System.FilePath.mk s!"{path}.tmp-{pid}-{id}"
   try
-    saveModuleData temp key (unsafe unsafeCast (depHash, value))
+    write temp
     IO.FS.rename temp path
   finally
     try
       if ← temp.pathExists then IO.FS.removeFile temp
     catch _ => pure ()
+
+/-- Save a compacted Lean object with its dependency hash. Adapted from Loogle's `Pickle` module. -/
+def savePart {α : Type} (path : System.FilePath) (depHash : String)
+    (value : α) (key : Name) : IO Unit :=
+  writeAtomically path fun temp =>
+    saveModuleData temp key (unsafe unsafeCast (depHash, value))
+
+def saveBytes (path : System.FilePath) (value : ByteArray) : IO Unit :=
+  writeAtomically path fun temp => IO.FS.writeBinFile temp value
 
 unsafe def loadPart (α : Type) (path : System.FilePath) (depHash : String) :
     IO (Option α) := do

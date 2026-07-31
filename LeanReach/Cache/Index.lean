@@ -89,15 +89,16 @@ unsafe def moduleData (moduleName : Name) :
 unsafe def moduleNames (moduleName : Name) : IO (Array Name) :=
   return (← unsafe moduleData moduleName).2.map (·.1)
 
-unsafe def moduleClosure (roots : Array Name) (excluded : NameHashSet := {}) :
-    IO (Array (Name × Array (Name × NameSet))) := do
+private unsafe def foldClosure {α : Type} (roots : Array Name)
+    (excluded : NameHashSet) (initial : α)
+    (visit : α → Name → Array (Name × NameSet) → IO α) : IO α := do
   let mut pending := #[]
   let mut seen := excluded
+  let mut result := initial
   for root in roots do
     unless seen.contains root do
       seen := seen.insert root
       pending := pending.push root
-  let mut modules := #[]
   while !pending.isEmpty do
     let mut batch := #[]
     while batch.size < 32 do
@@ -107,36 +108,23 @@ unsafe def moduleClosure (roots : Array Name) (excluded : NameHashSet := {}) :
     let tasks ← batch.mapM fun moduleName => IO.asTask (unsafe moduleData moduleName)
     for (moduleName, task) in batch.zip tasks do
       let (imports, moduleDeclarations) ← IO.ofExcept task.get
-      modules := modules.push (moduleName, moduleDeclarations)
+      result ← visit result moduleName moduleDeclarations
       for imported in imports do
         unless seen.contains imported do
           seen := seen.insert imported
           pending := pending.push imported
-  return modules
+  return result
 
-private unsafe def buildIndex (roots : Array Name) : IO Index := do
-  let mut declarations := #[]
-  for (moduleName, moduleDeclarations) in ← unsafe moduleClosure roots do
-    for (name, dependencies) in moduleDeclarations do
-      declarations := declarations.push (name, moduleName, dependencies)
-  return Index.build declarations
+unsafe def moduleClosure (roots : Array Name) (excluded : NameHashSet := {}) :
+    IO (Array (Name × Array (Name × NameSet))) :=
+  unsafe foldClosure roots excluded #[] fun modules moduleName declarations =>
+    pure (modules.push (moduleName, declarations))
 
-unsafe def loadIndex (roots : Array Name) (loadRelations := true) : IO Index := do
-  let (olean, depHash, root) ← unsafe rootData roots
-  let stem := if roots.size == 1 then "leanreach" else "leanreach-roots"
-  -- Root catalog format 7; relation-index format 8.
-  let catalogPath := olean.withExtension s!"{stem}-catalog-7"
-  let relationsPath := olean.withExtension s!"{stem}-relations-8"
-  if let some catalog ← unsafe loadPart Catalog catalogPath depHash then
-    if !loadRelations then return Index.ofParts catalog default
-    if let some relations ← unsafe loadPart Relations relationsPath depHash then
-      return Index.ofParts catalog relations
-  let index ← buildIndex roots
-  try
-    savePart catalogPath depHash index.catalog (Name.str root "_leanreachCatalog")
-    savePart relationsPath depHash index.toRelations (Name.str root "_leanreachRelations")
-  catch _ => IO.eprintln "leanreach: could not write root index cache"
-  if loadRelations then return index
-  return Index.ofParts index.catalog default
+unsafe def materializeIndex (roots : Array Name) : IO Index := do
+  let declarations ← unsafe foldClosure roots {} ({} : Index.Declarations)
+      fun result moduleName entries =>
+    pure <| entries.foldl (init := result) fun result (name, dependencies) =>
+      result.add name moduleName dependencies
+  return Index.buildFrom declarations
 
 end LeanReach.Cache

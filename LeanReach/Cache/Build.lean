@@ -34,8 +34,9 @@ private unsafe def completedModules (roots : Array Name) : IO NameHashSet := do
   let mut completed : NameHashSet := {}
   for root in roots do
     if ← unsafe Cache.isFullyPP #[root] then
-      for moduleName in (← unsafe Cache.loadIndex #[root] false).modules do
-        completed := completed.insert moduleName
+      if let some table ← unsafe SearchCache.loadTable #[root] then
+        for moduleName in table.modules do
+          completed := completed.insert moduleName
   return completed
 
 private unsafe def worker (sourcePath : SearchPath) (env : Environment)
@@ -124,11 +125,12 @@ unsafe def buildPPRoots (roots : Array Name)
   if ppReady then return (0, {})
   let (inputs, moduleOf?) : Array Input × (Name → Option Name) ←
     if completed.isEmpty then
-      let index ← unsafe Cache.loadIndex roots false
+      let some table ← unsafe SearchCache.loadTable roots |
+        throw <| IO.userError "declaration table is unavailable"
       let mut inputs := #[]
-      for (moduleName, names) in index.declarationsByModule do
+      for (moduleName, names) in table.declarationsByModule do
         inputs ← unsafe addMissingInput inputs moduleName names
-      pure (inputs, index.moduleOf?)
+      pure (inputs, table.moduleOf?)
     else
       let mut inputs := #[]
       for (moduleName, declarations) in ← unsafe Cache.moduleClosure roots completed do
