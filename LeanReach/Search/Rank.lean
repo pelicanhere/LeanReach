@@ -22,7 +22,7 @@ private def prefixSimilarity (left right : List Name) : Float :=
   diceScore left.length right.length (commonPrefixLength left right)
 
 private def significantParts (name : Name) : List String :=
-  ((NameSearch.leaf (privateToUserName name)).toLower.splitOn "_")
+  (((NameSearch.leaf? (privateToUserName name)).getD "").toLower.splitOn "_")
     |>.filter (·.length ≥ 3)
     |>.eraseDups
 

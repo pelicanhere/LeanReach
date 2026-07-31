@@ -9,7 +9,7 @@ open Lean
 universe u v
 
 def leafMatches (query : String) (name : Name) : Bool :=
-  (NameSearch.leaf (privateToUserName name)).toLower == query
+  (NameSearch.leaf? (privateToUserName name)).any (·.toLower == query)
 
 private def bucket? (query suffix : String) (name : Name) : Option Nat :=
   let candidate := NameSearch.normalizedName name
@@ -37,6 +37,9 @@ def collect {α : Type u} {β : Type v} (queryLower : String)
 
 def bestBucket {α : Type u} (buckets : Array (Array α)) : Array α :=
   buckets.find? (not ∘ Array.isEmpty) |>.getD #[]
+
+def noMatchMessage (query : String) : String :=
+  s!"no declaration name contains '{query}'"
 
 def ambiguityMessage (query : String) (candidates : Array LocatedName) : String :=
   let options := candidates.take 10 |>.map fun target =>

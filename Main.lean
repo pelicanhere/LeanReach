@@ -150,7 +150,7 @@ private def parseLine (line : String) : Command :=
   if let some pattern := line.dropPrefix? "search " then
     .search pattern.copy
   else
-    .query line.trimAscii.copy
+    .query line
 
 private def chompLine (line : String) : String :=
   let line := (line.dropSuffix? "\n").map (·.copy) |>.getD line

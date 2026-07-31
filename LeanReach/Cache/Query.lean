@@ -11,7 +11,8 @@ open Lean
 private def shardCount := 1024
 
 private def shard (name : Name) : Nat :=
-  (hash (NameSearch.leaf name).toLower % UInt64.ofNat shardCount).toNat
+  (hash ((NameSearch.leaf? name).getD "").toLower %
+    UInt64.ofNat shardCount).toNat
 
 private def shardPath (olean : System.FilePath) (id : Nat) : System.FilePath :=
   -- Query-shard format 10.
@@ -261,7 +262,7 @@ private unsafe def resolveFromLookup (roots : Array Name) (query : String) :
       (fun id => results[id]!) some (·.name) 11
   if candidates.size == 1 then
     return ← unsafe resolveFull roots candidates[0]!.name.toString
-  if candidates.isEmpty then return .ok none
+  if candidates.isEmpty then return .error (NameResolve.noMatchMessage query)
   return .error (NameResolve.ambiguityMessage query candidates)
 
 private unsafe def overlayQuery? (overlay : QueryOverlay.Data)
@@ -272,6 +273,7 @@ private unsafe def overlayQuery? (overlay : QueryOverlay.Data)
   | .ok cached => return cached
   | .error _ => return none
 
+/-- `none` means that a required cache is unavailable; a complete cached miss is an error. -/
 unsafe def resolve (roots : Array Name) (query : String) :
     IO (Except String (Option CachedQuery)) := do
   let overlay? ← unsafe loadOverlay roots
@@ -293,7 +295,7 @@ unsafe def resolve (roots : Array Name) (query : String) :
     NameResolve.mergeBuckets query.toLower 11 localResults base
   if candidates.size == 1 then
     return .ok (← unsafe overlayQuery? overlay candidates[0]!)
-  if candidates.isEmpty then return .ok none
+  if candidates.isEmpty then return .error (NameResolve.noMatchMessage query)
   return .error (NameResolve.ambiguityMessage query candidates)
 
 unsafe def search (roots : Array Name) (pattern : SearchPattern)

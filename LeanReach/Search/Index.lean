@@ -166,7 +166,7 @@ def Index.resolve (index : Index) (query : String) : Except String Name := do
   if index.findId? exact |>.isSome then return exact
   let candidates := NameResolve.bestBucket (index.resolveMatches query 10)
   if candidates.size == 1 then return candidates[0]!.name
-  if candidates.isEmpty then throw s!"no declaration name contains '{query}'"
+  if candidates.isEmpty then throw <| NameResolve.noMatchMessage query
   throw <| NameResolve.ambiguityMessage query candidates
 
 private def Index.related (index : Index) (name : Name) (upstream : Bool)

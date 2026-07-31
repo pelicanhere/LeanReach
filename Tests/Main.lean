@@ -14,6 +14,10 @@ private def regex (source : String) : IO SearchPattern :=
   IO.ofExcept <| SearchPattern.compileRegex source |>.mapError IO.userError
 
 private unsafe def runTests : IO Unit := do
+  check (NameSearch.leaf? `Submodule.span_le == some "span_le" &&
+      (NameSearch.leaf? (.num `LeanReachGenerated 1)).isNone &&
+      (NameSearch.leaf? .anonymous).isNone)
+    "name leaf extraction assumed a string component"
   unless NameSearch.trigrams "abcd" == #["abc", "bcd"] &&
       NameSearch.trigrams "αβγδ" == #["αβγ", "βγδ"] &&
       (NameSearch.trigrams "ab").isEmpty do
@@ -207,7 +211,7 @@ private unsafe def runTests : IO Unit := do
     unsafe Cache.savePPModule `Tests.Fixture
       (planned.erase `LeanReachFixture.cachedWrapped)
     try
-      discard <| unsafe withCachedQueryFor #[`Tests.Fixture]
+      discard <| unsafe withQueryFor #[`Tests.Fixture]
         "LeanReachFixture.cachedWrapped" (Limits.uniform 0) fun _ _ =>
           (throw <| IO.userError "injected output failure" : IO Unit)
     catch _ => pure ()
@@ -225,16 +229,24 @@ private unsafe def runTests : IO Unit := do
   unless withoutSource.line == 0 && withoutSource.column == 0 do
     throw <| IO.userError "missing source position did not remain 0:0"
   discard <| unsafe QueryCache.build #[`Tests.Fixture]
-  for _ in [0:2] do
-    let cachedRun ← unsafe withCachedQueryFor #[`Tests.Fixture]
-        "LeanReachFixture.cachedWrapped" (Limits.uniform 0) fun session names => do
+  for query in #[
+      "LeanReachFixture.cachedWrapped",
+      "  LeanReachFixture.cachedWrapped  "] do
+    unsafe withQueryFor #[`Tests.Fixture]
+        query (Limits.uniform 0) fun session names => do
       check session.sourcePath.isEmpty
         "cached query unexpectedly prepared a source environment"
       let result ← session.describeQuery names
       check (result.target.signature.contains "✝")
         "cached query lost the serialized irreducible definition"
-    unless cachedRun.isSome do
-      throw <| IO.userError "irreducible definition did not use the query cache"
+  let mut rejectedEmpty := false
+  try
+    discard <| unsafe withQueryFor #[`Tests.Fixture] " "
+      (Limits.uniform 0) fun _ _ => pure ()
+  catch error =>
+    rejectedEmpty := (toString error).contains "declaration query cannot be empty"
+  unless rejectedEmpty do
+    throw <| IO.userError "empty declaration query was not rejected"
   let .ok (some cachedQuery) ← unsafe QueryCache.resolve #[`Tests.Fixture]
       "LeanReachFixture.Topic.ranked" |
     throw <| IO.userError "exact query cache is missing"
@@ -292,6 +304,11 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "cached empty search fell back to the complete index"
   unless missingSearch.isEmpty do
     throw <| IO.userError "cached empty search returned a declaration"
+  let .error missingQuery ← unsafe QueryCache.resolve #[`Tests.Fixture]
+      "not_a_declaration_name" |
+    throw <| IO.userError "cached missing query fell back to the complete index"
+  unless missingQuery == NameResolve.noMatchMessage "not_a_declaration_name" do
+    throw <| IO.userError "cached missing query returned the wrong error"
   for (source, limit) in #[
       (r"double_[zZ]", 1),
       (r"double_(zero|eq)", 10),
@@ -320,6 +337,11 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "local query overlay is missing"
   unless overlay.baseRoot == `Mathlib && overlay.entries.size > 0 do
     throw <| IO.userError "local query overlay has the wrong base or no declarations"
+  let .error missingOverlay ← unsafe QueryCache.resolve layeredRoots
+      "not_a_declaration_name" |
+    throw <| IO.userError "overlay missing query fell back to the complete index"
+  unless missingOverlay == NameResolve.noMatchMessage "not_a_declaration_name" do
+    throw <| IO.userError "overlay missing query returned the wrong error"
   unless (overlay.cached? `LeanReachFixture.double).isSome &&
       (overlay.cached? `HAdd.hAdd).isSome do
     throw <| IO.userError "local query overlay is missing an affected delta"

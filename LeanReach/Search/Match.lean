@@ -9,8 +9,9 @@ namespace LeanReach.NameSearch
 
 open Lean
 
-def leaf (name : Name) : String :=
-  name.getString!
+def leaf? : Name → Option String
+  | .str _ value => some value
+  | _ => none
 
 def normalizedName (name : Name) : String :=
   (privateToUserName name).toString.toLower

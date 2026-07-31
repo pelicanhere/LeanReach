@@ -12,6 +12,11 @@ open Lean
 private def liftStringError {α : Type} (result : Except String α) : IO α :=
   IO.ofExcept (result.mapError IO.userError)
 
+private def normalizeQuery (query : String) : IO String := do
+  let query := query.trimAscii.copy
+  if query.isEmpty then throw <| IO.userError "declaration query cannot be empty"
+  return query
+
 private def groupByModule (moduleOf? : Name → Option Name) (names : Array Name) :
     Array Name × NameMap (Array Name) := Id.run do
   let mut modules := #[]
@@ -77,20 +82,16 @@ private def cachedSearchPlan (targets : Array LocatedName) : Array Name × NameM
   targets.foldl (init := (#[], {})) fun (names, modules) target =>
     (names.push target.name, modules.insert target.name target.moduleName)
 
-/-- Use the pre-ranked exact-query shard without loading the complete dependency index. -/
-unsafe def withCachedQueryFor {α : Type} (roots : Array Name) (query : String)
-    (limits : Limits) (action : Session → QueryNames → IO α) : IO (Option α) := do
-  unless limits.usesCachedQuery do return none
-  let some cached ← liftStringError (← unsafe QueryCache.resolve roots query) | return none
-  let names := cached.queryNames limits
-  return some (← unsafe withFreshSession cached.moduleOf? names.all fun session =>
-    action session names)
-
-/-- Query through a cache shard when available, otherwise load the dependency index. -/
+/-- Resolve through cache shards, loading the dependency index only when relations require it. -/
 unsafe def withQueryFor {α : Type} (roots : Array Name) (query : String)
     (limits : Limits) (action : Session → QueryNames → IO α) : IO α := do
+  let query ← normalizeQuery query
   unsafe prepareSearchPath
-  if let some result ← unsafe withCachedQueryFor roots query limits action then return result
+  if let some cached ← liftStringError (← unsafe QueryCache.resolve roots query) then
+    if limits.usesCachedQuery then
+      let names := cached.queryNames limits
+      return ← unsafe withFreshSession cached.moduleOf? names.all fun session =>
+        action session names
   unsafe withSessionFor roots (fun index => do
     let names ← index.queryNames query limits
     return (names, names.all)) true action
@@ -129,8 +130,9 @@ unsafe def withInteractiveSession {α : Type} (roots : Array Name)
   let session ← Session.create sourcePath
   let indexCache ← IO.mkRef none
   let query := fun query limits action => do
-    if limits.usesCachedQuery then
-      if let some cached ← liftStringError (← unsafe QueryCache.resolve roots query) then
+    let query ← normalizeQuery query
+    if let some cached ← liftStringError (← unsafe QueryCache.resolve roots query) then
+      if limits.usesCachedQuery then
         let names := cached.queryNames limits
         discard <| unsafe runSession cached.moduleOf? session names.all false (action names)
         return
