@@ -53,6 +53,7 @@ unsafe def run : IO Unit := do
   let mathlibIndex ← unsafe Cache.materializeIndex #[`Mathlib]
   let mathlibTable := SearchCache.Table.ofIndex mathlibIndex
   checkTable mathlibIndex mathlibTable
+  discard <| unsafe QueryCache.build #[`Mathlib]
   let intervalRank := mathlibIndex.upstream
     `ContinuousOn.image_Icc_of_antitoneOn 10
   unless intervalRank.take 2 ==
