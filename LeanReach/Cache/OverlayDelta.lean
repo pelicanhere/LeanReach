@@ -24,22 +24,20 @@ private structure Manifest where
   deltaEntries : Nat
   modules : Array ModuleState
 
-private abbrev View := Catalog × Relations
-
-private initialize loaded : IO.Ref (Std.HashMap String View) ← IO.mkRef {}
+private initialize loaded : IO.Ref (Std.HashMap String Relations) ← IO.mkRef {}
 
 private def manifestPath (olean : System.FilePath) :=
-  olean.withExtension "leanreach-query-overlay-manifest-4"
+  olean.withExtension "leanreach-query-overlay-manifest-5"
 
 private def snapshotPath (olean : System.FilePath) (generation : Nat) :=
-  olean.withExtension s!"leanreach-query-overlay-snapshot-4-{generation}"
+  olean.withExtension s!"leanreach-query-overlay-snapshot-5-{generation}"
 
 private def deltaPath (olean : System.FilePath) (id : Nat) :=
-  olean.withExtension s!"leanreach-query-overlay-delta-4-{id}"
+  olean.withExtension s!"leanreach-query-overlay-delta-5-{id}"
 
-private def manifestKey := "leanreach-query-overlay-manifest-4"
+private def manifestKey := "leanreach-query-overlay-manifest-5"
 
-private def deltaKey (id : Nat) := s!"leanreach-query-overlay-delta-4-{id}"
+private def deltaKey (id : Nat) := s!"leanreach-query-overlay-delta-5-{id}"
 
 private def moduleEntries (moduleName : Name)
     (fragment : Cache.ModuleFragment) : Array Entry :=
@@ -88,10 +86,6 @@ def Delta.applyRelations (delta : Delta) (relations : Relations) : Relations := 
           else targets.push entry.target
   return { relations with entries, reverse }
 
-private def Delta.apply (delta : Delta) (view : View) : View :=
-  let relations := delta.applyRelations view.2
-  (relations.catalog, relations)
-
 private def Delta.size (delta : Delta) : Nat :=
   delta.removed.size + delta.added.size
 
@@ -112,20 +106,20 @@ private unsafe def commitManifest (olean : System.FilePath)
       unsafe Cache.removeStoredModuleFragment state.name state.outputHash
 
 private unsafe def loadSnapshot (olean : System.FilePath)
-    (manifest : Manifest) : IO (Option View) := do
-  let some snapshot ← unsafe Cache.loadPart View
+    (manifest : Manifest) : IO (Option Relations) := do
+  let some snapshot ← unsafe Cache.loadPart Relations
       (snapshotPath olean manifest.generation) manifest.snapshotHash |
     return none
-  let mut relations := snapshot.2
+  let mut relations := snapshot
   for id in manifest.deltaIds do
     let some delta ← unsafe Cache.loadPart Delta (deltaPath olean id) (deltaKey id) |
       return none
     relations := delta.applyRelations relations
-  return some (relations.catalog, relations)
+  return some relations
 
 private def saveSnapshot (olean : System.FilePath) (generation : Nat)
-    (hash : String) (view : View) : IO Unit :=
-  Cache.savePart (snapshotPath olean generation) hash view
+    (hash : String) (relations : Relations) : IO Unit :=
+  Cache.savePart (snapshotPath olean generation) hash relations
     `_leanreachQueryOverlaySnapshot
 
 private def removeArtifacts (olean : System.FilePath) (manifest : Manifest) : IO Unit := do
@@ -198,23 +192,23 @@ private unsafe def changedModules (manifest : Manifest) :
   catch _ =>
     return none
 
-private def shouldCompact (manifest : Manifest) (view : View)
+private def shouldCompact (manifest : Manifest) (relations : Relations)
     (delta : Delta) : Bool :=
   manifest.deltaIds.size + 1 ≥ 8 ||
-    manifest.deltaEntries + delta.size > max 256 (view.1.localNames.size / 4)
+    manifest.deltaEntries + delta.size > max 256 (relations.entries.size / 4)
 
 private unsafe def refresh (olean : System.FilePath) (currentHash : String)
-    (manifest : Manifest) : IO (Option View) := do
+    (manifest : Manifest) : IO (Option Relations) := do
   let some (modules, delta) ← unsafe changedModules manifest | return none
   let some previous ← unsafe loadSnapshot olean manifest | return none
-  let view := delta.apply previous
+  let relations := delta.applyRelations previous
   if delta.size == 0 then
     let updated := { manifest with currentHash, modules }
     unsafe commitManifest olean manifest updated
-    return some view
+    return some relations
   if shouldCompact manifest previous delta then
     let generation := manifest.generation + 1
-    saveSnapshot olean generation currentHash view
+    saveSnapshot olean generation currentHash relations
     let updated := {
       manifest with
       snapshotHash := currentHash
@@ -226,7 +220,7 @@ private unsafe def refresh (olean : System.FilePath) (currentHash : String)
     }
     unsafe commitManifest olean manifest updated
     removeArtifacts olean manifest
-    return some view
+    return some relations
   let id := manifest.nextDelta
   Cache.savePart (deltaPath olean id) (deltaKey id) delta
     `_leanreachQueryOverlayDelta
@@ -239,40 +233,39 @@ private unsafe def refresh (olean : System.FilePath) (currentHash : String)
     modules
   }
   unsafe commitManifest olean manifest updated
-  return some view
+  return some relations
 
-private unsafe def loadView (roots : Array Name) : IO (Option View) := do
+private unsafe def loadRelationsView (roots : Array Name) : IO (Option Relations) := do
   let (olean, currentHash, _) ← unsafe Cache.rootData roots
   let key := Cache.loadedKey (manifestPath olean) currentHash
-  if let some view := (← loaded.get).get? key then return some view
+  if let some relations := (← loaded.get).get? key then return some relations
   let some manifest ← unsafe loadManifest olean | return none
   unless manifest.roots == roots do return none
-  let result : Option View ←
+  let result : Option Relations ←
     if manifest.currentHash == currentHash then do
       unsafe loadSnapshot olean manifest
     else
       unsafe refresh olean currentHash manifest
-  let some view := result | return none
-  loaded.modify (·.insert key view)
-  return some view
+  let some relations := result | return none
+  loaded.modify (·.insert key relations)
+  return some relations
 
 unsafe def loadCatalog (roots : Array Name) : IO (Option Catalog) :=
-  return (← unsafe loadView roots).map (·.1)
+  return (← unsafe loadRelationsView roots).map (·.catalog)
 
 unsafe def loadRelations (roots : Array Name) : IO (Option Relations) :=
-  return (← unsafe loadView roots).map (·.2)
+  unsafe loadRelationsView roots
 
 unsafe def saveBaseline (roots : Array Name)
-    (catalog : Catalog) (relations : Relations)
+    (relations : Relations)
     (fragments : Array (Name × Cache.ModuleFragment)) : IO Unit := do
   let (olean, currentHash, _) ← unsafe Cache.rootData roots
   let previous ← unsafe loadManifest olean
   let generation := (previous.map (·.generation + 1)).getD 0
-  let view := (catalog, relations)
-  saveSnapshot olean generation currentHash view
+  saveSnapshot olean generation currentHash relations
   let manifest : Manifest := {
     roots
-    baseRoot := catalog.baseRoot
+    baseRoot := relations.baseRoot
     snapshotHash := currentHash
     currentHash
     generation
@@ -286,6 +279,6 @@ unsafe def saveBaseline (roots : Array Name)
     removeArtifacts olean previous
   else
     saveManifest olean manifest
-  loaded.modify (·.insert (Cache.loadedKey (manifestPath olean) currentHash) view)
+  loaded.modify (·.insert (Cache.loadedKey (manifestPath olean) currentHash) relations)
 
 end LeanReach.QueryOverlay.Incremental

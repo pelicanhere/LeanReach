@@ -255,7 +255,7 @@ unsafe def run : IO Unit := do
   let (_, layeredFragments) ← unsafe QueryOverlay.buildRelationsWithFragments
     layeredRoots `Mathlib mathlibTable.modules
   unsafe QueryOverlay.Incremental.saveBaseline layeredRoots
-    localCatalog staleRelations layeredFragments
+    staleRelations layeredFragments
   let layeredMissing ← expectSome (← unsafe QueryCache.exactQueries layeredRoots
       "definitely_missing_layered_declaration" {})
     "layered exact cache is unavailable"

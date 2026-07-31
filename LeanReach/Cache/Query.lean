@@ -133,7 +133,7 @@ private unsafe def loadRelations (roots : Array Name) (baseRoot : Name) :
   let (relations, fragments) ←
     unsafe QueryOverlay.buildRelationsWithFragments roots baseRoot table.modules
   unsafe QueryOverlay.Incremental.saveBaseline roots
-    relations.catalog relations fragments
+    relations fragments
   return relations
 
 unsafe def build (roots : Array Name) : IO Nat := do
