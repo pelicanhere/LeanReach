@@ -40,11 +40,11 @@ PROCESS_QUERIES = (
     ("of_finite_maximals", "of_finite_maximals"),
     ("of_isLocalization_maximal", "of_isLocalization_maximal"),
     ("natDegree_Φ_le", "natDegree_Φ_le"),
-    ("intermediate_value_Icc", "intermediate_value_Icc'"),
+    ("intermediate_value_Icc", "intermediate_value_Icc"),
     ("AntitoneOn.image_Icc_subset", "AntitoneOn.image_Icc_subset"),
     (
         "rootSet_derivative",
-        "rootSet_derivative_subset_convexHull_rootSet",
+        "rootSet_derivative",
     ),
     ("padicValuation_cast", "padicValuation_cast"),
     ("surjective_padicValuation", "surjective_padicValuation"),
@@ -55,6 +55,12 @@ PROCESS_QUERIES = (
 
 def elapsed_ms(started: float) -> float:
     return (time.perf_counter() - started) * 1000
+
+
+def result_items(data: dict) -> list[dict]:
+    if "items" in data:
+        return data["items"]
+    return [data["target"], *data["upstream"], *data["downstream"]]
 
 
 def measure_process(command: list[str | Path], timeout: float) -> tuple[float, str]:
@@ -106,7 +112,7 @@ def measure_session(
     samples = []
 
     def exchange(query: str) -> bytes:
-        process.stdin.write(f"search {query}\n".encode())
+        process.stdin.write(f"{query}\n".encode())
         process.stdin.flush()
         line = process.stdout.readline()
         if line:
@@ -122,11 +128,12 @@ def measure_session(
         for query, expected in queries:
             started = time.perf_counter()
             data = json.loads(exchange(query))
-            if not any(expected in item["name"] for item in data["items"]):
+            items = result_items(data)
+            if not any(expected in item["name"] for item in items):
                 raise RuntimeError(
                     f"LeanReach session did not find {expected!r} for {query!r}"
                 )
-            samples.append((elapsed_ms(started), len(data["items"])))
+            samples.append((elapsed_ms(started), len(items)))
         process.stdin.write(b"\n")
         process.stdin.flush()
         process.wait(timeout=timeout)
@@ -168,7 +175,6 @@ def main() -> None:
             executable,
             "--module",
             "Mathlib",
-            "search",
             "__leanreach_benchmark_ready__",
             "--json",
         ],
@@ -200,7 +206,6 @@ def main() -> None:
                     executable,
                     "--module",
                     "Mathlib",
-                    "search",
                     query,
                     "--limit",
                     "10",
@@ -209,11 +214,12 @@ def main() -> None:
                 args.timeout,
             )
             data = json.loads(output)
-            if not any(expected in item["name"] for item in data["items"]):
+            items = result_items(data)
+            if not any(expected in item["name"] for item in items):
                 raise RuntimeError(
                     f"LeanReach process did not find {expected!r} for {query!r}"
                 )
-            rows.append((query, "leanreach_process", latency, len(data["items"])))
+            rows.append((query, "leanreach_process", latency, len(items)))
     for queries, tool in (
         (SESSION_QUERIES if run_session else (), "rg_session"),
         (PROCESS_QUERIES if run_process else (), "rg_process"),
