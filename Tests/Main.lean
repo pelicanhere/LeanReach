@@ -46,6 +46,17 @@ private unsafe def runTests : IO Unit := do
     let some value ← unsafe Cache.loadPart Nat path "test" |
       throw <| IO.userError "atomically replaced cache could not be read"
     check (value == 2) "cache replacement kept the stale value"
+  let values : Array UInt32 := #[0, 1, 127, 128, 16384, 4294967295]
+  let encoded := values.foldl Cache.Codec.pushUInt32 ByteArray.empty
+  let mut position := 0
+  for expected in values do
+    let some (actual, next) := Cache.Codec.readUInt32 encoded position |
+      throw <| IO.userError "varint decoder rejected encoded data"
+    check (actual == expected) "varint codec changed a value"
+    position := next
+  check (position == encoded.size &&
+      Cache.Codec.unpackDeltas (Cache.Codec.packDeltas values) == some values)
+    "delta codec changed sorted declaration IDs"
   check (NameSearch.leaf? `Submodule.span_le == some "span_le" &&
       (NameSearch.leaf? (.num `LeanReachGenerated 1)).isNone &&
       (NameSearch.leaf? .anonymous).isNone)

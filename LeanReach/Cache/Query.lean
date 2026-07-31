@@ -1,4 +1,5 @@
 import LeanReach.Cache.Index
+import LeanReach.Cache.Codec
 import LeanReach.Cache.Overlay
 import LeanReach.Cache.Search
 import LeanReach.Search.Match
@@ -24,20 +25,9 @@ private def markerPath (olean : System.FilePath) : System.FilePath :=
 private def ready (olean : System.FilePath) (depHash : String) : IO Bool :=
   Cache.markerMatches (markerPath olean) depHash
 
-private def pushUInt32 (bytes : ByteArray) (value : UInt32) : ByteArray := Id.run do
-  let mut bytes := bytes
-  let mut value := value.toNat
-  while value ≥ 128 do
-    bytes := bytes.push (UInt8.ofNat (value % 128 + 128))
-    value := value / 128
-  return bytes.push (UInt8.ofNat value)
-
-private def pushIds (bytes : ByteArray) (ids : Array UInt32) : ByteArray :=
-  ids.foldl pushUInt32 (pushUInt32 bytes ids.size.toUInt32)
-
 private def header (depHash : String) : ByteArray :=
   let hash := depHash.toUTF8
-  (pushUInt32 ByteArray.empty hash.size.toUInt32) ++ hash
+  (Cache.Codec.pushUInt32 ByteArray.empty hash.size.toUInt32) ++ hash
 
 private def prioritize (index : Index) (source : UInt32)
     (ids : Array UInt32) (upstream : Bool) : Array UInt32 :=
@@ -53,7 +43,8 @@ private def buildShards (index : Index) (start stop : Nat) :
     let target := entries[id]!
     let source := id.toUInt32
     shards := shards.modify (shard target.name) fun bytes =>
-      pushIds (pushIds (pushUInt32 bytes id.toUInt32)
+      Cache.Codec.pushArray (Cache.Codec.pushArray
+        (Cache.Codec.pushUInt32 bytes id.toUInt32)
         (prioritize index source index.forward[id]! true))
         (prioritize index source index.reverse[id]! false)
   return shards
@@ -160,21 +151,6 @@ private unsafe def loadShard (roots : Array Name) (name : Name) :
   try return some (← IO.FS.readBinFile (shardPath olean (shard name)), depHash)
   catch _ => return none
 
-private def readUInt32 (bytes : ByteArray) (start : Nat) :
-    Option (UInt32 × Nat) := Id.run do
-  let mut position := start
-  let mut value := 0
-  let mut scale := 1
-  for _ in [0:5] do
-    let some byte := bytes[position]? | return none
-    position := position + 1
-    value := value + byte.toNat % 128 * scale
-    if byte < 128 then
-      if value < 4294967296 then return some (value.toUInt32, position)
-      return none
-    scale := scale * 128
-  return none
-
 private def readIds (bytes : ByteArray) (start count total keep : Nat) :
     Option (Array UInt32 × Nat) := Id.run do
   if count > total then return none
@@ -182,7 +158,7 @@ private def readIds (bytes : ByteArray) (start count total keep : Nat) :
   let mut ids := Array.mkEmpty keep
   let mut position := start
   for index in [0:count] do
-    let some (id, next) := readUInt32 bytes position | return none
+    let some (id, next) := Cache.Codec.readUInt32 bytes position | return none
     if id.toNat ≥ total then return none
     if index < keep then ids := ids.push id
     position := next
@@ -222,7 +198,7 @@ private unsafe def exactFull (roots : Array Name) (table : SearchCache.Table)
     IO (Option (Array CachedQuery)) := do
   let name := query.toName
   let some (bytes, depHash) ← unsafe loadShard roots name | return none
-  let some (hashSize, afterHashSize) := readUInt32 bytes 0 | return none
+  let some (hashSize, afterHashSize) := Cache.Codec.readUInt32 bytes 0 | return none
   let afterHash := afterHashSize + hashSize.toNat
   if afterHash > bytes.size ||
       bytes.extract afterHashSize afterHash != depHash.toUTF8 then
@@ -230,10 +206,11 @@ private unsafe def exactFull (roots : Array Name) (table : SearchCache.Table)
   let mut results := #[]
   let mut position := afterHash
   while position < bytes.size do
-    let some (targetId, afterTarget) := readUInt32 bytes position | return none
+    let some (targetId, afterTarget) :=
+        Cache.Codec.readUInt32 bytes position | return none
     let some target := table.locatedAt? targetId | return none
     let some (upstreamCount, afterUpstreamCount) :=
-        readUInt32 bytes afterTarget | return none
+        Cache.Codec.readUInt32 bytes afterTarget | return none
     let matched := NameSearch.exactMatch name target.name
     let upstreamKeep :=
       if !matched then 0
@@ -244,7 +221,7 @@ private unsafe def exactFull (roots : Array Name) (table : SearchCache.Table)
           upstreamKeep |
       return none
     let some (downstreamCount, afterDownstreamCount) :=
-        readUInt32 bytes afterUpstream | return none
+        Cache.Codec.readUInt32 bytes afterUpstream | return none
     let downstreamKeep :=
       if !matched then 0
       else if limits.downstream ≤ rankedPrefixLimit then limits.downstream

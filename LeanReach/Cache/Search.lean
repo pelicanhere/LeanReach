@@ -1,3 +1,4 @@
+import LeanReach.Cache.Codec
 import LeanReach.Cache.Storage
 import LeanReach.Search.Index
 import LeanReach.Search.Pattern
@@ -149,19 +150,6 @@ unsafe def loadTable (roots : Array Name) : IO (Option Table) := do
   unless ← ready roots olean depHash do return none
   unsafe loadViewTable (← loadView roots olean depHash)
 
-private def packIds (ids : Array UInt32) : ByteArray := Id.run do
-  let mut bytes := ByteArray.empty
-  let mut previous := 0
-  for id in ids do
-    let current := id.toNat
-    let mut delta := current - previous
-    while delta ≥ 128 do
-      bytes := bytes.push (UInt8.ofNat (delta % 128 + 128))
-      delta := delta / 128
-    bytes := bytes.push (UInt8.ofNat delta)
-    previous := current
-  return bytes
-
 private partial def collectPostings (trie : Data.Trie (Array UInt32)) :
     Data.Trie UInt32 × Array (Data.Trie ByteArray) :=
   (visit ByteArray.empty trie).run ({}, Array.replicate shardCount {}) |>.2
@@ -172,7 +160,8 @@ where
       let trigram := String.fromUTF8! keyBytes
       modify fun (directory, shards) =>
         (directory.insert trigram ids.size.toUInt32,
-          shards.modify (shard trigram) (·.insert trigram (packIds ids)))
+          shards.modify (shard trigram)
+            (·.insert trigram (Cache.Codec.packDeltas ids)))
 
   visit (keyBytes : ByteArray) :
       Data.Trie (Array UInt32) →
@@ -185,23 +174,6 @@ where
       add keyBytes value
       for i in [0:children.size] do
         visit (keyBytes.push bytes[i]!) children[i]!
-
-private def unpackIds (bytes : ByteArray) : Array UInt32 := Id.run do
-  let mut ids := #[]
-  let mut previous := 0
-  let mut delta := 0
-  let mut scale := 1
-  for byte in bytes do
-    let value := byte.toNat
-    delta := delta + value % 128 * scale
-    if value < 128 then
-      previous := previous + delta
-      ids := ids.push previous.toUInt32
-      delta := 0
-      scale := 1
-    else
-      scale := scale * 128
-  return ids
 
 unsafe def build (roots : Array Name) (index : Index) : IO Nat := do
   let (olean, depHash, root) ← unsafe Cache.rootData roots
@@ -251,7 +223,8 @@ unsafe def search (roots : Array Name) (pattern : SearchPattern)
       for grams in alternatives do
         let some gram := grams[0]? | continue
         let some postings ← unsafe loadPostings view (shard gram) | return none
-        let candidates := (postings.find? gram).map unpackIds |>.getD #[]
+        let candidates :=
+          (postings.find? gram >>= Cache.Codec.unpackDeltas).getD #[]
         ids := SearchPattern.mergeSortedIds ids candidates
       if ids.isEmpty then return some #[]
       let some table ← unsafe loadViewTable view | return none
