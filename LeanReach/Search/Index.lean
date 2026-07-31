@@ -78,15 +78,9 @@ def Index.ofParts (catalog : Catalog) (relations : Relations) : Index :=
     toRelations := relations
   }
 
-private def Index.findId? (index : Index) (name : Name) : Option UInt32 := Id.run do
-  let mut lo := 0
-  let mut hi := index.entries.size
-  while lo < hi do
-    let mid := (lo + hi) / 2
-    let candidate := index.entries[mid]!.name
-    if candidate == name then return some mid.toUInt32
-    if Name.lt candidate name then lo := mid + 1 else hi := mid
-  return none
+private def Index.findId? (index : Index) (name : Name) : Option UInt32 :=
+  NameSearch.findSorted? index.entries.size (index.entries[·]!.name) name
+    |>.map (·.toUInt32)
 
 def Index.size (index : Index) : Nat :=
   index.entries.size
@@ -116,6 +110,9 @@ def Index.relationCounts (index : Index) (name : Name) : Nat × Nat :=
   match index.findId? name with
   | some id => (index.reverse[id.toNat]!.size, index.forward[id.toNat]!.size)
   | none => (0, 0)
+
+def Index.relationCountsById (index : Index) : Array UInt32 × Array UInt32 :=
+  (index.reverse.map (·.size.toUInt32), index.forward.map (·.size.toUInt32))
 
 def Index.cachedQueryAt! (index : Index) (id : Nat) : CachedQuery :=
   let id := id.toUInt32

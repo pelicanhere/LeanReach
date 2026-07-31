@@ -14,11 +14,42 @@ structure Data where
   entries : NameMap Entry
   localNames : Array LocatedName
   reverse : NameMap (Array LocatedName)
-  queries : NameMap CachedQuery
+
+structure BaseMetadata where
+  entries : Array LocatedName
+  modules : Array Name
+  reverseCounts : Array UInt32
+  forwardCounts : Array UInt32
+
+def BaseMetadata.ofIndex (index : Index) : BaseMetadata :=
+  let (reverseCounts, forwardCounts) := index.relationCountsById
+  {
+    entries := index.catalog.1
+    modules := index.modules
+    reverseCounts
+    forwardCounts
+  }
+
+def BaseMetadata.isValid (base : BaseMetadata) : Bool :=
+  base.entries.size == base.reverseCounts.size &&
+    base.entries.size == base.forwardCounts.size
+
+private def BaseMetadata.findId? (base : BaseMetadata) (name : Name) : Option Nat :=
+  NameSearch.findSorted? base.entries.size (base.entries[·]!.name) name
+
+def BaseMetadata.located? (base : BaseMetadata) (name : Name) : Option LocatedName :=
+  base.findId? name >>= fun id => base.entries[id]?
+
+def BaseMetadata.relationCounts (base : BaseMetadata) (name : Name) : Nat × Nat :=
+  match base.findId? name with
+  | some id =>
+    (base.reverseCounts[id]?.map (·.toNat) |>.getD 0,
+      base.forwardCounts[id]?.map (·.toNat) |>.getD 0)
+  | none => (0, 0)
 
 private def path (olean : System.FilePath) : System.FilePath :=
-  -- Overlay cache format 8.
-  olean.withExtension "leanreach-query-overlay-8"
+  -- Overlay cache format 9.
+  olean.withExtension "leanreach-query-overlay-9"
 
 private initialize loadedCache : IO.Ref (Std.HashMap String Data) ← IO.mkRef {}
 
@@ -42,22 +73,14 @@ unsafe def load (roots : Array Name) : IO (Option Data) := do
 def Data.local? (data : Data) (name : Name) : Option LocatedName :=
   data.entries.find? name |>.map (·.target)
 
-def Data.cached? (data : Data) (name : Name) : Option CachedQuery :=
-  data.queries.find? name
+def Data.affects (data : Data) (name : Name) : Bool :=
+  data.entries.contains name || data.reverse.contains name
 
-def Data.affectedNames (data : Data) : Array Name := Id.run do
-  let mut affected : NameSet := {}
-  for (name, entry) in data.entries do
-    affected := affected.insert name
-    for dependency in entry.dependencies do
-      affected := affected.insert dependency
-  return affected.toArray
-
-private def Data.moduleOf? (data : Data) (base : Index) (name : Name) :
+private def Data.moduleOf? (data : Data) (base : BaseMetadata) (name : Name) :
     Option LocatedName :=
   data.local? name <|> base.located? name
 
-def Data.queryFromBase (data : Data) (base : Index) (target : LocatedName)
+def Data.queryFromBase (data : Data) (base : BaseMetadata) (target : LocatedName)
     (cached? : Option CachedQuery) : CachedQuery :=
   let upstream :=
     match data.entries.find? target.name with
@@ -75,7 +98,7 @@ def Data.queryFromBase (data : Data) (base : Index) (target : LocatedName)
           ((data.reverse.find? candidate.name).map (·.size)).getD 0
         let forwardCount := data.entries.find? candidate.name
           |>.map (·.dependencies.size) |>.getD baseForward
-        Rank.prior base.size reverseCount forwardCount upstream)
+        Rank.prior base.entries.size reverseCount forwardCount upstream)
       cachedQueryLimit
   {
     target
@@ -103,7 +126,7 @@ unsafe def buildGraph (roots : Array Name) (baseRoot : Name)
     for dependency in entry.dependencies do
       reverse := reverse.alter dependency fun targets =>
         some ((targets.getD #[]).push entry.target)
-  return normalize { baseRoot, entries, localNames, reverse, queries := {} }
+  return normalize { baseRoot, entries, localNames, reverse }
 
 unsafe def save (roots : Array Name) (data : Data) : IO Unit := do
   let (olean, depHash, root) ← unsafe Cache.rootData roots

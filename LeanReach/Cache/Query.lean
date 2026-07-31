@@ -20,6 +20,18 @@ private def shardPath (olean : System.FilePath) (id : Nat) : System.FilePath :=
 private def markerPath (olean : System.FilePath) : System.FilePath :=
   olean.withExtension "leanreach-query-root-10"
 
+private def baseMetadataPath (olean : System.FilePath) : System.FilePath :=
+  olean.withExtension "leanreach-base-metadata-1"
+
+private def baseMetadataMarkerPath (olean : System.FilePath) : System.FilePath :=
+  olean.withExtension "leanreach-base-metadata-root-1"
+
+private initialize loadedBaseMetadata :
+    IO.Ref (Std.HashMap String QueryOverlay.BaseMetadata) ← IO.mkRef {}
+
+private def baseMetadataKey (olean : System.FilePath) (depHash : String) : String :=
+  s!"{baseMetadataPath olean}\u0000{depHash}"
+
 private def ready (olean : System.FilePath) (depHash : String) : IO Bool :=
   Cache.markerMatches (markerPath olean) depHash
 
@@ -83,29 +95,6 @@ private def readShard (path : System.FilePath) :
     return some (modules.toArray.map (·.toName), lines)
   catch _ => return none
 
-private unsafe def loadQueries (roots : Array Name) (names : Array Name) :
-    IO (NameMap CachedQuery) := do
-  let (olean, depHash, _) ← unsafe Cache.rootData roots
-  unless ← ready olean depHash do return {}
-  let mut wanted : NameHashSet := {}
-  let mut shards := #[]
-  let mut seenShards := Array.replicate shardCount false
-  for name in names do
-    wanted := wanted.insert name
-    let id := shard name
-    unless seenShards[id]! do
-      seenShards := seenShards.set! id true
-      shards := shards.push id
-  let mut result := {}
-  for id in shards do
-    let some (modules, lines) ← readShard (shardPath olean id) | continue
-    for line in lines do
-      if let some target := target? modules line then
-        if wanted.contains target.name then
-          if let some query := decode modules line then
-            result := result.insert query.target.name query
-  return result
-
 private def buildShards (index : Index) (start stop : Nat) :
     Array (Array CachedQuery) := Id.run do
   let mut shards : Array (Array CachedQuery) := Array.replicate shardCount #[]
@@ -117,6 +106,40 @@ private def buildShards (index : Index) (start stop : Nat) :
 private unsafe def isFullBuilt (roots : Array Name) : IO Bool := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
   ready olean depHash
+
+private unsafe def isBaseMetadataBuilt (roots : Array Name) : IO Bool := do
+  let (olean, depHash, _) ← unsafe Cache.rootData roots
+  return (← Cache.markerMatches (baseMetadataMarkerPath olean) depHash) &&
+    (← (baseMetadataPath olean).pathExists)
+
+private unsafe def loadBaseMetadata (roots : Array Name) :
+    IO (Option QueryOverlay.BaseMetadata) := do
+  let (olean, depHash, _) ← unsafe Cache.rootData roots
+  unless ← Cache.markerMatches (baseMetadataMarkerPath olean) depHash do return none
+  let key := baseMetadataKey olean depHash
+  if let some base := (← loadedBaseMetadata.get).get? key then return some base
+  let some base ← unsafe Cache.loadPart QueryOverlay.BaseMetadata
+      (baseMetadataPath olean) depHash | return none
+  unless base.isValid do return none
+  loadedBaseMetadata.modify (·.insert key base)
+  return some base
+
+private unsafe def saveBaseMetadata (roots : Array Name)
+    (base : QueryOverlay.BaseMetadata) : IO Unit := do
+  let (olean, depHash, root) ← unsafe Cache.rootData roots
+  loadedBaseMetadata.modify (·.insert (baseMetadataKey olean depHash) base)
+  Cache.savePart (baseMetadataPath olean) depHash base
+    (Name.str root "_leanreachBaseMetadata")
+  IO.FS.writeFile (baseMetadataMarkerPath olean) depHash
+
+private unsafe def ensureBaseMetadata (roots : Array Name) :
+    IO QueryOverlay.BaseMetadata := do
+  if let some base ← unsafe loadBaseMetadata roots then return base
+  let base := QueryOverlay.BaseMetadata.ofIndex
+    (← unsafe Cache.loadIndex roots true)
+  try unsafe saveBaseMetadata roots base
+  catch _ => IO.eprintln "leanreach: could not write base metadata cache"
+  return base
 
 private unsafe def baseRoot? (roots : Array Name) : IO (Option Name) := do
   if roots.size < 2 then return none
@@ -131,9 +154,11 @@ private unsafe def readOverlay (roots : Array Name) : IO (Option QueryOverlay.Da
 unsafe def isBuilt (roots : Array Name) : IO Bool := do
   if let some overlay ← unsafe readOverlay roots then
     return (← unsafe isFullBuilt #[overlay.baseRoot]) &&
-      (← unsafe SearchCache.isBuilt #[overlay.baseRoot])
+      (← unsafe SearchCache.isBuilt #[overlay.baseRoot]) &&
+      (← unsafe isBaseMetadataBuilt #[overlay.baseRoot])
   return (← unsafe isFullBuilt roots) &&
-    (← unsafe SearchCache.isBuilt roots)
+    (← unsafe SearchCache.isBuilt roots) &&
+    (← unsafe isBaseMetadataBuilt roots)
 
 private unsafe def buildFull (roots : Array Name) (index : Index) : IO Nat := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
@@ -167,28 +192,26 @@ private unsafe def buildFull (roots : Array Name) (index : Index) : IO Nat := do
 private unsafe def buildFullCaches (roots : Array Name) : IO Nat := do
   let queryReady ← unsafe isFullBuilt roots
   let searchReady ← unsafe SearchCache.isBuilt roots
-  if queryReady && searchReady then return 0
-  let index ← unsafe Cache.loadIndex roots (!queryReady)
+  let baseReady ← unsafe isBaseMetadataBuilt roots
+  if queryReady && searchReady && baseReady then return 0
+  let index ← unsafe Cache.loadIndex roots (!queryReady || !baseReady)
   let queryCount ← if queryReady then pure 0 else unsafe buildFull roots index
   let searchCount ←
     if searchReady then pure 0 else unsafe SearchCache.build roots index
-  return max queryCount searchCount
+  let baseCount ←
+    if baseReady then pure 0
+    else
+      let base := QueryOverlay.BaseMetadata.ofIndex index
+      unsafe saveBaseMetadata roots base
+      pure base.entries.size
+  return max queryCount (max searchCount baseCount)
 
 private unsafe def buildOverlay (roots : Array Name) (baseRoot : Name) :
     IO QueryOverlay.Data := do
-  let base ← unsafe Cache.loadIndex #[baseRoot] true
+  let base ← unsafe ensureBaseMetadata #[baseRoot]
   let graph ← unsafe QueryOverlay.buildGraph roots baseRoot base.modules
-  let affected := graph.affectedNames
-  let cached ← unsafe loadQueries #[baseRoot] affected
-  let mut queries := {}
-  for name in affected do
-    let cached? := cached.find? name
-    let target? := graph.local? name <|> cached?.map (·.target)
-    if let some target := target? then
-      queries := queries.insert name (graph.queryFromBase base target cached?)
-  let overlay := { graph with queries }
-  unsafe QueryOverlay.save roots overlay
-  return overlay
+  unsafe QueryOverlay.save roots graph
+  return graph
 
 private unsafe def loadOverlay (roots : Array Name) : IO (Option QueryOverlay.Data) := do
   if let some overlay ← unsafe readOverlay roots then return some overlay
@@ -243,20 +266,24 @@ private unsafe def exactFull (roots : Array Name) (query : String)
 /-- Finds cached queries whose complete user names match case-sensitively. -/
 unsafe def exactQueries (roots : Array Name) (query : String)
     (limit : Nat) : IO (Option (Array CachedQuery)) := do
+  if limit == 0 then return some #[]
   let overlay? ← unsafe loadOverlay roots
   let some overlay := overlay? | return ← unsafe exactFull roots query limit
   let name := query.toName
-  let mut localResults := #[]
-  for target in overlay.localNames do
-    if NameSearch.exactMatch name target.name then
-      let some cached := overlay.cached? target.name | return none
-      localResults := localResults.push cached
-      if localResults.size == limit then break
-  if localResults.size == limit then return some localResults
-  let some base ← unsafe exactFull #[overlay.baseRoot] query limit | return none
-  let base := base.map fun cached =>
-    (overlay.cached? cached.target.name).getD cached
-  return some (mergeResults (·.target.name) localResults base limit)
+  let localTargets := overlay.localNames.filter
+    (NameSearch.exactMatch name ·.name) |>.take limit
+  let some baseResults ← unsafe exactFull #[overlay.baseRoot] query limit | return none
+  unless !localTargets.isEmpty ||
+      baseResults.any (overlay.affects ·.target.name) do
+    return some baseResults
+  let base ← unsafe ensureBaseMetadata #[overlay.baseRoot]
+  let localResults := localTargets.map fun target =>
+    overlay.queryFromBase base target none
+  let baseResults := baseResults.map fun cached =>
+    if overlay.affects cached.target.name then
+      overlay.queryFromBase base cached.target (some cached)
+    else cached
+  return some (mergeResults (·.target.name) localResults baseResults limit)
 
 unsafe def search (roots : Array Name) (pattern : SearchPattern)
     (limit : Nat) : IO (Option (Array LocatedName)) := do

@@ -22,6 +22,20 @@ private unsafe def cachedQuery (roots : Array Name) (name : Name) :
     throw <| IO.userError s!"query cache is missing '{name}'"
   return query
 
+private def checkBaseMetadata (index : Index) (names : Array Name) : IO Unit := do
+  let base := QueryOverlay.BaseMetadata.ofIndex index
+  check (base.isValid && base.entries.size == index.size &&
+      base.modules == index.modules)
+    "overlay base metadata changed index dimensions"
+  for name in names do
+    let some expected := index.located? name |
+      throw <| IO.userError s!"metadata fixture '{name}' is missing"
+    let some actual := base.located? name |
+      throw <| IO.userError s!"metadata lookup lost '{name}'"
+    check (actual.name == expected.name && actual.moduleName == expected.moduleName &&
+        base.relationCounts name == index.relationCounts name)
+      s!"overlay base metadata changed '{name}'"
+
 private unsafe def runTests : IO Unit := do
   check (NameSearch.leaf? `Submodule.span_le == some "span_le" &&
       (NameSearch.leaf? (.num `LeanReachGenerated 1)).isNone &&
@@ -145,6 +159,10 @@ private unsafe def runTests : IO Unit := do
   unless localRoots == localRoots.qsort Name.lt do
     throw <| IO.userError "built local modules were not detected deterministically"
   let mathlibIndex ← unsafe Cache.loadIndex #[`Mathlib] true
+  checkBaseMetadata mathlibIndex #[
+    `Submodule.span_le, `HAdd.hAdd,
+    `isPrincipalIdealRing_of_isPrincipalIdealRing_isLocalization_maximal
+  ]
   let intervalRank := mathlibIndex.upstream
     `ContinuousOn.image_Icc_of_antitoneOn 10
   unless intervalRank.take 2 ==
@@ -163,6 +181,9 @@ private unsafe def runTests : IO Unit := do
     unless pidRank.contains expected do
       throw <| IO.userError s!"PID proof dependency '{expected}' is poorly ranked"
   let fixtureIndex ← unsafe Cache.loadIndex #[`Tests.Fixture] true
+  checkBaseMetadata fixtureIndex #[
+    `LeanReachFixture.double, `LeanReachFixture.Topic.ranked
+  ]
   let completed := (fixtureIndex.modules.foldl
       (init := ({} : NameHashSet)) (·.insert ·))
     |>.erase `Tests.Fixture |>.insert `LeanReach
@@ -330,11 +351,11 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "local query overlay is missing"
   unless overlay.baseRoot == `Mathlib && overlay.entries.size > 0 do
     throw <| IO.userError "local query overlay has the wrong base or no declarations"
-  unless (overlay.cached? `LeanReachFixture.double).isSome &&
-      (overlay.cached? `HAdd.hAdd).isSome do
+  unless overlay.affects `LeanReachFixture.double &&
+      overlay.affects `HAdd.hAdd do
     throw <| IO.userError "local query overlay is missing an affected delta"
-  unless (overlay.cached? `Submodule.span_le).isNone do
-    throw <| IO.userError "local query overlay copied an unaffected Mathlib query"
+  unless !overlay.affects `Submodule.span_le do
+    throw <| IO.userError "local query overlay marked an unaffected Mathlib query"
   let layeredLocal ← unsafe cachedQuery layeredRoots
     `LeanReachFixture.doubleViaPrivate
   unless layeredLocal.target.name == `LeanReachFixture.doubleViaPrivate do
@@ -344,6 +365,12 @@ private unsafe def runTests : IO Unit := do
   unless layeredRelations.downstream.any
       (·.name == `LeanReachFixture.double_eq_add) do
     throw <| IO.userError "local overlay downstream relation is missing"
+  let baseHAdd ← unsafe cachedQuery #[`Mathlib] `HAdd.hAdd
+  let layeredHAdd ← unsafe cachedQuery layeredRoots `HAdd.hAdd
+  let expectedHAdd := overlay.queryFromBase
+    (QueryOverlay.BaseMetadata.ofIndex mathlibIndex) baseHAdd.target (some baseHAdd)
+  unless layeredHAdd.queryNames {} == expectedHAdd.queryNames {} do
+    throw <| IO.userError "lazy overlay query changed affected base relations"
   let layeredBase ← unsafe cachedQuery layeredRoots `Submodule.span_le
   unless layeredBase.target.name == `Submodule.span_le do
     throw <| IO.userError "overlay resolved the wrong base declaration"

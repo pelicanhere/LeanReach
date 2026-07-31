@@ -147,8 +147,12 @@ When a view combines built local modules with Mathlib, Mathlib is the stable bas
 - local declarations and their outgoing edges;
 - reverse edges from base or local declarations into the local layer.
 
-The overlay ranks merged base and local candidates with the same `Rank.select` implementation. It
-does not copy the full Mathlib query plan.
+A compact base-metadata sidecar stores sorted located names, module ownership, and forward/reverse
+degree counts. This is sufficient for the same `Rank.select` formula without loading the complete
+base catalog and relation graph.
+
+The overlay does not copy Mathlib query plans. Regex searches use only its local-name catalog;
+an exact query reads one base query shard and patches that neighborhood on demand.
 
 ### Pretty-print cache
 
@@ -218,9 +222,8 @@ per module; the small local overlay and global rank summary are regenerated from
 
 ```text
 LeanReach/Search/Types.lean           shared located-name and neighborhood models
-LeanReach/Search/Match.lean           reusable name normalization and trigrams
+LeanReach/Search/Match.lean           exact matching, name normalization, and trigrams
 LeanReach/Search/Pattern.lean         regex compilation and candidate plans
-LeanReach/Search/Resolve.lean         literal declaration-name resolution
 LeanReach/Search/Rank.lean            dependency scoring and Top-K selection
 LeanReach/Search/TopK.lean            bounded heap selection
 LeanReach/Search/Index.lean           catalog, direct graph, and lookup

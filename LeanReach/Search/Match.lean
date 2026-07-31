@@ -20,6 +20,16 @@ def exactMatch (query candidate : Name) : Bool :=
   candidate == query ||
     (!isPrivateName query && privateToUserName candidate == query)
 
+def findSorted? (size : Nat) (nameAt : Nat → Name) (target : Name) : Option Nat := Id.run do
+  let mut lo := 0
+  let mut hi := size
+  while lo < hi do
+    let mid := (lo + hi) / 2
+    let candidate := nameAt mid
+    if candidate == target then return some mid
+    if Name.lt candidate target then lo := mid + 1 else hi := mid
+  return none
+
 def trigrams (value : String) : Array String := Id.run do
   let mut result := #[]
   let mut start := value.startPos
