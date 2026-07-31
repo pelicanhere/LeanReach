@@ -16,6 +16,9 @@ jobs:
           build-args: "--wfail"
           lake-package-directory: Tests/Mathlib
           use-mathlib-cache: true
+      - name: Prepare Mathlib runtime closure
+        working-directory: Tests/Mathlib
+        run: lake build '@mathlib/Mathlib'
       - name: Run Mathlib integration tests
         working-directory: Tests/Mathlib
         run: lake exe leanreach_mathlib_tests
