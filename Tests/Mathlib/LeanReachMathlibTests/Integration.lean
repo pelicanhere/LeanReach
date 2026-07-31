@@ -350,7 +350,7 @@ unsafe def run : IO Unit := do
   unless unicodeClassCached.map (·.name) == unicodeClassExpected &&
       unicodeClassExpected == #[`WeierstrassCurve.Φ_ne_zero] do
     throw <| IO.userError "Unicode class prefilter changed search results"
-  let lazyRoots := #[`Tests.Main, `Mathlib]
+  let lazyRoots := #[`LeanReachMathlibTests.Main, `Mathlib]
   let lazyLocal ← unsafe cachedQuery lazyRoots `LeanReachFixture.double
   unless lazyLocal.target.name == `LeanReachFixture.double do
     throw <| IO.userError "recovered overlay resolved the wrong local declaration"
