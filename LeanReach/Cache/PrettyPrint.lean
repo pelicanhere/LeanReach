@@ -44,9 +44,7 @@ private unsafe def ppRootData (roots : Array Name) :
 
 unsafe def isFullyPP (roots : Array Name) : IO Bool := do
   let (path, depHash) ← unsafe ppRootData roots
-  if ← markerMatches path depHash then return true
-  -- Accept object markers written by earlier versions.
-  return (← unsafe loadPart Bool path depHash).getD false
+  markerMatches path depHash
 
 unsafe def loadPP (moduleOf? : Name → Option Name)
     (names : Array Name) : IO (NameMap Declaration) := do
