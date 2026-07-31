@@ -258,17 +258,3 @@ Tests/Layout/Test.ps1                  custom Lake layout integration
 Tests/Main.lean                        test runner
 Tests/Mathlib/                          standalone Mathlib integration project
 ```
-
-## Benchmark discipline
-
-`Benchmarks/run.py` compares a fixed regression corpus. Each pattern occurs once per measured
-process or interactive session, but the corpus intentionally repeats across commits; these numbers
-measure regressions, not globally cold first-use queries. The harness uses the platform executable
-under `.lake/build/bin`; run `lake build` and precompute `leanreach cache` first.
-
-It primes both tools without querying a corpus declaration, uses low-cardinality patterns, compares
-a long-lived LeanReach session with fresh LeanReach and `rg` processes, and records every sample in
-`Benchmarks/history.csv`. Separate blind agent trials use previously unqueried theorem prompts to
-measure end-to-end discovery.
-
-`Benchmarks/plot.py` renders the history as a logarithmic scatter plot with median markers.

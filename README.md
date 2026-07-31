@@ -3,7 +3,7 @@
 LeanReach is a Lean-native companion to `rg` for finding declarations and navigating direct
 dependencies. It reports:
 
-- Lean-pretty-printed signatures and non-Prop definition bodies;
+- Pretty-printed signatures and non-Prop definition bodies;
 - source files, lines, and columns;
 - ranked upstream and downstream declarations.
 
@@ -16,7 +16,7 @@ Add LeanReach to `lakefile.toml`:
 ```toml
 [[require]]
 name = "LeanReach"
-scope = "pelicanhere"
+git = "https://github.com/pelicanhere/LeanReach.git"
 rev = "v4.32.0"
 ```
 
@@ -106,12 +106,10 @@ lake build
 lake exe leanreach_tests
 ```
 
-## Frontend and benchmarks
+## Frontend
 
 ```console
-python Frontend/server.py --project-dir /path/to/project
-python Benchmarks/run.py --stage my-change --query-set all --append-history
-python Benchmarks/plot.py
+python .lake/packages/LeanReach/Frontend/server.py --project-dir .
 ```
 
 See [docs/architecture.md](docs/architecture.md) for the design.
