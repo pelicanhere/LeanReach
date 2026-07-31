@@ -38,10 +38,9 @@ def Declarations.add (declarations : Declarations) (name moduleName : Name)
       (owner, (NameSet.ofArray previous ++ NameSet.ofArray used).toArray)
 
 def buildFrom (byName : Declarations) : Index := Id.run do
-  let mut declarations := #[]
-  for (name, moduleName, used) in byName do
-    declarations := declarations.push (name, moduleName, used)
-  declarations := declarations.qsort fun a b => Name.lt a.1 b.1
+  let declarations := byName.toArray.map
+      (fun (name, moduleName, used) => (name, moduleName, used))
+    |>.qsort fun a b => Name.lt a.1 b.1
   let mut entries := #[]
   let mut ids : NameMap UInt32 := {}
   let mut trigramIndex : Data.Trie (Array UInt32) := {}

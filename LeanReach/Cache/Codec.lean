@@ -36,6 +36,9 @@ abbrev Decoder := StateT Nat Option
 def Decoder.readNat (bytes : ByteArray) : Decoder Nat := fun position =>
   LeanReach.Cache.Codec.readNat bytes position
 
+def Decoder.readUInt32 (bytes : ByteArray) : Decoder UInt32 := fun position =>
+  LeanReach.Cache.Codec.readUInt32 bytes position
+
 def Decoder.readByte (bytes : ByteArray) : Decoder UInt8 := fun position => do
   let value ← bytes[position]?
   return (value, position + 1)

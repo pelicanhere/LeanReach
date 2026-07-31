@@ -26,8 +26,7 @@ private def ready (olean : System.FilePath) (depHash : String) : IO Bool :=
   Cache.markerMatches (markerPath olean) depHash
 
 private def header (depHash : String) : ByteArray :=
-  let hash := depHash.toUTF8
-  (Cache.Codec.pushUInt32 ByteArray.empty hash.size.toUInt32) ++ hash
+  Cache.Codec.pushBytes ByteArray.empty depHash.toUTF8
 
 private def prioritize (index : Index) (source : UInt32)
     (ids : Array UInt32) (upstream : Bool) : Array UInt32 :=
@@ -157,18 +156,16 @@ private unsafe def loadShard (roots : Array Name) (name : Name) :
   try return some (← IO.FS.readBinFile (shardPath olean (shard name)), depHash)
   catch _ => return none
 
-private def readIds (bytes : ByteArray) (start count total keep : Nat) :
-    Option (Array UInt32 × Nat) := Id.run do
-  if count > total then return none
+private def readIds (bytes : ByteArray) (count total keep : Nat) :
+    Cache.Codec.Decoder (Array UInt32) := do
+  guard (count ≤ total)
   let keep := min count keep
   let mut ids := Array.mkEmpty keep
-  let mut position := start
   for index in [0:count] do
-    let some (id, next) := Cache.Codec.readUInt32 bytes position | return none
-    if id.toNat ≥ total then return none
+    let id ← Cache.Codec.Decoder.readUInt32 bytes
+    guard (id.toNat < total)
     if index < keep then ids := ids.push id
-    position := next
-  return some (ids, position)
+  return ids
 
 private def mergeResults {α : Type} (nameOf : α → Name)
     (localResults baseResults : Array α) (limit : Nat) : Array α := Id.run do
@@ -202,38 +199,32 @@ private unsafe def exactFull (roots : Array Name) (table : SearchCache.Table)
     IO (Option (Array CachedQuery)) := do
   let name := query.toName
   let some (bytes, depHash) ← unsafe loadShard roots name | return none
-  let some (hashSize, afterHashSize) := Cache.Codec.readUInt32 bytes 0 | return none
-  let afterHash := afterHashSize + hashSize.toNat
-  if afterHash > bytes.size ||
-      bytes.extract afterHashSize afterHash != depHash.toUTF8 then
-    return none
+  let some (storedHash, afterHash) :=
+      (Cache.Codec.Decoder.readBytes bytes).run 0 | return none
+  unless storedHash == depHash.toUTF8 do return none
   let mut results := #[]
   let mut position := afterHash
   while position < bytes.size do
-    let some (targetId, afterTarget) :=
-        Cache.Codec.readUInt32 bytes position | return none
-    let some target := table.locatedAt? targetId | return none
-    let some (upstreamCount, afterUpstreamCount) :=
-        Cache.Codec.readUInt32 bytes afterTarget | return none
-    let matched := NameSearch.exactMatch name target.name
-    let upstreamKeep :=
-      if !matched then 0
-      else if limits.upstream ≤ rankedPrefixLimit then limits.upstream
-      else upstreamCount.toNat
-    let some (upstream, afterUpstream) :=
-        readIds bytes afterUpstreamCount upstreamCount.toNat table.size
-          upstreamKeep |
-      return none
-    let some (downstreamCount, afterDownstreamCount) :=
-        Cache.Codec.readUInt32 bytes afterUpstream | return none
-    let downstreamKeep :=
-      if !matched then 0
-      else if limits.downstream ≤ rankedPrefixLimit then limits.downstream
-      else downstreamCount.toNat
-    let some (downstream, next) :=
-        readIds bytes afterDownstreamCount downstreamCount.toNat table.size
-          downstreamKeep |
-      return none
+    let entry : Cache.Codec.Decoder
+        (Bool × UInt32 × Array UInt32 × Array UInt32) := do
+      let targetId ← Cache.Codec.Decoder.readUInt32 bytes
+      let some target := table.locatedAt? targetId | failure
+      let upstreamCount ← Cache.Codec.Decoder.readUInt32 bytes
+      let matched := NameSearch.exactMatch name target.name
+      let upstreamKeep :=
+        if !matched then 0
+        else if limits.upstream ≤ rankedPrefixLimit then limits.upstream
+        else upstreamCount.toNat
+      let upstream ← readIds bytes upstreamCount.toNat table.size upstreamKeep
+      let downstreamCount ← Cache.Codec.Decoder.readUInt32 bytes
+      let downstreamKeep :=
+        if !matched then 0
+        else if limits.downstream ≤ rankedPrefixLimit then limits.downstream
+        else downstreamCount.toNat
+      let downstream ← readIds bytes downstreamCount.toNat table.size downstreamKeep
+      return (matched, targetId, upstream, downstream)
+    let some ((matched, targetId, upstream, downstream), next) :=
+        entry.run position | return none
     position := next
     if matched then
       results := results.push
