@@ -8,6 +8,7 @@ dependencies. It reports:
 - ranked upstream and downstream declarations.
 
 It reads built `.olean` and `.ilean` files, including partially built local libraries.
+LeanReach currently targets Lean 4.32.0.
 
 ## Install
 
@@ -28,13 +29,14 @@ lake build @LeanReach/leanreach
 lake query '@LeanReach/leanreach' --text
 ```
 
-With the default Lake layout, use:
+With the default Lake layout, run:
 
-```text
+```console
 .lake/packages/LeanReach/.lake/build/bin/leanreach
 ```
 
-`lake exe @LeanReach/leanreach --help` is useful as a build smoke test.
+Use the executable directly. `lake exe @LeanReach/leanreach --help` is only a convenient build
+smoke test.
 
 ## Usage
 
@@ -48,7 +50,7 @@ With the default Lake layout, use:
 # Emit JSON.
 ./.lake/packages/LeanReach/.lake/build/bin/leanreach Submodule.span_le --json
 
-# Build or resume caches for the detected project.
+# Precompute caches for fast repeated queries.
 ./.lake/packages/LeanReach/.lake/build/bin/leanreach cache
 
 # Override project detection.
@@ -71,6 +73,13 @@ Queries and searches return 10 declarations by default.
 -h, --help            show help
 ```
 
+## Cache
+
+Queries work without a prepared cache, but the first lookup may need to index built modules and
+pretty-print selected declarations. Run `cache` once to build persistent dependency, search, and
+pretty-print data for the detected project. Interrupted cache builds resume, and changed modules
+are updated incrementally.
+
 ## Agent sessions
 
 Keep one process alive for a chain of queries:
@@ -85,8 +94,8 @@ value per line.
 ## Project detection
 
 Run LeanReach from the target project or a subdirectory. It discovers built local `lean_lib`
-modules and Mathlib when required. Modules without an `.olean` are skipped; after building more
-modules, run `cache` to refresh the project view.
+modules and Mathlib when required. Modules without an `.olean` are skipped. After building more
+modules, run `cache` to refresh the detected project view.
 
 Caches live beside the corresponding `.olean` files and are invalidated by Lake dependency hashes.
 
