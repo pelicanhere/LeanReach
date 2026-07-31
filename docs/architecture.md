@@ -244,6 +244,10 @@ LeanReach/Cache/Build.lean             cache workers and orchestration
 LeanReach/Query.lean                   cross-layer query construction
 LeanReach.lean                         public session orchestration
 Main.lean                              CLI and output
+Tests/Unit.lean                        storage, codec, index, and regex units
+Tests/Integration.lean                 cache, PP, and overlay integration
+Tests/Session.lean                     interactive query contracts
+Tests/Main.lean                        test runner
 ```
 
 ## Benchmark discipline

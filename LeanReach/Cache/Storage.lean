@@ -7,6 +7,9 @@ open Lean
 
 private initialize nextTempId : IO.Ref Nat ← IO.mkRef 0
 
+def removeFileIfExists (path : System.FilePath) : IO Unit := do
+  try IO.FS.removeFile path catch _ => pure ()
+
 private def writeAtomically (path : System.FilePath)
     (write : System.FilePath → IO Unit) : IO Unit := do
   let pid ← IO.Process.getPID
@@ -15,10 +18,7 @@ private def writeAtomically (path : System.FilePath)
   try
     write temp
     IO.FS.rename temp path
-  finally
-    try
-      IO.FS.removeFile temp
-    catch _ => pure ()
+  finally removeFileIfExists temp
 
 /-- Save a compacted Lean object with its dependency hash. Adapted from Loogle's `Pickle` module. -/
 def savePart {α : Type} (path : System.FilePath) (depHash : String)

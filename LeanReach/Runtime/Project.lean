@@ -90,12 +90,12 @@ private def localizeEntry (workspace : Workspace) (packagesDir : FilePath)
 
 private def localOverrides (workspace : Workspace) (manifest : Manifest) :
     IO (Array PackageEntry) := do
-  let mut entries : NameMap PackageEntry := {}
-  for entry in manifest.packages do entries := entries.insert entry.name entry
-  for entry in ← Manifest.tryLoadEntries workspace.packageOverridesFile do
-    entries := entries.insert entry.name entry
+  let overrides ← Manifest.tryLoadEntries workspace.packageOverridesFile
+  let entries : NameMap PackageEntry := ({} : NameMap PackageEntry)
+    |>.insertMany (manifest.packages.map fun entry => (entry.name, entry))
+    |>.insertMany (overrides.map fun entry => (entry.name, entry))
   let packagesDir := manifest.packagesDir?.getD workspace.relPkgsDir
-  entries.toArray.mapM fun (_, entry) =>
+  entries.valuesArray.mapM fun entry =>
     localizeEntry workspace packagesDir entry
 
 private unsafe def loadWorkspace? (dir sysroot : FilePath) :

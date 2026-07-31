@@ -86,9 +86,7 @@ unsafe def moduleFragment (moduleName : Name) : IO ModuleFragment := do
   return (← readFragment moduleName olean).1
 
 unsafe def removeStoredModuleFragment (moduleName : Name) (hash : String) : IO Unit := do
-  try
-    IO.FS.removeFile (fragmentPath (← findOLean moduleName) hash)
-  catch _ => pure ()
+  removeFileIfExists (fragmentPath (← findOLean moduleName) hash)
 
 unsafe def moduleNames (moduleName : Name) : IO (Array Name) :=
   return (← unsafe moduleFragment moduleName).declarations.map (·.1)

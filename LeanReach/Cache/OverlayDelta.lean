@@ -116,24 +116,21 @@ private unsafe def loadSnapshot (olean : System.FilePath)
   let some snapshot ← unsafe Cache.loadPart View
       (snapshotPath olean manifest.generation) manifest.snapshotHash |
     return none
-  let mut view := snapshot
+  let mut relations := snapshot.2
   for id in manifest.deltaIds do
     let some delta ← unsafe Cache.loadPart Delta (deltaPath olean id) (deltaKey id) |
       return none
-    view := delta.apply view
-  return some view
+    relations := delta.applyRelations relations
+  return some (relations.catalog, relations)
 
 private def saveSnapshot (olean : System.FilePath) (generation : Nat)
     (hash : String) (view : View) : IO Unit :=
   Cache.savePart (snapshotPath olean generation) hash view
     `_leanreachQueryOverlaySnapshot
 
-private def removeFile (path : System.FilePath) : IO Unit := do
-  try IO.FS.removeFile path catch _ => pure ()
-
 private def removeArtifacts (olean : System.FilePath) (manifest : Manifest) : IO Unit := do
-  removeFile (snapshotPath olean manifest.generation)
-  manifest.deltaIds.forM fun id => removeFile (deltaPath olean id)
+  Cache.removeFileIfExists (snapshotPath olean manifest.generation)
+  manifest.deltaIds.forM fun id => Cache.removeFileIfExists (deltaPath olean id)
 
 private def moduleState (moduleName : Name) (outputHash : String)
     (fragment : Cache.ModuleFragment) : ModuleState :=

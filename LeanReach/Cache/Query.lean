@@ -169,10 +169,10 @@ private def readIds (bytes : ByteArray) (count total keep : Nat) :
 
 private def mergeResults {α : Type} (nameOf : α → Name)
     (localResults baseResults : Array α) (limit : Nat) : Array α := Id.run do
-  let mut byName : NameMap α := {}
-  for item in baseResults do byName := byName.insert (nameOf item) item
-  for item in localResults do byName := byName.insert (nameOf item) item
-  return (byName.toArray.map (·.2) |>.qsort fun left right =>
+  let byName : NameMap α := ({} : NameMap α)
+    |>.insertMany (baseResults.map fun item => (nameOf item, item))
+    |>.insertMany (localResults.map fun item => (nameOf item, item))
+  return (byName.valuesArray.qsort fun left right =>
     Name.lt (nameOf left) (nameOf right)).take limit
 
 private def queryFromEdges (table : SearchCache.Table) (targetId : UInt32)

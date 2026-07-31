@@ -77,8 +77,8 @@ def buildFrom (byName : Declarations) : Index := Id.run do
   }
 
 def build (declarations : Array (Name × Name × NameSet)) : Index :=
-  buildFrom <| declarations.foldl (init := {}) fun result declaration =>
-    result.add declaration.1 declaration.2.1 declaration.2.2.toArray
+  buildFrom <| declarations.foldl (init := {}) fun result (name, moduleName, used) =>
+    result.add name moduleName used.toArray
 
 def catalog (index : Index) : Catalog :=
   (index.entries, index.trigrams)

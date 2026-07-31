@@ -141,8 +141,7 @@ private def profiled {α : Type} (enabled : Bool) (label : String)
     report
 
 private def chompLine (line : String) : String :=
-  let line := (line.dropSuffix? "\n").map (·.copy) |>.getD line
-  (line.dropSuffix? "\r").map (·.copy) |>.getD line
+  (line.dropEndWhile fun char => char == '\n' || char == '\r').toString
 
 private def runInteractive (session : Session) (runner : InteractiveRunner)
     (config : Config) : IO Unit := do
