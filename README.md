@@ -119,12 +119,7 @@ See [docs/architecture.md](docs/architecture.md) for the design.
 
 ## Acknowledgements
 
-- [Loogle](https://github.com/nomeata/loogle) inspired the environment, cache, CLI, and frontend
-  design; small cache and declaration-filtering parts were adapted under Apache-2.0. Copyright
-  2023 Joachim Breitner and contributors.
-- [lean-regex](https://github.com/pandaman64/lean-regex) by pandaman64 provides regex matching
-  under Apache-2.0.
-
-## License
-
-LeanReach is licensed under [Apache-2.0](LICENSE).
+- [Loogle](https://github.com/nomeata/loogle), by Joachim Breitner and contributors, inspired the
+  environment, cache, CLI, and frontend design.
+- Regex matching is powered by pandaman64's
+  [lean-regex](https://github.com/pandaman64/lean-regex).
