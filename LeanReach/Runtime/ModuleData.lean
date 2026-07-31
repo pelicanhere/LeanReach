@@ -51,7 +51,7 @@ unsafe def withPrivateOverlay {α : Type} (env : Environment) (moduleName : Name
         | some constants => pure constants
         | none => do
           let (data, loadedRegions) ← unsafe read owner (← findOLean owner)
-          regions := regions ++ loadedRegions
+          for region in loadedRegions do regions := regions.push region
           let result := constantMap data
           modules := modules.insert owner result
           pure result
