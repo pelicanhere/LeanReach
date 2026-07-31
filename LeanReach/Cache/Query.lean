@@ -120,14 +120,6 @@ unsafe def isBuilt (roots : Array Name) : IO Bool := do
   return (← unsafe fullCachesBuilt #[catalog.baseRoot]) &&
     relations.baseRoot == catalog.baseRoot
 
-private unsafe def buildRelations (roots : Array Name) (baseRoot : Name) :
-    IO QueryOverlay.Relations := do
-  let some table ← unsafe SearchCache.loadTable #[baseRoot] |
-    throw <| IO.userError s!"declaration table for '{baseRoot}' is unavailable"
-  let relations ← unsafe QueryOverlay.buildRelations roots baseRoot table.modules
-  unsafe QueryOverlay.saveRelations roots relations
-  return relations
-
 private unsafe def loadCatalog (roots : Array Name) :
     IO (Option QueryOverlay.Catalog) := do
   if let some catalog ← unsafe readCatalog roots then return some catalog
@@ -142,7 +134,11 @@ private unsafe def loadRelations (roots : Array Name) (baseRoot : Name) :
     IO QueryOverlay.Relations := do
   if let some relations ← unsafe QueryOverlay.loadRelations roots then
     if relations.baseRoot == baseRoot then return relations
-  unsafe buildRelations roots baseRoot
+  let some table ← unsafe SearchCache.loadTable #[baseRoot] |
+    throw <| IO.userError s!"declaration table for '{baseRoot}' is unavailable"
+  let relations ← unsafe QueryOverlay.buildRelations roots baseRoot table.modules
+  unsafe QueryOverlay.saveRelations roots relations
+  return relations
 
 unsafe def build (roots : Array Name) : IO Nat := do
   if roots.size == 1 then return ← unsafe buildFullCaches roots
@@ -238,33 +234,30 @@ private unsafe def exactFull (roots : Array Name) (table : SearchCache.Table)
     let some target := table.locatedAt? targetId | return none
     let some (upstreamCount, afterUpstreamCount) :=
         readUInt32 bytes afterTarget | return none
-    if NameSearch.exactMatch name target.name then
-      let some (upstream, afterUpstream) :=
-          readIds bytes afterUpstreamCount upstreamCount.toNat table.size
-            (if limits.upstream ≤ rankedPrefixLimit then limits.upstream
-              else upstreamCount.toNat) |
-        return none
-      let some (downstreamCount, afterDownstreamCount) :=
-          readUInt32 bytes afterUpstream | return none
-      let some (downstream, next) :=
-          readIds bytes afterDownstreamCount downstreamCount.toNat table.size
-            (if limits.downstream ≤ rankedPrefixLimit then limits.downstream
-              else downstreamCount.toNat) |
-        return none
-      position := next
+    let matched := NameSearch.exactMatch name target.name
+    let upstreamKeep :=
+      if !matched then 0
+      else if limits.upstream ≤ rankedPrefixLimit then limits.upstream
+      else upstreamCount.toNat
+    let some (upstream, afterUpstream) :=
+        readIds bytes afterUpstreamCount upstreamCount.toNat table.size
+          upstreamKeep |
+      return none
+    let some (downstreamCount, afterDownstreamCount) :=
+        readUInt32 bytes afterUpstream | return none
+    let downstreamKeep :=
+      if !matched then 0
+      else if limits.downstream ≤ rankedPrefixLimit then limits.downstream
+      else downstreamCount.toNat
+    let some (downstream, next) :=
+        readIds bytes afterDownstreamCount downstreamCount.toNat table.size
+          downstreamKeep |
+      return none
+    position := next
+    if matched then
       results := results.push
         (queryFromEdges table targetId upstream downstream limits)
       if results.size == limits.search then break
-    else
-      let some (_, afterUpstream) :=
-          readIds bytes afterUpstreamCount upstreamCount.toNat table.size 0 |
-        return none
-      let some (downstreamCount, afterDownstreamCount) :=
-          readUInt32 bytes afterUpstream | return none
-      let some (_, next) :=
-          readIds bytes afterDownstreamCount downstreamCount.toNat table.size 0 |
-        return none
-      position := next
   return some results
 
 /-- Finds cached queries whose complete user names match case-sensitively. -/

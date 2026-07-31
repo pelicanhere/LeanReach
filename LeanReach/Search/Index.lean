@@ -101,9 +101,6 @@ def relatedIds (index : Index) (source : UInt32)
   let ids := if upstream then index.forward[source.toNat]! else index.reverse[source.toNat]!
   index.rankIds source ids upstream limit
 
-private def locatedAt (index : Index) (id : UInt32) : LocatedName :=
-  index.entries[id.toNat]!
-
 def relationCountsById (index : Index) : Array UInt32 × Array UInt32 :=
   (index.reverse.map (·.size.toUInt32), index.forward.map (·.size.toUInt32))
 

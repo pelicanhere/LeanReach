@@ -81,7 +81,7 @@ private unsafe def loadFragment (moduleName : Name) : IO ModuleFragment := do
     catch _ => pure ()
   return (← readFragment moduleName olean).1
 
-unsafe def moduleData (moduleName : Name) :
+private unsafe def moduleData (moduleName : Name) :
     IO (Array Name × Array (Name × NameSet)) := do
   let fragment ← unsafe loadFragment moduleName
   return (fragment.imports, fragment.declarations)

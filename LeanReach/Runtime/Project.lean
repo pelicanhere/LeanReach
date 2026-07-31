@@ -18,7 +18,7 @@ private def configFile? (dir : FilePath) : IO (Option FilePath) := do
     if ← path.pathExists then return some path
   return none
 
-partial def findDir? : IO (Option FilePath) := do
+private partial def findDir? : IO (Option FilePath) := do
   let rec go (dir : FilePath) := do
     if (← configFile? dir).isSome then return some dir
     let some parent := dir.parent | return none
