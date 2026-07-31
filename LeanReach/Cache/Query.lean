@@ -296,14 +296,14 @@ private unsafe def exactFull (roots : Array Name) (query : String)
 
 /-- Finds cached queries whose complete user names match case-sensitively. -/
 unsafe def exactQueries (roots : Array Name) (query : String)
-    (limit : Nat) : IO (Option (Array CachedQuery)) := do
-  if limit == 0 then return some #[]
+    (limits : Limits) : IO (Option (Array CachedQuery)) := do
+  if limits.search == 0 then return some #[]
   let catalog? ← unsafe loadCatalog roots
-  let some catalog := catalog? | return ← unsafe exactFull roots query limit
+  let some catalog := catalog? | return ← unsafe exactFull roots query limits.search
   let name := query.toName
   let localTargets := catalog.localNames.filter
-    (NameSearch.exactMatch name ·.name) |>.take limit
-  let some baseResults ← unsafe exactFull #[catalog.baseRoot] query limit | return none
+    (NameSearch.exactMatch name ·.name) |>.take limits.search
+  let some baseResults ← unsafe exactFull #[catalog.baseRoot] query limits.search | return none
   if localTargets.isEmpty && baseResults.isEmpty then return some #[]
   let relations ← unsafe loadRelations roots catalog.baseRoot
   unless !localTargets.isEmpty ||
@@ -316,7 +316,7 @@ unsafe def exactQueries (roots : Array Name) (query : String)
     if relations.affects cached.target.name then
       relations.queryFromBase base cached.target (some cached)
     else cached
-  return some (mergeResults (·.target.name) localResults baseResults limit)
+  return some (mergeResults (·.target.name) localResults baseResults limits.search)
 
 unsafe def search (roots : Array Name) (pattern : SearchPattern)
     (limit : Nat) : IO (Option (Array LocatedName)) := do

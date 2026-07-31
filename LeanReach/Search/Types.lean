@@ -23,4 +23,12 @@ def Neighborhood.all {α : Type u} (items : Neighborhood α) : Array α :=
     |>.append items.upstream
     |>.append items.downstream
 
+structure Limits where
+  upstream : Nat := 10
+  downstream : Nat := 10
+  search : Nat := 10
+
+def Limits.uniform (limit : Nat) : Limits :=
+  { upstream := limit, downstream := limit, search := limit }
+
 end LeanReach

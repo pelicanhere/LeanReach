@@ -14,14 +14,6 @@ instance : ToJson QueryResult where
     ("downstream", toJson result.downstream)
   ]
 
-structure Limits where
-  upstream : Nat := 10
-  downstream : Nat := 10
-  search : Nat := 10
-
-def Limits.uniform (limit : Nat) : Limits :=
-  { upstream := limit, downstream := limit, search := limit }
-
 def Limits.usesCachedQuery (limits : Limits) : Bool :=
   limits.upstream ≤ cachedQueryLimit && limits.downstream ≤ cachedQueryLimit
 

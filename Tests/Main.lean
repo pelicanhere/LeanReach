@@ -15,7 +15,7 @@ private def regex (source : String) : IO SearchPattern :=
 
 private unsafe def cachedQuery (roots : Array Name) (name : Name) :
     IO CachedQuery := do
-  let results ← QueryCache.exactQueries roots name.toString 2
+  let results ← QueryCache.exactQueries roots name.toString { search := 2 }
   let some results := results |
     throw <| IO.userError s!"query cache is unavailable for '{name}'"
   let some query := results.find? (·.target.name == name) |
@@ -301,7 +301,7 @@ private unsafe def runTests : IO Unit := do
   let privateRoots := #[`Tests.PrivateA, `Tests.PrivateB]
   discard <| unsafe QueryCache.build privateRoots
   let some cachedPrivateMatches ← unsafe QueryCache.exactQueries privateRoots
-      "LeanReachDuplicate.hidden" 10 |
+      "LeanReachDuplicate.hidden" {} |
     throw <| IO.userError "cached private exact-name index is missing"
   unless cachedPrivateMatches.size == 2 &&
       cachedPrivateMatches.any (·.target.moduleName == `Tests.PrivateA) &&
@@ -329,7 +329,7 @@ private unsafe def runTests : IO Unit := do
   unless missingSearch.isEmpty do
     throw <| IO.userError "cached empty search returned a declaration"
   let some missingExact ← unsafe QueryCache.exactQueries #[`Tests.Fixture]
-      "not_a_declaration_name" 2 |
+      "not_a_declaration_name" { search := 2 } |
     throw <| IO.userError "exact query cache is unavailable"
   unless missingExact.isEmpty do
     throw <| IO.userError "missing exact query returned a cached declaration"
@@ -367,7 +367,7 @@ private unsafe def runTests : IO Unit := do
   }
   unsafe QueryOverlay.saveRelations layeredRoots staleRelations
   let some layeredMissing ← unsafe QueryCache.exactQueries layeredRoots
-      "definitely_missing_layered_declaration" 10 |
+      "definitely_missing_layered_declaration" {} |
     throw <| IO.userError "layered exact cache is unavailable"
   let some afterMissing ← unsafe QueryOverlay.loadRelations layeredRoots |
     throw <| IO.userError "stale layered relation sentinel disappeared"

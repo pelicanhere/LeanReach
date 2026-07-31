@@ -116,7 +116,8 @@ private unsafe def selectExact (cached : CachedQuery) (limits : Limits)
 private unsafe def selectLookup (roots : Array Name) (source : String)
     (limits : Limits) (loadIndex : Bool → IO Index) : IO LookupPlan := do
   let exactLimit := max 2 limits.search
-  if let some exact ← unsafe QueryCache.exactQueries roots source exactLimit then
+  if let some exact ← unsafe QueryCache.exactQueries roots source
+      { limits with search := exactLimit } then
     if let some cached := exact[0]? then
       if exact[1]?.isNone then
         return ← unsafe selectExact cached limits loadIndex
