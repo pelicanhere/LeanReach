@@ -22,8 +22,8 @@ Name matching, graph lookup, mathematical ranking, and pretty-printing are separ
 pattern matching therefore does not alter dependency scores, and changing a score does not affect
 exact-name resolution.
 
-The three query stages reuse `Neighborhood α`: cached plans contain located names, PP plans contain
-Lean names, and output contains rendered declarations.
+Across these stages, `Neighborhood α` carries located names in cached plans, Lean names in PP
+plans, and rendered declarations in output.
 
 ## Dependency semantics
 
@@ -54,7 +54,7 @@ then checked. Patterns without a safe trigram scan the compact cached name table
 only after the complete match.
 
 Mode selection uses only a complete kernel name or complete user-visible private name. Suffix and
-substring uniqueness never changes the command mode: agents search first, then copy a returned
+substring uniqueness never change the command mode: agents search first, then copy a returned
 complete name to navigate its dependencies.
 
 ## Dependency ranking
@@ -62,8 +62,9 @@ complete name to navigate its dependencies.
 Ranking operates only on the direct neighbors of the target. It does not inspect declaration kinds
 and has no theorem, instance, projection, or name blacklist branches.
 
-For a candidate used by `users` of `N` indexed declarations and itself using `dependencies`
-declarations, the graph prior has three named components:
+For each candidate, `users` is the number of indexed declarations that use it, `dependencies` is
+the number it uses, and `N` is the total number of indexed declarations. The graph prior has three
+components:
 
 ```text
 specificity = log(1 + (N - users + 0.5) / (users + 0.5))
@@ -74,7 +75,7 @@ upstreamPrior   = specificity · confidence + substance
 downstreamPrior = log(1 + users) + substance
 ```
 
-The source affinity is normalized once:
+The affinity term is:
 
 ```text
 affinity =
@@ -151,8 +152,8 @@ compaction into a new snapshot, after which obsolete artifacts are removed.
 
 ### Pretty-print cache
 
-The PP cache stores a `NameMap Declaration` per defining module. A root marker records that all modules
-in a view have complete PP sidecars. A valid partial sidecar can be resumed declaration by
+The PP cache stores a `NameMap Declaration` per defining module. A root marker records that all
+modules in a view have complete PP sidecars. A valid partial sidecar can be resumed declaration by
 declaration; changing the module hash invalidates that module as a unit. Loaded sidecars are reused
 within a process and revalidated before an incremental merge.
 
