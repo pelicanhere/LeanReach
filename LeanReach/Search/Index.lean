@@ -27,12 +27,15 @@ structure Index extends Relations where
 
 namespace Index
 
-abbrev Declarations := NameMap (Name × NameSet)
+abbrev Declarations := NameMap (Name × Array Name)
 
 def Declarations.add (declarations : Declarations) (name moduleName : Name)
-    (used : NameSet) : Declarations :=
-  let (owner, previous) := (declarations.find? name).getD (moduleName, {})
-  declarations.insert name (owner, previous ++ used)
+    (used : Array Name) : Declarations :=
+  match declarations.find? name with
+  | none => declarations.insert name (moduleName, used)
+  | some (owner, previous) =>
+    declarations.insert name
+      (owner, (NameSet.ofArray previous ++ NameSet.ofArray used).toArray)
 
 def buildFrom (byName : Declarations) : Index := Id.run do
   let mut declarations := #[]
@@ -76,7 +79,7 @@ def buildFrom (byName : Declarations) : Index := Id.run do
 
 def build (declarations : Array (Name × Name × NameSet)) : Index :=
   buildFrom <| declarations.foldl (init := {}) fun result declaration =>
-    result.add declaration.1 declaration.2.1 declaration.2.2
+    result.add declaration.1 declaration.2.1 declaration.2.2.toArray
 
 def catalog (index : Index) : Catalog :=
   (index.entries, index.trigrams)

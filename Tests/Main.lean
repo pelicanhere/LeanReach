@@ -57,6 +57,29 @@ private unsafe def runTests : IO Unit := do
   check (position == encoded.size &&
       Cache.Codec.unpackDeltas (Cache.Codec.packDeltas values) == some values)
     "delta codec changed sorted declaration IDs"
+  let privateName := mkPrivateNameCore `Tests.Fixture `LeanReachFixture.hidden
+  let numericName := Name.num `LeanReachFixture 1099511627776
+  let fragment : Cache.ModuleFragment := {
+    imports := #[`Init, numericName]
+    declarations := #[
+      (`LeanReachFixture.double, #[`HAdd.hAdd, privateName]),
+      (privateName, #[numericName])
+    ]
+  }
+  let some decodedFragment := Cache.ModuleFragment.decode
+      (fragment.encode "fragment-test") "fragment-test" |
+    throw <| IO.userError "module fragment decoder rejected encoded data"
+  let declarationsMatch :=
+    decodedFragment.declarations.size == fragment.declarations.size &&
+      (decodedFragment.declarations.zip fragment.declarations).all fun
+        ((actualName, actualDependencies), (expectedName, expectedDependencies)) =>
+          actualName == expectedName &&
+            actualDependencies == expectedDependencies
+  check (decodedFragment.imports == fragment.imports &&
+      declarationsMatch &&
+      (Cache.ModuleFragment.decode
+        (fragment.encode "fragment-test") "stale-hash").isNone)
+    "module fragment codec changed names, edges, or dependency validation"
   check (NameSearch.leaf? `Submodule.span_le == some "span_le" &&
       (NameSearch.leaf? (.num `LeanReachGenerated 1)).isNone &&
       (NameSearch.leaf? .anonymous).isNone)

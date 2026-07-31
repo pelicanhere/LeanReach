@@ -105,20 +105,21 @@ adding theorem/instance branches, name blacklists, a second-order graph pass, or
 
 ## Persistent cache layers
 
-Object caches use Lean module data. Exact-query shards use a compact binary format; small markers
-use text. Cache files live beside an `.olean`, which lets a dependency provide reusable artifacts to
-downstream Lake projects.
+Module fragments and exact-query shards use compact binary formats. The remaining structured
+caches use Lean module data, and small markers use text. Cache files live beside an `.olean`, which
+lets a dependency provide reusable artifacts to downstream Lake projects.
 
 ### Module fragment
 
-`Cache.Index` stores, per module:
+`Cache.Fragment` stores, per module:
 
 - imports;
 - searchable declaration names, including user-written private declarations;
-- direct used-constant sets after private-helper collapse.
+- direct used-constant arrays after private-helper collapse.
 
-The sidecar is keyed by the module's Lake `depHash`. Without a Lake trace, LeanReach hashes all
-available `.olean` layers.
+Names share a parent-first module dictionary, and imports, declarations, and edges use varint
+dictionary references. The sidecar is keyed by the module's Lake `depHash`. Without a Lake trace,
+LeanReach hashes all available `.olean` layers.
 
 ### Search cache
 
@@ -227,8 +228,10 @@ LeanReach/PrettyPrint/Declaration.lean cached and JSON declaration model
 LeanReach/PrettyPrint/Timing.lean      PP stage measurements
 LeanReach/PrettyPrint/Printer.lean     Lean declaration formatting
 LeanReach/PrettyPrint/Module.lean      module PP environment preparation
+LeanReach/Cache/Codec.lean             binary varints and decoder cursor
+LeanReach/Cache/Fragment.lean          compact module-fragment encoding
 LeanReach/Cache/Storage.lean           persistence and root fingerprints
-LeanReach/Cache/Index.lean             module fragments and graph indexes
+LeanReach/Cache/Index.lean             `.olean` extraction and graph materialization
 LeanReach/Cache/Search.lean            sharded regex candidate persistence
 LeanReach/Cache/Overlay.lean           local graph overlay
 LeanReach/Cache/Query.lean             exact-query shards and routing

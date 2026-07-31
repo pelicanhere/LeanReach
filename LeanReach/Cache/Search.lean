@@ -91,8 +91,8 @@ private def stem (roots : Array Name) :=
   if roots.size == 1 then "leanreach-search" else "leanreach-roots-search"
 
 private def path (roots : Array Name) (olean : System.FilePath) (part : String) :=
-  -- Search cache format 5.
-  olean.withExtension s!"{stem roots}-5-{part}"
+  -- Search cache format 6.
+  olean.withExtension s!"{stem roots}-6-{part}"
 
 private def markerPath (roots : Array Name) (olean : System.FilePath) :=
   path roots olean "root"

@@ -20,10 +20,10 @@ structure Relations where
   reverse : NameMap (Array LocatedName)
 
 private def catalogPath (olean : System.FilePath) : System.FilePath :=
-  olean.withExtension "leanreach-query-overlay-catalog-1"
+  olean.withExtension "leanreach-query-overlay-catalog-2"
 
 private def relationsPath (olean : System.FilePath) : System.FilePath :=
-  olean.withExtension "leanreach-query-overlay-relations-2"
+  olean.withExtension "leanreach-query-overlay-relations-3"
 
 private initialize loadedCatalogs : IO.Ref (Std.HashMap String Catalog) ← IO.mkRef {}
 private initialize loadedRelations : IO.Ref (Std.HashMap String Relations) ← IO.mkRef {}
@@ -104,7 +104,8 @@ unsafe def buildRelations (roots : Array Name) (baseRoot : Name)
       entries := entries.alter name fun previous => some {
         target
         dependencies :=
-          ((previous.map (·.dependencies)).getD {} ++ dependencies).erase name
+          ((previous.map (·.dependencies)).getD {} ++
+            NameSet.ofArray dependencies).erase name
       }
   let mut reverse : NameMap (Array LocatedName) := {}
   for (_, entry) in entries do

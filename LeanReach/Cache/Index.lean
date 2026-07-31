@@ -1,3 +1,4 @@
+import LeanReach.Cache.Fragment
 import LeanReach.Cache.Storage
 import LeanReach.Runtime.ModuleData
 import LeanReach.Runtime.Source
@@ -16,10 +17,6 @@ Released under the Apache License 2.0.
 /-- Hide generated implementation details that can still have source ranges. -/
 private def isBlacklisted (name : Name) : Bool :=
   (privateToUserName name).isInternalDetail
-
-private structure ModuleFragment where
-  imports : Array Name
-  declarations : Array (Name × NameSet)
 
 private def collapseInternal (internal : NameMap NameSet) (dependencies : NameSet) : NameSet :=
   Id.run do
@@ -53,36 +50,36 @@ private unsafe def readFragment (moduleName : Name) (olean : System.FilePath) :
       declarations := all.constants.filterMap fun visibleInfo =>
         let name := visibleInfo.name
         if source.contains name && !isBlacklisted name then
-          some (name, collapseInternal internal visibleInfo.getUsedConstantsAsSet)
+          some (name,
+            (collapseInternal internal visibleInfo.getUsedConstantsAsSet).toArray)
         else none
     }, regions)
   catch error =>
     regions.forM CompactedRegion.free
     throw error
 
-private unsafe def writeFragment (moduleName : Name) (olean path : System.FilePath)
-    (hash : String) : IO Unit := do
-  let (fragment, regions) ← readFragment moduleName olean
-  try
-    savePart path hash fragment moduleName
-  finally
-    regions.forM CompactedRegion.free
-
 private unsafe def loadFragment (moduleName : Name) : IO ModuleFragment := do
   let olean ← findOLean moduleName
   let hash? ← depHash? olean
-  -- Module-fragment cache format 7.
-  let path := olean.withExtension "leanreach-module-7"
+  -- Module-fragment cache format 9.
+  let path := olean.withExtension "leanreach-module-9"
   if let some hash := hash? then
-    if let some fragment ← unsafe loadPart ModuleFragment path hash then return fragment
+    if ← path.pathExists then
+      try
+        if let some fragment := ModuleFragment.decode (← IO.FS.readBinFile path) hash then
+          return fragment
+      catch _ => pure ()
     try
-      writeFragment moduleName olean path hash
-      if let some fragment ← unsafe loadPart ModuleFragment path hash then return fragment
+      let (fragment, regions) ← readFragment moduleName olean
+      try saveBytes path (fragment.encode hash)
+      finally regions.forM CompactedRegion.free
+      if let some fragment := ModuleFragment.decode (← IO.FS.readBinFile path) hash then
+        return fragment
     catch _ => pure ()
   return (← readFragment moduleName olean).1
 
 private unsafe def moduleData (moduleName : Name) :
-    IO (Array Name × Array (Name × NameSet)) := do
+    IO (Array Name × Array (Name × Array Name)) := do
   let fragment ← unsafe loadFragment moduleName
   return (fragment.imports, fragment.declarations)
 
@@ -91,7 +88,7 @@ unsafe def moduleNames (moduleName : Name) : IO (Array Name) :=
 
 private unsafe def foldClosure {α : Type} (roots : Array Name)
     (excluded : NameHashSet) (initial : α)
-    (visit : α → Name → Array (Name × NameSet) → IO α) : IO α := do
+    (visit : α → Name → Array (Name × Array Name) → IO α) : IO α := do
   let mut pending := #[]
   let mut seen := excluded
   let mut result := initial
@@ -116,7 +113,7 @@ private unsafe def foldClosure {α : Type} (roots : Array Name)
   return result
 
 unsafe def moduleClosure (roots : Array Name) (excluded : NameHashSet := {}) :
-    IO (Array (Name × Array (Name × NameSet))) :=
+    IO (Array (Name × Array (Name × Array Name))) :=
   unsafe foldClosure roots excluded #[] fun modules moduleName declarations =>
     pure (modules.push (moduleName, declarations))
 

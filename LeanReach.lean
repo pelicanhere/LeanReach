@@ -1,4 +1,5 @@
 import LeanReach.Cache.Build
+import LeanReach.Cache.Fragment
 import LeanReach.Cache.Index
 import LeanReach.Cache.PrettyPrint
 import LeanReach.Cache.Query

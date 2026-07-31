@@ -37,8 +37,8 @@ unsafe def loadPPModule (moduleName : Name) : IO (NameMap Declaration) := do
 private unsafe def ppRootData (roots : Array Name) :
     IO (System.FilePath × String) := do
   let (olean, depHash, _) ← unsafe rootData roots
-  -- Single-root marker format 7; multi-root marker format 8.
-  let suffix := if roots.size == 1 then "root-7" else "roots-8"
+  -- Single-root marker format 8; multi-root marker format 9.
+  let suffix := if roots.size == 1 then "root-8" else "roots-9"
   return (olean.withExtension s!"leanreach-pp-{suffix}", depHash)
 
 unsafe def isFullyPP (roots : Array Name) : IO Bool := do

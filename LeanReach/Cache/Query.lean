@@ -16,11 +16,11 @@ private def shard (name : Name) : Nat :=
     UInt64.ofNat shardCount).toNat
 
 private def shardPath (olean : System.FilePath) (id : Nat) : System.FilePath :=
-  -- Query-shard format 16.
-  olean.withExtension s!"leanreach-query-16-{id}"
+  -- Query-shard format 17.
+  olean.withExtension s!"leanreach-query-17-{id}"
 
 private def markerPath (olean : System.FilePath) : System.FilePath :=
-  olean.withExtension "leanreach-query-root-16"
+  olean.withExtension "leanreach-query-root-17"
 
 private def ready (olean : System.FilePath) (depHash : String) : IO Bool :=
   Cache.markerMatches (markerPath olean) depHash
