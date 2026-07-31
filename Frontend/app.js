@@ -80,6 +80,10 @@ async function search(query) {
   history.replaceState({}, "", `?q=${encodeURIComponent(query)}`);
   try {
     const data = await request({q: query});
+    if (data.target) {
+      renderDetail(data);
+      return;
+    }
     const heading = element("div", "section-heading");
     heading.append(
       element("h1", "", "Matches"),
@@ -112,20 +116,23 @@ function relationColumn(label, items) {
   return column;
 }
 
+function renderDetail(data) {
+  const target = element("section", "target");
+  target.append(element("div", "eyebrow", "Target"), declarationCard(data.target, false));
+  const relations = element("div", "relations");
+  relations.append(
+    relationColumn("Upstream", data.upstream),
+    relationColumn("Downstream", data.downstream),
+  );
+  detail.append(target, relations);
+}
+
 async function inspect(name) {
   detail.replaceChildren();
   detail.scrollIntoView({behavior: "smooth", block: "start"});
   history.replaceState({}, "", `?name=${encodeURIComponent(name)}`);
   try {
-    const data = await request({name});
-    const target = element("section", "target");
-    target.append(element("div", "eyebrow", "Target"), declarationCard(data.target, false));
-    const relations = element("div", "relations");
-    relations.append(
-      relationColumn("Upstream", data.upstream),
-      relationColumn("Downstream", data.downstream),
-    );
-    detail.append(target, relations);
+    renderDetail(await request({name}));
   } catch (error) {
     if (error.name === "AbortError") return;
     detail.append(emptyState(error.message));
