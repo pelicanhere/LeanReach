@@ -77,7 +77,7 @@ unsafe def buildCatalog (roots : Array Name) (baseRoot : Name)
       (excludedModules baseRoot baseModules) do
     for (name, _) in declarations do
       targets := targets.insert name { name, moduleName }
-  let localNames := LocatedName.sortByName (targets.toArray.map (·.2))
+  let localNames := LocatedName.sortByName targets.valuesArray
   return { baseRoot, localNames }
 
 def relationsFromFragments (baseRoot : Name)
@@ -108,7 +108,7 @@ unsafe def buildRelationsWithFragments (roots : Array Name) (baseRoot : Name)
 
 def Relations.catalog (relations : Relations) : Catalog := {
   baseRoot := relations.baseRoot
-  localNames := LocatedName.sortByName (relations.entries.toArray.map (·.2.target))
+  localNames := LocatedName.sortByName (relations.entries.valuesArray.map (·.target))
 }
 
 unsafe def saveCatalog (roots : Array Name) (catalog : Catalog) : IO Unit := do

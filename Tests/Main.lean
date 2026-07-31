@@ -97,17 +97,20 @@ private unsafe def runTests : IO Unit := do
     target := newTarget
     dependencies := ({} : NameSet).insert `HAdd.hAdd |>.insert `Nat
   }
+  let keptEntry : QueryOverlay.Entry := {
+    target := keptTarget, dependencies := {}
+  }
   let delta : QueryOverlay.Incremental.Delta := {
     removed := #[oldEntry], added := #[newEntry]
   }
-  let deltaCatalog := delta.applyCatalog {
-    baseRoot := `Mathlib, localNames := #[oldTarget, keptTarget]
-  }
   let deltaRelations := delta.applyRelations {
     baseRoot := `Mathlib
-    entries := ({} : NameMap QueryOverlay.Entry).insert oldTarget.name oldEntry
+    entries := ({} : NameMap QueryOverlay.Entry)
+      |>.insert oldTarget.name oldEntry
+      |>.insert keptTarget.name keptEntry
     reverse := ({} : NameMap (Array LocatedName)).insert `HAdd.hAdd #[oldTarget]
   }
+  let deltaCatalog := deltaRelations.catalog
   check (deltaCatalog.localNames.map (·.name) ==
       #[keptTarget.name, newTarget.name].qsort Name.lt &&
       !deltaRelations.entries.contains oldTarget.name &&
@@ -120,8 +123,8 @@ private unsafe def runTests : IO Unit := do
   let inverse : QueryOverlay.Incremental.Delta := {
     removed := #[newEntry], added := #[oldEntry]
   }
-  let restoredCatalog := inverse.applyCatalog deltaCatalog
   let restoredRelations := inverse.applyRelations deltaRelations
+  let restoredCatalog := restoredRelations.catalog
   check (restoredCatalog.localNames.map (·.name) ==
       #[oldTarget.name, keptTarget.name].qsort Name.lt &&
       restoredRelations.entries.contains oldTarget.name &&

@@ -54,26 +54,15 @@ private def sameEntry (left right : Entry) : Bool :=
     left.dependencies.toArray == right.dependencies.toArray
 
 private def changedEntries (previous current : Array Entry) : Delta := Id.run do
-  let previousByName := previous.foldl (init := ({} : NameMap Entry))
-    fun entries entry => entries.insert entry.target.name entry
-  let currentByName := current.foldl (init := ({} : NameMap Entry))
-    fun entries entry => entries.insert entry.target.name entry
+  let previousByName : NameMap Entry := ({} : NameMap Entry).insertMany <|
+    previous.map fun entry => (entry.target.name, entry)
+  let currentByName : NameMap Entry := ({} : NameMap Entry).insertMany <|
+    current.map fun entry => (entry.target.name, entry)
   return {
     removed := previous.filter fun entry =>
       !(currentByName.find? entry.target.name).any (sameEntry entry)
     added := current.filter fun entry =>
       !(previousByName.find? entry.target.name).any (sameEntry entry)
-  }
-
-def Delta.applyCatalog (delta : Delta) (catalog : Catalog) : Catalog := Id.run do
-  let mut names := catalog.localNames.foldl
-    (init := ({} : NameMap LocatedName))
-    fun names target => names.insert target.name target
-  for entry in delta.removed do names := names.erase entry.target.name
-  for entry in delta.added do names := names.insert entry.target.name entry.target
-  return {
-    catalog with
-    localNames := LocatedName.sortByName (names.toArray.map (·.2))
   }
 
 def Delta.applyRelations (delta : Delta) (relations : Relations) : Relations := Id.run do
@@ -100,7 +89,8 @@ def Delta.applyRelations (delta : Delta) (relations : Relations) : Relations := 
   return { relations with entries, reverse }
 
 private def Delta.apply (delta : Delta) (view : View) : View :=
-  (delta.applyCatalog view.1, delta.applyRelations view.2)
+  let relations := delta.applyRelations view.2
+  (relations.catalog, relations)
 
 private def Delta.size (delta : Delta) : Nat :=
   delta.removed.size + delta.added.size
@@ -115,8 +105,8 @@ private def saveManifest (olean : System.FilePath) (manifest : Manifest) : IO Un
 private unsafe def commitManifest (olean : System.FilePath)
     (previous current : Manifest) : IO Unit := do
   saveManifest olean current
-  let active := current.modules.foldl (init := ({} : NameMap String))
-    fun hashes state => hashes.insert state.name state.outputHash
+  let active : NameMap String := ({} : NameMap String).insertMany <|
+    current.modules.map fun state => (state.name, state.outputHash)
   for state in previous.modules do
     unless active.find? state.name == some state.outputHash do
       unsafe Cache.removeStoredModuleFragment state.name state.outputHash
@@ -160,8 +150,8 @@ private unsafe def statesOf
 private unsafe def changedModules (manifest : Manifest) :
     IO (Option (Array ModuleState × Delta)) := do
   try
-    let previous := manifest.modules.foldl (init := ({} : NameMap ModuleState))
-      fun states state => states.insert state.name state
+    let previous : NameMap ModuleState := ({} : NameMap ModuleState).insertMany <|
+      manifest.modules.map fun state => (state.name, state)
     let some base ← unsafe SearchCache.loadTable #[manifest.baseRoot] | return none
     let mut pending := #[]
     let mut seen : NameHashSet :=
@@ -207,7 +197,7 @@ private unsafe def changedModules (manifest : Manifest) :
         let some old ← unsafe Cache.storedModuleFragment
             moduleName state.outputHash | return none
         removed := removed ++ moduleEntries moduleName old
-    return some (current.toArray.map (·.2), { removed, added })
+    return some (current.valuesArray, { removed, added })
   catch _ =>
     return none
 
