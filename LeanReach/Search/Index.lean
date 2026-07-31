@@ -104,14 +104,6 @@ def relatedIds (index : Index) (source : UInt32)
 private def locatedAt (index : Index) (id : UInt32) : LocatedName :=
   index.entries[id.toNat]!
 
-def located? (index : Index) (name : Name) : Option LocatedName :=
-  index.findId? name |>.map index.locatedAt
-
-def relationCounts (index : Index) (name : Name) : Nat × Nat :=
-  match index.findId? name with
-  | some id => (index.reverse[id.toNat]!.size, index.forward[id.toNat]!.size)
-  | none => (0, 0)
-
 def relationCountsById (index : Index) : Array UInt32 × Array UInt32 :=
   (index.reverse.map (·.size.toUInt32), index.forward.map (·.size.toUInt32))
 
@@ -167,15 +159,6 @@ def downstream (index : Index) (name : Name) (limit : Nat) : Array Name :=
 
 def moduleOf? (index : Index) (name : Name) : Option Name :=
   index.findId? name |>.map fun id => index.entries[id.toNat]!.moduleName
-
-def modules (index : Index) : Array Name := Id.run do
-  let mut seen : NameHashSet := {}
-  let mut modules := #[]
-  for entry in index.entries do
-    unless seen.contains entry.moduleName do
-      seen := seen.insert entry.moduleName
-      modules := modules.push entry.moduleName
-  return modules
 
 end Index
 end LeanReach

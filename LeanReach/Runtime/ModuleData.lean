@@ -6,12 +6,9 @@ open Lean
 
 unsafe def readParts (olean : System.FilePath) :
     IO (Array (ModuleData × CompactedRegion)) := do
-  let mut paths := #[olean]
-  let server := OLeanLevel.server.adjustFileName olean
-  if ← server.pathExists then paths := paths.push server
-  let privatePath := OLeanLevel.private.adjustFileName olean
-  if ← privatePath.pathExists then paths := paths.push privatePath
-  readModuleDataParts paths
+  let additional ← #[OLeanLevel.server, OLeanLevel.private].map
+    (·.adjustFileName olean) |>.filterM (·.pathExists)
+  readModuleDataParts (#[olean] ++ additional)
 
 private def privateModule? (name : Name) : Option Name :=
   match privatePrefix? name with

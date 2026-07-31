@@ -179,16 +179,6 @@ private def readUInt32 (bytes : ByteArray) (start : Nat) :
     scale := scale * 128
   return none
 
-private def skipIds (bytes : ByteArray) (start count total : Nat) :
-    Option Nat := Id.run do
-  if count > total then return none
-  let mut position := start
-  for _ in [0:count] do
-    let some (id, next) := readUInt32 bytes position | return none
-    if id.toNat ≥ total then return none
-    position := next
-  return some position
-
 private def readIds (bytes : ByteArray) (start count total keep : Nat) :
     Option (Array UInt32 × Nat) := Id.run do
   if count > total then return none
@@ -266,13 +256,13 @@ private unsafe def exactFull (roots : Array Name) (table : SearchCache.Table)
         (queryFromEdges table targetId upstream downstream limits)
       if results.size == limits.search then break
     else
-      let some afterUpstream :=
-          skipIds bytes afterUpstreamCount upstreamCount.toNat table.size |
+      let some (_, afterUpstream) :=
+          readIds bytes afterUpstreamCount upstreamCount.toNat table.size 0 |
         return none
       let some (downstreamCount, afterDownstreamCount) :=
           readUInt32 bytes afterUpstream | return none
-      let some next :=
-          skipIds bytes afterDownstreamCount downstreamCount.toNat table.size |
+      let some (_, next) :=
+          readIds bytes afterDownstreamCount downstreamCount.toNat table.size 0 |
         return none
       position := next
   return some results

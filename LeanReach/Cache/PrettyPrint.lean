@@ -5,8 +5,6 @@ namespace LeanReach.Cache
 
 open Lean
 
-abbrev PPBatch := NameMap (NameMap Declaration)
-
 private def ppPath (olean : System.FilePath) : System.FilePath :=
   -- Module PP cache format 3.
   olean.withExtension "leanreach-pp-3"
@@ -76,10 +74,6 @@ unsafe def mergePPModule (moduleName : Name) (added : NameMap Declaration) :
     IO Unit := do
   let current ← unsafe loadPPModule moduleName
   unsafe savePPModule moduleName (current.insertMany added)
-
-unsafe def savePP (additions : PPBatch) : IO Unit := do
-  for (moduleName, added) in additions do
-    unsafe mergePPModule moduleName added
 
 unsafe def markFullyPP (roots : Array Name) : IO Unit := do
   let (path, depHash) ← unsafe ppRootData roots

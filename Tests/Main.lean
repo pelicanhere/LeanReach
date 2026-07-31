@@ -23,19 +23,17 @@ private unsafe def cachedQuery (roots : Array Name) (name : Name)
     throw <| IO.userError s!"query cache is missing '{name}'"
   return query
 
-private def checkTable (index : Index) (table : SearchCache.Table)
-    (names : Array Name) : IO Unit := do
-  check (table.isValid && table.size == index.size &&
-      table.modules == index.modules)
+private def checkTable (index : Index) (table : SearchCache.Table) : IO Unit := do
+  let entries := index.catalog.1
+  let (reverseCounts, forwardCounts) := index.relationCountsById
+  check (table.isValid && table.names == entries.map (·.name) &&
+      table.reverseCounts == reverseCounts &&
+      table.forwardCounts == forwardCounts)
     "declaration table changed index dimensions"
-  for name in names do
-    let some expected := index.located? name |
-      throw <| IO.userError s!"table fixture '{name}' is missing"
-    let some actual := table.located? name |
-      throw <| IO.userError s!"table lookup lost '{name}'"
-    check (actual.name == expected.name && actual.moduleName == expected.moduleName &&
-        table.relationCounts name == index.relationCounts name)
-      s!"declaration table changed '{name}'"
+  for (expected, id) in entries.zipIdx do
+    let actual := table.locatedAt! id.toUInt32
+    check (actual.name == expected.name && actual.moduleName == expected.moduleName)
+      s!"declaration table changed '{expected.name}'"
 
 private unsafe def runTests : IO Unit := do
   IO.FS.withTempDir fun dir => do
@@ -171,10 +169,7 @@ private unsafe def runTests : IO Unit := do
     throw <| IO.userError "built local modules were not detected deterministically"
   let mathlibIndex ← unsafe Cache.materializeIndex #[`Mathlib]
   let mathlibTable := SearchCache.Table.ofIndex mathlibIndex
-  checkTable mathlibIndex mathlibTable #[
-    `Submodule.span_le, `HAdd.hAdd,
-    `isPrincipalIdealRing_of_isPrincipalIdealRing_isLocalization_maximal
-  ]
+  checkTable mathlibIndex mathlibTable
   let intervalRank := mathlibIndex.upstream
     `ContinuousOn.image_Icc_of_antitoneOn 10
   unless intervalRank.take 2 ==
@@ -194,10 +189,8 @@ private unsafe def runTests : IO Unit := do
       throw <| IO.userError s!"PID proof dependency '{expected}' is poorly ranked"
   let fixtureIndex ← unsafe Cache.materializeIndex #[`Tests.Fixture]
   let fixtureTable := SearchCache.Table.ofIndex fixtureIndex
-  checkTable fixtureIndex fixtureTable #[
-    `LeanReachFixture.double, `LeanReachFixture.Topic.ranked
-  ]
-  let completed := (fixtureIndex.modules.foldl
+  checkTable fixtureIndex fixtureTable
+  let completed := (fixtureTable.modules.foldl
       (init := ({} : NameHashSet)) (·.insert ·))
     |>.erase `Tests.Fixture |>.insert `LeanReach
   let closure := (← unsafe Cache.moduleClosure #[`Tests.Main] completed).map (·.1)
@@ -367,7 +360,7 @@ private unsafe def runTests : IO Unit := do
       throw <| IO.userError s!"cached regex differs for '{source}'"
   let layeredRoots := #[`Tests.Fixture, `Mathlib]
   let localCatalog ← unsafe QueryOverlay.buildCatalog layeredRoots `Mathlib
-    mathlibIndex.modules
+    mathlibTable.modules
   unless localCatalog.baseRoot == `Mathlib &&
       localCatalog.localNames.any (·.name == `LeanReachFixture.double) do
     throw <| IO.userError "lightweight local catalog is missing a declaration"

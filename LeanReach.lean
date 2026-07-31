@@ -29,28 +29,22 @@ private def groupByModule (moduleOf? : Name → Option Name) (names : Array Name
         some ((names.getD #[]).push name)
   return (modules, byModule)
 
-private unsafe def prettyPrintMissing (moduleOf? : Name → Option Name)
-    (sourcePath : SearchPath) (env : Environment)
-    (byModule : NameMap (Array Name)) :
-    IO Cache.PPBatch := do
-  let mut added := {}
-  for (moduleName, names) in byModule do
-    let (declarations, _) ← unsafe prettyPrintModuleIO
-      sourcePath env moduleName names moduleOf?
-    added := added.insert moduleName declarations
-  return added
-
 private unsafe def runPreparedSession {α : Type} (moduleOf? : Name → Option Name)
     (session : Session) (missing : Array Name) (leakEnv : Bool)
     (action : IO α) : IO α := do
-  let mut added := {}
+  let mut added : NameMap (NameMap Declaration) := {}
   let (modules, byModule) := groupByModule moduleOf? missing
   unless modules.isEmpty do
     let env ← importEnvironment modules (leakEnv := leakEnv)
-    added ← unsafe prettyPrintMissing moduleOf? session.sourcePath env byModule
+    for (moduleName, names) in byModule do
+      let (declarations, _) ← unsafe prettyPrintModuleIO
+        session.sourcePath env moduleName names moduleOf?
+      added := added.insert moduleName declarations
   unless added.isEmpty do
     for (_, declarations) in added do session.merge declarations
-    try unsafe Cache.savePP added
+    try
+      for (moduleName, declarations) in added do
+        unsafe Cache.mergePPModule moduleName declarations
     catch _ => IO.eprintln "leanreach: could not write PP sidecar"
   action
 
@@ -100,11 +94,6 @@ private unsafe def selectSearch (roots : Array Name) (pattern : SearchPattern)
     result := .search (index.search pattern limit)
   }
 
-private def selectExact (cached : CachedQuery) (limits : Limits) : LookupPlan := {
-  moduleOf? := cached.moduleOf?
-  result := .query (cached.queryNames limits)
-}
-
 private unsafe def selectLookup (roots : Array Name) (source : String)
     (limits : Limits) (loadIndex : IO Index) : IO LookupPlan := do
   let exactLimit := max 2 limits.search
@@ -112,7 +101,10 @@ private unsafe def selectLookup (roots : Array Name) (source : String)
       { limits with search := exactLimit } then
     if let some cached := exact[0]? then
       if exact[1]?.isNone then
-        return selectExact cached limits
+        return {
+          moduleOf? := cached.moduleOf?
+          result := .query (cached.queryNames limits)
+        }
       return cachedSearchPlan ((exact.take limits.search).map (·.target))
     let pattern ← liftStringError (SearchPattern.compileRegex source)
     return ← unsafe selectSearch roots pattern limits.search loadIndex

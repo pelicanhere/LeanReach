@@ -128,11 +128,6 @@ private unsafe def loadViewTable (view : View) : IO (Option Table) :=
       (path view.roots view.olean "table") view.depHash
     return table?.filter (·.isValid)
 
-private unsafe def loadDirectory (view : View) :
-    IO (Option (Data.Trie UInt32)) :=
-  memoize view.directory <| unsafe Cache.loadPart (Data.Trie UInt32)
-    (path view.roots view.olean "directory") view.depHash
-
 private unsafe def loadPostings (view : View) (id : Nat) :
     IO (Option (Data.Trie ByteArray)) := do
   if let some postings := (← view.postings.get)[id]! then return some postings
@@ -244,7 +239,10 @@ unsafe def search (roots : Array Name) (pattern : SearchPattern)
   | .all => findAll
   | .empty => return some #[]
   | plan@(.postings _) =>
-    let some directory ← unsafe loadDirectory view | return none
+    let some directory ← memoize view.directory <|
+        unsafe Cache.loadPart (Data.Trie UInt32)
+          (path view.roots view.olean "directory") view.depHash |
+      return none
     match plan.select (directory.find? · |>.map (·.toNat)) with
     | .empty => return some #[]
     | .all => findAll
