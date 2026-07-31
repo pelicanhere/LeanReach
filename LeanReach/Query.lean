@@ -17,7 +17,7 @@ instance : ToJson QueryResult where
 structure Limits where
   upstream : Nat := 10
   downstream : Nat := 10
-  search : Nat := 20
+  search : Nat := 10
 
 def Limits.uniform (limit : Nat) : Limits :=
   { upstream := limit, downstream := limit, search := limit }

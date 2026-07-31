@@ -140,6 +140,12 @@ private def Index.resolveMatches (index : Index) (query : String) (limit : Nat) 
     let candidates := gram?.bind index.trigrams.find? |>.getD #[]
     find candidates.size (fun id => candidates[id]!)
 
+def Index.exactMatches (index : Index) (query : String)
+    (limit : Nat) : Array LocatedName :=
+  let name := query.toName
+  (index.resolveMatches query limit).flatten.filter
+    (NameResolve.exactMatch name ·.name) |>.take limit
+
 def Index.searchAll (index : Index) (pattern : SearchPattern)
     (limit : Nat := 20) : Array Name :=
   pattern.collect index.entries.size (fun id => id.toUInt32)

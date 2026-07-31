@@ -40,7 +40,7 @@ With the default Lake layout, use:
 
 ```console
 # Search declaration names with an unanchored regex.
-./.lake/packages/LeanReach/.lake/build/bin/leanreach search 'span_(le|eq)'
+./.lake/packages/LeanReach/.lake/build/bin/leanreach 'span_(le|eq)'
 
 # Show one declaration and its direct dependencies.
 ./.lake/packages/LeanReach/.lake/build/bin/leanreach Submodule.span_le
@@ -56,10 +56,11 @@ With the default Lake layout, use:
   --module Mathlib.LinearAlgebra.Span.Defs Submodule.span_le
 ```
 
-Regex search is case-sensitive by default; use `(?i)` to ignore case and `^...$` to match the
-complete name. Prefix a dash-leading pattern with `--`.
+An exact, case-sensitive declaration name shows its dependencies. Every other input is an
+unanchored regex search. Use `(?i)` to ignore case, `^...$` to match the complete name, and `--`
+before a dash-leading pattern.
 
-Queries return 10 upstream and 10 downstream declarations by default. Search returns 20 names.
+Queries and searches return 10 declarations by default.
 
 ```text
 -m, --module MODULE   override automatic project detection
@@ -78,7 +79,7 @@ Keep one process alive for a chain of queries:
 ./.lake/packages/LeanReach/.lake/build/bin/leanreach --interactive --json
 ```
 
-Each input line is a declaration name or `search PATTERN`. The process returns and flushes one JSON
+Each input line follows the same exact-name-or-regex rule. The process returns and flushes one JSON
 value per line.
 
 ## Project detection

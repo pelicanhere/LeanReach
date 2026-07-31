@@ -254,6 +254,30 @@ private def mergeSearchResults (localResults baseResults : Array LocatedName)
   for (_, target) in byName do results := results.push target
   return (results.qsort fun left right => Name.lt left.name right.name).take limit
 
+private unsafe def exactFull (roots : Array Name) (query : String)
+    (limit : Nat) : IO (Option (Array LocatedName)) := do
+  let name := query.toName
+  let some (modules, lines) ← unsafe loadShard roots name | return none
+  let mut results := #[]
+  for line in lines do
+    let some target := target? modules line | continue
+    if NameResolve.exactMatch name target.name then
+      results := results.push target
+      if results.size == limit then break
+  return some results
+
+/-- Finds up to `limit` complete, case-sensitive user-name matches. -/
+unsafe def exactMatches (roots : Array Name) (query : String)
+    (limit : Nat) : IO (Option (Array LocatedName)) := do
+  let overlay? ← unsafe loadOverlay roots
+  let some overlay := overlay? | return ← unsafe exactFull roots query limit
+  let name := query.toName
+  let localResults := overlay.localNames.filter
+    (NameResolve.exactMatch name ·.name) |>.take limit
+  if localResults.size == limit then return some localResults
+  let some base ← unsafe exactFull #[overlay.baseRoot] query limit | return none
+  return some (mergeSearchResults localResults base limit)
+
 private unsafe def resolveFromLookup (roots : Array Name) (query : String) :
     IO (Except String (Option CachedQuery)) := do
   let some results ← unsafe SearchCache.lookup roots query 11 | return .ok none

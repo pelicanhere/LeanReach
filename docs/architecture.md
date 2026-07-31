@@ -44,17 +44,18 @@ This graph is a navigation index, not a runtime call graph and not a transitive 
 
 ## Name matching
 
-`search PATTERN` compiles an unanchored, case-sensitive regex once. Cached and in-memory execution
-use the same final matcher.
+A complete, case-sensitive declaration name selects dependency navigation. Otherwise the same
+input is compiled as an unanchored, case-sensitive regex. Cached and in-memory execution use the
+same final matcher.
 
 The pattern AST yields only trigrams proven to occur on every successful path. Each regex
 alternative selects its rarest posting, the selected postings are merged, and the complete regex is
 then checked. Patterns without a safe trigram scan the compact cached name table. Limits are applied
 only after the complete match.
 
-Exact dependency queries first try a case-sensitive complete `Name`. A separate literal resolver
-then considers exact user names, final components, and substrings; regex syntax never changes bare
-declaration queries.
+Mode selection uses only a complete kernel name or complete user-visible private name. Suffix and
+substring uniqueness never changes the command mode: agents search first, then copy a returned
+complete name to navigate its dependencies.
 
 ## Dependency ranking
 

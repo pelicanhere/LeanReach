@@ -428,11 +428,15 @@ private unsafe def runTests : IO Unit := do
       throw <| IO.userError "module fragment is missing a private declaration"
     let query (name : String) (limits : Limits)
         (action : QueryResult → IO Unit) : IO Unit :=
-      runner.query name limits fun names => do
-        action (← session.describeQuery names)
+      runner.lookup name limits fun
+        | .query names => do action (← session.describeQuery names)
+        | .search _ =>
+          throw <| IO.userError s!"exact declaration '{name}' became a regex search"
     let search (pattern : String) (action : Array Declaration → IO Unit) : IO Unit := do
-      runner.search (← regex pattern) 10 fun names => do
-        action (← session.describeNames names)
+      runner.lookup pattern {} fun
+        | .search names => do action (← session.describeNames names)
+        | .query _ =>
+          throw <| IO.userError s!"regex pattern '{pattern}' became an exact query"
 
     query "LeanReachFixture.double" (Limits.uniform 100) fun result => do
       check result.target.file.isSome
@@ -529,16 +533,29 @@ private unsafe def runTests : IO Unit := do
         (result.any fun item =>
           item.name == "LeanReachFixture.double_eq_add")
         "local name search is missing"
+      check (result.all fun item => item.file.isSome && item.line > 0)
+        "regex result is missing its source path or line"
     search "hidden_double" fun result => do
       check (result.any fun item => item.name == hiddenTheorem.toString)
         "private name search is missing"
     search "LeanReachFixture.Color.noConfusion" fun result => do
       check result.isEmpty "generated declaration was not blacklisted"
-    search "LeanReachFixture.Box.value" fun result => do
+    search r"^LeanReachFixture\.Box\.value$" fun result => do
       check (result.any fun item => item.name == "LeanReachFixture.Box.value")
         "structure projection was blacklisted"
     search "double_zero_again" fun result => do
       check (!result.isEmpty) "interactive session search is missing"
+
+  withInteractiveSession privateRoots fun session runner =>
+    runner.lookup "LeanReachDuplicate.hidden" {} fun
+      | .search names => do
+        let declarations ← session.describeNames names
+        check (declarations.size == 2)
+          "duplicate private user names did not return both matches"
+        check (declarations.all fun item => item.file.isSome && item.line > 0)
+          "duplicate private match is missing its source path or line"
+      | .query _ =>
+        throw <| IO.userError "duplicate private user name became a dependency query"
 
 unsafe def main : IO UInt32 := do
   try

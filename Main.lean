@@ -7,8 +7,7 @@ namespace LeanReach.Cli
 open Lean
 
 inductive Command where
-  | query (name : String)
-  | search (pattern : String)
+  | lookup (pattern : String)
   | cache (modules : Array Name)
 
 structure Config where
@@ -60,8 +59,7 @@ private def usage := "\
 LeanReach — Lean declaration search and dependency navigation
 
 USAGE:
-  leanreach [OPTIONS] DECLARATION
-  leanreach [OPTIONS] search PATTERN
+  leanreach [OPTIONS] PATTERN
   leanreach [OPTIONS] cache [MODULE...]
   leanreach [OPTIONS] --interactive
 
@@ -75,7 +73,8 @@ OPTIONS:
 
 Without `--module`, combine built local lean_lib roots with required Mathlib.
 With no modules, `cache` precomputes pretty-printed declarations for the detected view.
-In interactive mode, enter a declaration or `search PATTERN`.
+An exact declaration name shows dependencies; every other pattern is a regex search.
+Interactive mode applies the same rule to each input line.
 "
 
 private def location (declaration : Declaration) : String :=
@@ -116,6 +115,11 @@ private def printSearchNames (config : Config) (pattern : String)
     (session : Session) (names : Array Name) : IO Unit := do
   printSearch config.json pattern (← session.describeNames names)
 
+private def printLookupNames (config : Config) (pattern : String)
+    (session : Session) : LookupNames → IO Unit
+  | .query names => printQueryNames config session names
+  | .search names => printSearchNames config pattern session names
+
 private def Config.limits (config : Config) : Limits :=
   config.limit?.map Limits.uniform |>.getD {}
 
@@ -147,10 +151,7 @@ private def profiled {α : Type} (enabled : Bool) (label : String)
     report
 
 private def parseLine (line : String) : Command :=
-  if let some pattern := line.dropPrefix? "search " then
-    .search pattern.copy
-  else
-    .query line
+  .lookup line
 
 private def chompLine (line : String) : String :=
   let line := (line.dropSuffix? "\n").map (·.copy) |>.getD line
@@ -164,20 +165,12 @@ private def runInteractive (session : Session) (runner : InteractiveRunner)
     let line := chompLine (← stdin.getLine)
     if line.trimAscii.isEmpty then break
     let command := parseLine line
-    let label := match command with
-      | .search _ => "search"
-      | _ => "query"
-    profiled config.profile label do
+    profiled config.profile "lookup" do
       try
         match command with
-        | .query query =>
-          runner.query query config.limits fun names =>
-            printQueryNames config session names
-        | .search source =>
-          let pattern ← IO.ofExcept <|
-            SearchPattern.compileRegex source |>.mapError IO.userError
-          runner.search pattern config.limits.search fun names =>
-            printSearchNames config source session names
+        | .lookup pattern =>
+          runner.lookup pattern config.limits
+            (printLookupNames config pattern session)
         | .cache _ => unreachable!
       catch error =>
         let message := toString error
@@ -207,17 +200,11 @@ private unsafe def execute (config : Config) (command? : Option Command) : IO UI
         printPP config roots result
       else
         printPP config modules (← buildPPModules modules)
-  | some (.query query) =>
-    profiled config.profile "query" do
+  | some (.lookup pattern) =>
+    profiled config.profile "lookup" do
       let roots ← config.roots
-      withQueryFor roots query config.limits (printQueryNames config)
-  | some (.search source) =>
-    profiled config.profile "search" do
-      let pattern ← IO.ofExcept <|
-        SearchPattern.compileRegex source |>.mapError IO.userError
-      let roots ← config.roots
-      withSearchFor roots pattern config.limits.search
-        (printSearchNames config source)
+      withLookupFor roots pattern config.limits
+        (printLookupNames config pattern)
   | none =>
     withInteractiveSession (← config.roots) fun session runner =>
       runInteractive session runner config
@@ -247,9 +234,8 @@ private unsafe def cli : CliM UInt32 := do
       else throw <| Lake.CliError.unexpectedArguments arguments.toList
     else
       match arguments.toList with
-      | ["search", pattern] => pure (some (.search pattern))
       | "cache" :: modules => pure (some (.cache <| modules.toArray.map (·.toName)))
-      | [name] => pure (some (.query name))
+      | [pattern] => pure (some (.lookup pattern))
       | arguments => throw <| Lake.CliError.unexpectedArguments arguments
   unsafe execute config command
 
