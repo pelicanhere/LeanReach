@@ -59,14 +59,17 @@ def CachedQuery.moduleOf? (query : CachedQuery) (name : Name) : Option Name :=
     (query.upstream.find? (·.name == name) <|>
       query.downstream.find? (·.name == name)).map (·.moduleName)
 
-def Index.queryNames (index : Index) (query : String) (limits : Limits := {}) :
-    Except String QueryNames := do
-  let target ← index.resolve query
-  return {
+def Index.queryNamesAt (index : Index) (target : Name)
+    (limits : Limits := {}) : QueryNames :=
+  {
     target
     upstream := index.upstream target limits.upstream
     downstream := index.downstream target limits.downstream
   }
+
+def Index.queryNames (index : Index) (query : String) (limits : Limits := {}) :
+    Except String QueryNames := do
+  return index.queryNamesAt (← index.resolve query) limits
 
 def Session.describeNames (session : Session) (items : Array Name) :
     IO (Array Declaration) := do

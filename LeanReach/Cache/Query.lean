@@ -224,7 +224,7 @@ private unsafe def resolveFull (roots : Array Name) (query : String) :
     let some target := target? modules line | continue
     if target.name == name then
       if let some cached := decode modules line then return .ok (some cached)
-    else if !isPrivateName name && privateToUserName target.name == name then
+    else if NameResolve.exactMatch name target.name then
       if let some cached := decode modules line then exact := exact.push cached
     else if name.isAtomic && NameResolve.leafMatches wanted target.name then
       suffix := suffix.push (target, line)

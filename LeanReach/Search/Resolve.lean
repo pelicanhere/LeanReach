@@ -8,6 +8,10 @@ open Lean
 
 universe u v
 
+def exactMatch (query candidate : Name) : Bool :=
+  candidate == query ||
+    (!isPrivateName query && privateToUserName candidate == query)
+
 def leafMatches (query : String) (name : Name) : Bool :=
   (NameSearch.leaf? (privateToUserName name)).any (·.toLower == query)
 
