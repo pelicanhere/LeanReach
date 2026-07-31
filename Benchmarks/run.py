@@ -11,45 +11,36 @@ import time
 from pathlib import Path
 
 
-SESSION_QUERIES = (
-    ("span_eq_bot", "span_eq_bot"),
-    (
-        "rootSet_derivative_subset_convexHull_rootSet",
-        "rootSet_derivative_subset_convexHull_rootSet",
-    ),
-    ("isCompact_convexHull", "isCompact_convexHull"),
-    (
-        "ideal_oper_maxTrivSubmodule_eq_bot",
-        "ideal_oper_maxTrivSubmodule_eq_bot",
-    ),
-    (
-        "spanSingleton_eq_zero_iff",
-        "spanSingleton_eq_zero_iff",
-    ),
-    ("ker_map_of_surjective", "ker_map_of_surjective"),
-    (
-        "krullDimLE_of_isLocalization_maximal",
-        "krullDimLE_of_isLocalization_maximal",
-    ),
-    ("range_asIdeal", "range_asIdeal"),
-    ("coeff_Φ_ne_zero", "coeff_Φ_ne_zero"),
+def exact_queries(*queries: str) -> tuple[tuple[str, str], ...]:
+    return tuple((query, query) for query in queries)
+
+
+SESSION_QUERIES = exact_queries(
+    "span_eq_bot",
+    "rootSet_derivative_subset_convexHull_rootSet",
+    "isCompact_convexHull",
+    "ideal_oper_maxTrivSubmodule_eq_bot",
+    "spanSingleton_eq_zero_iff",
+    "ker_map_of_surjective",
+    "krullDimLE_of_isLocalization_maximal",
+    "range_asIdeal",
+    "coeff_Φ_ne_zero",
 )
 
 PROCESS_QUERIES = (
-    ("isDomain_of_atPrime", "isDomain_of_atPrime"),
-    ("of_finite_maximals", "of_finite_maximals"),
-    ("of_isLocalization_maximal", "of_isLocalization_maximal"),
-    ("natDegree_Φ_le", "natDegree_Φ_le"),
-    ("intermediate_value_Icc", "intermediate_value_Icc"),
-    ("AntitoneOn.image_Icc_subset", "AntitoneOn.image_Icc_subset"),
-    (
+    *exact_queries(
+        "isDomain_of_atPrime",
+        "of_finite_maximals",
+        "of_isLocalization_maximal",
+        "natDegree_Φ_le",
+        "intermediate_value_Icc",
+        "AntitoneOn.image_Icc_subset",
         "rootSet_derivative",
-        "rootSet_derivative",
+        "padicValuation_cast",
+        "surjective_padicValuation",
     ),
-    ("padicValuation_cast", "padicValuation_cast"),
-    ("surjective_padicValuation", "surjective_padicValuation"),
     ("(?i)^.*surject.*padic.*$", "surjective_padicValuation"),
-    ("stationaryPoint_spec", "stationaryPoint_spec"),
+    *exact_queries("stationaryPoint_spec"),
 )
 
 
@@ -143,6 +134,7 @@ def measure_session(
         watchdog.cancel()
         if process.poll() is None:
             process.kill()
+            process.wait()
     return samples
 
 
