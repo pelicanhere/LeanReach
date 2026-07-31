@@ -16,9 +16,6 @@ private abbrev CachedPP := Option PPStamp × NameMap Declaration
 
 private initialize loadedPP : IO.Ref (Std.HashMap String CachedPP) ← IO.mkRef {}
 
-private def loadedKey (path : System.FilePath) (depHash : String) : String :=
-  s!"{path}\u0000{depHash}"
-
 private def ppStamp? (path : System.FilePath) : IO (Option PPStamp) := do
   unless ← path.pathExists do return none
   try
@@ -78,9 +75,7 @@ unsafe def savePPModule (moduleName : Name) (declarations : NameMap Declaration)
 unsafe def mergePPModule (moduleName : Name) (added : NameMap Declaration) :
     IO Unit := do
   let current ← unsafe loadPPModule moduleName
-  unsafe savePPModule moduleName <|
-    added.foldl (init := current) fun current name declaration =>
-      current.insert name declaration
+  unsafe savePPModule moduleName (current.insertMany added)
 
 unsafe def savePP (additions : PPBatch) : IO Unit := do
   for (moduleName, added) in additions do

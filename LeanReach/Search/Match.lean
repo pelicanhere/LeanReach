@@ -13,9 +13,6 @@ def leaf? : Name → Option String
   | .str _ value => some value
   | _ => none
 
-def normalizedName (name : Name) : String :=
-  (privateToUserName name).toString.toLower
-
 def exactMatch (query candidate : Name) : Bool :=
   candidate == query ||
     (!isPrivateName query && privateToUserName candidate == query)

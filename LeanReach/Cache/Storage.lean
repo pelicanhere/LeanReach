@@ -29,6 +29,9 @@ def savePart {α : Type} (path : System.FilePath) (depHash : String)
 def saveBytes (path : System.FilePath) (value : ByteArray) : IO Unit :=
   writeAtomically path fun temp => IO.FS.writeBinFile temp value
 
+def loadedKey (path : System.FilePath) (depHash : String) : String :=
+  s!"{path}\u0000{depHash}"
+
 unsafe def loadPart (α : Type) (path : System.FilePath) (depHash : String) :
     IO (Option α) := do
   unless ← path.pathExists do return none

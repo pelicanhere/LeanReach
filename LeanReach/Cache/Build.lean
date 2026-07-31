@@ -17,12 +17,6 @@ private def parallelism : IO Nat := do
   let some workers := value.toNat? | return 4
   return max 1 (min workers 32)
 
-private unsafe def saveModule (moduleName : Name) (added : NameMap Declaration) :
-    IO (Nat × Nat) := do
-  let started ← IO.monoNanosNow
-  unsafe Cache.mergePPModule moduleName added
-  return (added.size, (← IO.monoNanosNow) - started)
-
 private unsafe def addMissingInput (inputs : Array Input)
     (moduleName : Name) (names : Array Name) : IO (Array Input) := do
   let before ← unsafe Cache.loadPPModule moduleName
@@ -48,8 +42,11 @@ private unsafe def worker (sourcePath : SearchPath) (env : Environment)
     let result ← try
       let (added, timing) ← unsafe prettyPrintModuleIO
         sourcePath env moduleName names moduleOf?
-      let (count, writeNanos) ← unsafe saveModule moduleName added
-      pure <| .ok (count, { timing with sidecarWriteNanos := writeNanos })
+      let started ← IO.monoNanosNow
+      unsafe Cache.mergePPModule moduleName added
+      pure <| .ok (added.size, {
+        timing with sidecarWriteNanos := (← IO.monoNanosNow) - started
+      })
     catch error => pure (.error error)
     let slot ← finished.modifyGet fun slot => (slot, slot + 1)
     let some output := outputs[slot]? | unreachable!

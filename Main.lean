@@ -77,13 +77,11 @@ An exact declaration name shows dependencies; every other pattern is a regex sea
 Interactive mode applies the same rule to each input line.
 "
 
-private def location (declaration : Declaration) : String :=
-  s!"{declaration.file.getD declaration.moduleName}:{declaration.line}:{declaration.column}"
-
 private def printDeclaration (indent : String) (declaration : Declaration) : IO Unit := do
   let continuation := String.ofList (List.replicate indent.length ' ')
   IO.println <| indent ++ declaration.signature.replace "\n" ("\n" ++ continuation)
-  IO.println s!"{indent}  {location declaration}"
+  IO.println s!"{indent}  {declaration.file.getD declaration.moduleName}:\
+    {declaration.line}:{declaration.column}"
 
 private def printRelated (label : String) (items : Array Declaration) : IO Unit := do
   IO.println s!"{label} ({items.size})"

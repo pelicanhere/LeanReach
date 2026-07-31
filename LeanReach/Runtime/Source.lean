@@ -41,7 +41,7 @@ unsafe def moduleSource (sourcePath : SearchPath) (env : Environment)
   let mut positions ← unsafe rangePositions env names
   let missing := names.filter fun name => !positions.contains name
   unless missing.isEmpty do
-    let wanted := missing.foldl (init := ({} : NameHashSet)) (·.insert ·)
+    let wanted : NameHashSet := Std.HashSet.ofArray missing
     if let some ilean ← loadIlean? (← findOLean moduleName) then
       positions := foldDefinitions ilean positions fun positions name position =>
         if wanted.contains name then positions.insert name position else positions

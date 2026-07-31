@@ -1188,7 +1188,16 @@
 <circle cx="1074.2" cy="344.4" r="2.2" fill="#16a34a" fill-opacity=".42"><title>cleanup-1 · leanreach_session: 2.696 ms</title></circle>
 <circle cx="1074.9" cy="306.7" r="2.2" fill="#16a34a" fill-opacity=".42"><title>cleanup-1 · leanreach_session: 10.601 ms</title></circle>
 <circle cx="1075.5" cy="299.6" r="2.2" fill="#16a34a" fill-opacity=".42"><title>cleanup-1 · leanreach_session: 13.744 ms</title></circle>
-<rect x="1071.9" y="315.1" width="6" height="6" fill="#16a34a"><title>median: 7.011 ms</title></rect>
+<circle cx="1076.2" cy="283.7" r="2.2" fill="#16a34a" fill-opacity=".42"><title>cleanup-1 · leanreach_session: 24.515 ms</title></circle>
+<circle cx="1073.6" cy="282.4" r="2.2" fill="#16a34a" fill-opacity=".42"><title>cleanup-1 · leanreach_session: 25.667 ms</title></circle>
+<circle cx="1074.2" cy="275.3" r="2.2" fill="#16a34a" fill-opacity=".42"><title>cleanup-1 · leanreach_session: 33.185 ms</title></circle>
+<circle cx="1074.9" cy="274.7" r="2.2" fill="#16a34a" fill-opacity=".42"><title>cleanup-1 · leanreach_session: 34.007 ms</title></circle>
+<circle cx="1075.5" cy="273.0" r="2.2" fill="#16a34a" fill-opacity=".42"><title>cleanup-1 · leanreach_session: 36.131 ms</title></circle>
+<circle cx="1076.2" cy="276.8" r="2.2" fill="#16a34a" fill-opacity=".42"><title>cleanup-1 · leanreach_session: 31.474 ms</title></circle>
+<circle cx="1073.6" cy="279.5" r="2.2" fill="#16a34a" fill-opacity=".42"><title>cleanup-1 · leanreach_session: 28.521 ms</title></circle>
+<circle cx="1074.2" cy="276.9" r="2.2" fill="#16a34a" fill-opacity=".42"><title>cleanup-1 · leanreach_session: 31.354 ms</title></circle>
+<circle cx="1074.9" cy="275.8" r="2.2" fill="#16a34a" fill-opacity=".42"><title>cleanup-1 · leanreach_session: 32.607 ms</title></circle>
+<rect x="1071.9" y="284.3" width="6" height="6" fill="#16a34a"><title>median: 21.517 ms</title></rect>
 <circle cx="1078.6" cy="219.5" r="2.2" fill="#f97316" fill-opacity=".42"><title>cleanup-1 · rg_session: 252.818 ms</title></circle>
 <circle cx="1079.2" cy="220.7" r="2.2" fill="#f97316" fill-opacity=".42"><title>cleanup-1 · rg_session: 242.306 ms</title></circle>
 <circle cx="1079.9" cy="220.2" r="2.2" fill="#f97316" fill-opacity=".42"><title>cleanup-1 · rg_session: 246.253 ms</title></circle>
@@ -1198,7 +1207,16 @@
 <circle cx="1079.2" cy="219.7" r="2.2" fill="#f97316" fill-opacity=".42"><title>cleanup-1 · rg_session: 250.797 ms</title></circle>
 <circle cx="1079.9" cy="219.5" r="2.2" fill="#f97316" fill-opacity=".42"><title>cleanup-1 · rg_session: 252.695 ms</title></circle>
 <circle cx="1080.5" cy="221.4" r="2.2" fill="#f97316" fill-opacity=".42"><title>cleanup-1 · rg_session: 235.706 ms</title></circle>
-<rect x="1076.9" y="216.7" width="6" height="6" fill="#f97316"><title>median: 250.556 ms</title></rect>
+<circle cx="1081.2" cy="218.2" r="2.2" fill="#f97316" fill-opacity=".42"><title>cleanup-1 · rg_session: 264.886 ms</title></circle>
+<circle cx="1078.6" cy="222.5" r="2.2" fill="#f97316" fill-opacity=".42"><title>cleanup-1 · rg_session: 226.229 ms</title></circle>
+<circle cx="1079.2" cy="219.3" r="2.2" fill="#f97316" fill-opacity=".42"><title>cleanup-1 · rg_session: 254.921 ms</title></circle>
+<circle cx="1079.9" cy="222.4" r="2.2" fill="#f97316" fill-opacity=".42"><title>cleanup-1 · rg_session: 227.086 ms</title></circle>
+<circle cx="1080.5" cy="220.8" r="2.2" fill="#f97316" fill-opacity=".42"><title>cleanup-1 · rg_session: 240.690 ms</title></circle>
+<circle cx="1081.2" cy="219.9" r="2.2" fill="#f97316" fill-opacity=".42"><title>cleanup-1 · rg_session: 248.692 ms</title></circle>
+<circle cx="1078.6" cy="221.0" r="2.2" fill="#f97316" fill-opacity=".42"><title>cleanup-1 · rg_session: 239.518 ms</title></circle>
+<circle cx="1079.2" cy="220.0" r="2.2" fill="#f97316" fill-opacity=".42"><title>cleanup-1 · rg_session: 247.982 ms</title></circle>
+<circle cx="1079.9" cy="215.3" r="2.2" fill="#f97316" fill-opacity=".42"><title>cleanup-1 · rg_session: 294.633 ms</title></circle>
+<rect x="1076.9" y="217.0" width="6" height="6" fill="#f97316"><title>median: 248.337 ms</title></rect>
 <circle cx="1083.6" cy="223.4" r="2.2" fill="#2563eb" fill-opacity=".42"><title>cleanup-1 · leanreach_process: 219.706 ms</title></circle>
 <circle cx="1084.2" cy="221.1" r="2.2" fill="#2563eb" fill-opacity=".42"><title>cleanup-1 · leanreach_process: 238.039 ms</title></circle>
 <circle cx="1084.9" cy="223.2" r="2.2" fill="#2563eb" fill-opacity=".42"><title>cleanup-1 · leanreach_process: 220.653 ms</title></circle>
@@ -1209,7 +1227,18 @@
 <circle cx="1084.9" cy="223.9" r="2.2" fill="#2563eb" fill-opacity=".42"><title>cleanup-1 · leanreach_process: 215.245 ms</title></circle>
 <circle cx="1085.5" cy="224.4" r="2.2" fill="#2563eb" fill-opacity=".42"><title>cleanup-1 · leanreach_process: 211.324 ms</title></circle>
 <circle cx="1086.2" cy="220.9" r="2.2" fill="#2563eb" fill-opacity=".42"><title>cleanup-1 · leanreach_process: 239.825 ms</title></circle>
-<rect x="1081.9" y="218.4" width="6" height="6" fill="#2563eb"><title>median: 235.546 ms</title></rect>
+<circle cx="1083.6" cy="207.3" r="2.2" fill="#2563eb" fill-opacity=".42"><title>cleanup-1 · leanreach_process: 393.395 ms</title></circle>
+<circle cx="1084.2" cy="208.6" r="2.2" fill="#2563eb" fill-opacity=".42"><title>cleanup-1 · leanreach_process: 375.031 ms</title></circle>
+<circle cx="1084.9" cy="205.7" r="2.2" fill="#2563eb" fill-opacity=".42"><title>cleanup-1 · leanreach_process: 417.672 ms</title></circle>
+<circle cx="1085.5" cy="207.1" r="2.2" fill="#2563eb" fill-opacity=".42"><title>cleanup-1 · leanreach_process: 396.809 ms</title></circle>
+<circle cx="1086.2" cy="192.7" r="2.2" fill="#2563eb" fill-opacity=".42"><title>cleanup-1 · leanreach_process: 670.265 ms</title></circle>
+<circle cx="1083.6" cy="209.0" r="2.2" fill="#2563eb" fill-opacity=".42"><title>cleanup-1 · leanreach_process: 369.552 ms</title></circle>
+<circle cx="1084.2" cy="208.1" r="2.2" fill="#2563eb" fill-opacity=".42"><title>cleanup-1 · leanreach_process: 382.638 ms</title></circle>
+<circle cx="1084.9" cy="208.9" r="2.2" fill="#2563eb" fill-opacity=".42"><title>cleanup-1 · leanreach_process: 371.035 ms</title></circle>
+<circle cx="1085.5" cy="205.2" r="2.2" fill="#2563eb" fill-opacity=".42"><title>cleanup-1 · leanreach_process: 425.200 ms</title></circle>
+<circle cx="1086.2" cy="203.7" r="2.2" fill="#2563eb" fill-opacity=".42"><title>cleanup-1 · leanreach_process: 449.062 ms</title></circle>
+<circle cx="1083.6" cy="206.1" r="2.2" fill="#2563eb" fill-opacity=".42"><title>cleanup-1 · leanreach_process: 410.841 ms</title></circle>
+<rect x="1081.9" y="206.0" width="6" height="6" fill="#2563eb"><title>median: 369.552 ms</title></rect>
 <circle cx="1088.6" cy="204.9" r="2.2" fill="#dc2626" fill-opacity=".42"><title>cleanup-1 · rg_process: 430.274 ms</title></circle>
 <circle cx="1089.2" cy="220.2" r="2.2" fill="#dc2626" fill-opacity=".42"><title>cleanup-1 · rg_process: 246.518 ms</title></circle>
 <circle cx="1089.9" cy="217.8" r="2.2" fill="#dc2626" fill-opacity=".42"><title>cleanup-1 · rg_process: 269.231 ms</title></circle>
@@ -1220,7 +1249,18 @@
 <circle cx="1089.9" cy="222.0" r="2.2" fill="#dc2626" fill-opacity=".42"><title>cleanup-1 · rg_process: 230.693 ms</title></circle>
 <circle cx="1090.5" cy="216.2" r="2.2" fill="#dc2626" fill-opacity=".42"><title>cleanup-1 · rg_process: 285.231 ms</title></circle>
 <circle cx="1091.2" cy="222.2" r="2.2" fill="#dc2626" fill-opacity=".42"><title>cleanup-1 · rg_process: 229.239 ms</title></circle>
-<rect x="1086.9" y="217.6" width="6" height="6" fill="#dc2626"><title>median: 243.236 ms</title></rect>
+<circle cx="1088.6" cy="222.8" r="2.2" fill="#dc2626" fill-opacity=".42"><title>cleanup-1 · rg_process: 224.445 ms</title></circle>
+<circle cx="1089.2" cy="217.0" r="2.2" fill="#dc2626" fill-opacity=".42"><title>cleanup-1 · rg_process: 276.661 ms</title></circle>
+<circle cx="1089.9" cy="216.2" r="2.2" fill="#dc2626" fill-opacity=".42"><title>cleanup-1 · rg_process: 284.545 ms</title></circle>
+<circle cx="1090.5" cy="218.6" r="2.2" fill="#dc2626" fill-opacity=".42"><title>cleanup-1 · rg_process: 260.705 ms</title></circle>
+<circle cx="1091.2" cy="220.0" r="2.2" fill="#dc2626" fill-opacity=".42"><title>cleanup-1 · rg_process: 247.951 ms</title></circle>
+<circle cx="1088.6" cy="220.5" r="2.2" fill="#dc2626" fill-opacity=".42"><title>cleanup-1 · rg_process: 243.620 ms</title></circle>
+<circle cx="1089.2" cy="219.6" r="2.2" fill="#dc2626" fill-opacity=".42"><title>cleanup-1 · rg_process: 252.100 ms</title></circle>
+<circle cx="1089.9" cy="221.2" r="2.2" fill="#dc2626" fill-opacity=".42"><title>cleanup-1 · rg_process: 237.455 ms</title></circle>
+<circle cx="1090.5" cy="215.8" r="2.2" fill="#dc2626" fill-opacity=".42"><title>cleanup-1 · rg_process: 289.112 ms</title></circle>
+<circle cx="1091.2" cy="221.0" r="2.2" fill="#dc2626" fill-opacity=".42"><title>cleanup-1 · rg_process: 239.157 ms</title></circle>
+<circle cx="1088.6" cy="221.6" r="2.2" fill="#dc2626" fill-opacity=".42"><title>cleanup-1 · rg_process: 233.980 ms</title></circle>
+<rect x="1086.9" y="217.2" width="6" height="6" fill="#dc2626"><title>median: 246.518 ms</title></rect>
 <circle cx="1098.4" cy="310.7" r="2.2" fill="#16a34a" fill-opacity=".42"><title>cleanup-2 · leanreach_session: 9.164 ms</title></circle>
 <circle cx="1099.0" cy="344.6" r="2.2" fill="#16a34a" fill-opacity=".42"><title>cleanup-2 · leanreach_session: 2.673 ms</title></circle>
 <circle cx="1099.7" cy="346.4" r="2.2" fill="#16a34a" fill-opacity=".42"><title>cleanup-2 · leanreach_session: 2.503 ms</title></circle>

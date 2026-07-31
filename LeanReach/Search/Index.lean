@@ -46,7 +46,8 @@ def buildFrom (byName : Declarations) : Index := Id.run do
     entries := entries.push { name, moduleName }
     ids := ids.insert name id
     let mut seen : Std.HashSet String := {}
-    for trigram in NameSearch.trigrams (NameSearch.normalizedName name) do
+    for trigram in NameSearch.trigrams
+        ((privateToUserName name).toString.toLower) do
       unless seen.contains trigram do
         seen := seen.insert trigram
         trigramIndex := trigramIndex.upsert trigram fun ids =>
@@ -175,10 +176,6 @@ def modules (index : Index) : Array Name := Id.run do
       seen := seen.insert entry.moduleName
       modules := modules.push entry.moduleName
   return modules
-
-def declarationsByModule (index : Index) : NameMap (Array Name) :=
-  index.entries.foldl (init := {}) fun modules entry =>
-    modules.alter entry.moduleName fun names => some ((names.getD #[]).push entry.name)
 
 end Index
 end LeanReach

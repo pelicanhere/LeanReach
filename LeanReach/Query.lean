@@ -21,10 +21,8 @@ structure Session where
 def Session.create (sourcePath : SearchPath) : IO Session :=
   return { sourcePath, declarations := ← IO.mkRef {} }
 
-def Session.merge (session : Session) (declarations : NameMap Declaration) : IO Unit := do
-  session.declarations.modify fun current =>
-    declarations.foldl (init := current) fun current name declaration =>
-      current.insert name declaration
+def Session.merge (session : Session) (declarations : NameMap Declaration) : IO Unit :=
+  session.declarations.modify (·.insertMany declarations)
 
 def Session.missing (session : Session) (names : Array Name) : IO (Array Name) := do
   let cached ← session.declarations.get

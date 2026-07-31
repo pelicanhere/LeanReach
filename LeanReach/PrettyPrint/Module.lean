@@ -19,8 +19,7 @@ unsafe def prettyPrintModuleIO (sourcePath : SearchPath) (env : Environment)
     let (bodies, signatureOverlay) ←
       unsafe runCore env (MetaM.run' (prettyPrintPlan names))
     let planNanos := (← IO.monoNanosNow) - planStarted
-    let bodySet := bodies.foldl (init := ({} : NameHashSet))
-      fun result name => result.insert name
+    let bodySet : NameHashSet := Std.HashSet.ofArray bodies
     let action := fun env =>
       unsafe runCore env
         (MetaM.run' (prettyPrintModuleWithBodies moduleName source names bodySet))

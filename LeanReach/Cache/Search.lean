@@ -102,13 +102,9 @@ private def shardPath (roots : Array Name) (olean : System.FilePath) (id : Nat) 
 private def shard (trigram : String) : Nat :=
   (hash trigram % UInt64.ofNat shardCount).toNat
 
-private def viewKey (roots : Array Name) (olean : System.FilePath)
-    (depHash : String) : String :=
-  s!"{markerPath roots olean}\u0000{depHash}"
-
 private def loadView (roots : Array Name) (olean : System.FilePath)
     (depHash : String) : IO View := do
-  let key := viewKey roots olean depHash
+  let key := Cache.loadedKey (markerPath roots olean) depHash
   if let some view := (← viewCache.get).get? key then return view
   let view := {
     roots, olean, depHash
@@ -234,11 +230,6 @@ unsafe def build (roots : Array Name) (index : Index) : IO Nat := do
   IO.FS.writeFile (markerPath roots olean) depHash
   return entries.size
 
-private def findPatternMatches (table : Table) (size : Nat)
-    (idAt : Nat → UInt32) (pattern : SearchPattern)
-    (limit : Nat) : Array LocatedName :=
-  pattern.collect size idAt table.locatedAt? (·.name) limit
-
 unsafe def search (roots : Array Name) (pattern : SearchPattern)
     (limit : Nat) : IO (Option (Array LocatedName)) := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
@@ -247,8 +238,8 @@ unsafe def search (roots : Array Name) (pattern : SearchPattern)
   let view ← loadView roots olean depHash
   let findAll := do
     let some table ← unsafe loadViewTable view | return none
-    return some (findPatternMatches table table.size
-      (fun id => id.toUInt32) pattern limit)
+    return some (pattern.collect table.size (fun id => id.toUInt32)
+      table.locatedAt? (·.name) limit)
   match pattern.candidatePlan with
   | .all => findAll
   | .empty => return some #[]
@@ -266,7 +257,7 @@ unsafe def search (roots : Array Name) (pattern : SearchPattern)
         ids := SearchPattern.mergeSortedIds ids candidates
       if ids.isEmpty then return some #[]
       let some table ← unsafe loadViewTable view | return none
-      return some (findPatternMatches table ids.size
-        (fun id => ids[id]!) pattern limit)
+      return some (pattern.collect ids.size (fun id => ids[id]!)
+        table.locatedAt? (·.name) limit)
 
 end LeanReach.SearchCache
