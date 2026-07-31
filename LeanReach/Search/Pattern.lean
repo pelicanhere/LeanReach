@@ -182,11 +182,10 @@ private partial def foldCaseInsensitiveClasses : Ast → StateM (Bool × Bool) A
   | .classes classes => do
       let (caseInsensitive, _) ← get
       if caseInsensitive then
-        modify fun state => (state.1, true)
         return .classes (caseFoldClasses classes)
       return .classes classes
   | .flags enabled => do
-      modify fun state => (enabled, state.2)
+      modify fun state => (enabled, state.2 || enabled)
       return .flags enabled
   | ast => return ast
 
@@ -277,20 +276,11 @@ private def requiredRuns (ast : Ast) : Option (Array (Array String)) :=
     | .perl _
     | .dot => some #[#[""]]
 
-private def enablesCaseInsensitive : Ast → Bool
-  | .flags enabled => enabled
-  | .group child
-  | .repeat _ _ _ child => enablesCaseInsensitive child
-  | .alternate left right
-  | .concat left right => enablesCaseInsensitive left || enablesCaseInsensitive right
-  | _ => false
-
-private def candidatePlanFor (ast : Ast) : CandidatePlan :=
+private def candidatePlanFor (ast : Ast) (caseInsensitive : Bool) : CandidatePlan :=
   match requiredRuns ast with
   | none => .all
   | some alternatives => Id.run do
     if alternatives.isEmpty then return .empty
-    let caseInsensitive := enablesCaseInsensitive ast
     let mut postingAlternatives := #[]
     for literals in alternatives do
       let mut grams := #[]
@@ -310,11 +300,12 @@ def compileRegex (source : String) : Except String SearchPattern := do
     | .ok ast => pure ast
     | .error error => throw s!"invalid regex: {error}"
   discard <| astCost ast
-  let (ast, _, changed) := (foldCaseInsensitiveClasses ast).run (false, false)
-  if changed then discard <| astCost ast
+  let (ast, _, caseInsensitive) :=
+    (foldCaseInsensitiveClasses ast).run (false, false)
+  if caseInsensitive then discard <| astCost ast
   return {
     compiled := Regex.fromExpr (Ast.toRegex (.group ast))
-    candidates := candidatePlanFor ast
+    candidates := candidatePlanFor ast caseInsensitive
   }
 
 def candidatePlan (pattern : SearchPattern) : CandidatePlan :=
@@ -336,35 +327,26 @@ def CandidatePlan.select (plan : CandidatePlan)
       return if selected.isEmpty then .empty else .postings selected
   | plan => plan
 
-/-- Unions sorted, duplicate-free declaration ID arrays. -/
-def unionIds (left right : Array UInt32) : Array UInt32 := Id.run do
+/-- Merges sorted, duplicate-free declaration ID arrays. -/
+def mergeSortedIds (left right : Array UInt32) : Array UInt32 := Id.run do
   if left.isEmpty then return right
   if right.isEmpty then return left
   let mut result := #[]
   let mut i := 0
   let mut j := 0
-  while i < left.size || j < right.size do
-    let value ← if h : i < left.size then
-      if h' : j < right.size then
-        let a := left[i]
-        let b := right[j]
-        if a ≤ b then
-          i := i + 1
-          if a == b then j := j + 1
-          pure a
-        else
-          j := j + 1
-          pure b
-      else
-        let a := left[i]
+  while hi : i < left.size do
+    if hj : j < right.size then
+      let a := left[i]
+      let b := right[j]
+      if a < b then
+        result := result.push a
         i := i + 1
-        pure a
-    else
-      let b := right[j]!
-      j := j + 1
-      pure b
-    unless result.back? == some value do result := result.push value
-  return result
+      else
+        result := result.push b
+        j := j + 1
+        if a == b then i := i + 1
+    else break
+  return result ++ left.extract i left.size ++ right.extract j right.size
 
 def isMatch (pattern : SearchPattern) (name : Name) : Bool :=
   pattern.compiled.test (privateToUserName name).toString

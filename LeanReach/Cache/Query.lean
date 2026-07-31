@@ -235,11 +235,6 @@ private unsafe def loadShard (roots : Array Name) (name : Name) :
   unless ← ready olean depHash do return none
   readShard (shardPath olean (shard name))
 
-private def localSearchMatches (overlay : QueryOverlay.Data)
-    (pattern : SearchPattern) (limit : Nat) : Array LocatedName :=
-  pattern.collect overlay.localNames.size (fun id => overlay.localNames[id]!)
-    some (·.name) limit
-
 private def mergeResults {α : Type} (nameOf : α → Name)
     (localResults baseResults : Array α) (limit : Nat) : Array α := Id.run do
   let mut byName : NameMap α := {}
@@ -293,6 +288,8 @@ unsafe def search (roots : Array Name) (pattern : SearchPattern)
   let some base ← unsafe SearchCache.search #[overlay.baseRoot] pattern limit |
     return none
   return some <| mergeResults (·.name)
-    (localSearchMatches overlay pattern limit) base limit
+    (pattern.collect overlay.localNames.size
+      (fun id => overlay.localNames[id]!) some (·.name) limit)
+    base limit
 
 end LeanReach.QueryCache

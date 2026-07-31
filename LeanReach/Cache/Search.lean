@@ -213,7 +213,7 @@ unsafe def search (roots : Array Name) (pattern : SearchPattern)
         let some gram := grams[0]? | continue
         let some postings ← unsafe loadPostings view (shard gram) | return none
         let candidates := (postings.find? gram).map unpackIds |>.getD #[]
-        ids := SearchPattern.unionIds ids candidates
+        ids := SearchPattern.mergeSortedIds ids candidates
       if ids.isEmpty then return some #[]
       let some table ← unsafe loadTable view | return none
       return some (findPatternMatches table ids.size

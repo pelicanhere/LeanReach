@@ -154,7 +154,7 @@ def Index.search (index : Index) (pattern : SearchPattern)
     | .postings alternatives =>
       let ids := alternatives.foldl (init := #[]) fun ids grams =>
         let candidates := grams[0]? >>= index.trigrams.find? |>.getD #[]
-        SearchPattern.unionIds ids candidates
+        SearchPattern.mergeSortedIds ids candidates
       pattern.collect ids.size (fun id => ids[id]!)
         (fun id => index.entries[id.toNat]?) (·.name) limit |>.map (·.name)
     | .all => index.searchAll pattern limit

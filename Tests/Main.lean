@@ -91,9 +91,9 @@ private unsafe def runTests : IO Unit := do
       String.ofList (List.replicate 130 ']')
   check (SearchPattern.compileRegex deeplyNestedClass |>.toOption |>.isNone)
     "deeply nested regex character class was accepted"
-  check (SearchPattern.unionIds #[] #[1, 2] == #[1, 2] &&
-      SearchPattern.unionIds #[1, 2] #[] == #[1, 2] &&
-      SearchPattern.unionIds #[1, 2, 4] #[2, 3, 4] == #[1, 2, 3, 4])
+  check (SearchPattern.mergeSortedIds #[] #[1, 2] == #[1, 2] &&
+      SearchPattern.mergeSortedIds #[1, 2] #[] == #[1, 2] &&
+      SearchPattern.mergeSortedIds #[1, 2, 4] #[2, 3, 4] == #[1, 2, 3, 4])
     "sorted posting union changed ordering or deduplication"
   let selectedPlan := SearchPattern.CandidatePlan.postings #[
     #["abc"], #["abc", "def"]

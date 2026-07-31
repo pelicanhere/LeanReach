@@ -75,7 +75,7 @@ inductive LookupNames where
   | query (names : QueryNames)
   | search (names : Array Name)
 
-def LookupNames.all : LookupNames → Array Name
+private def LookupNames.all : LookupNames → Array Name
   | .query names => names.all
   | .search names => names
 

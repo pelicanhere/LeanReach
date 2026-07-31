@@ -107,18 +107,12 @@ private def printSearch (json : Bool) (query : String) (items : Array Declaratio
     for declaration in items do
       printDeclaration "  " declaration
 
-private def printQueryNames (config : Config) (session : Session)
-    (names : QueryNames) : IO Unit := do
-  printQuery config.json (← session.describeQuery names)
-
-private def printSearchNames (config : Config) (pattern : String)
-    (session : Session) (names : Array Name) : IO Unit := do
-  printSearch config.json pattern (← session.describeNames names)
-
 private def printLookupNames (config : Config) (pattern : String)
     (session : Session) : LookupNames → IO Unit
-  | .query names => printQueryNames config session names
-  | .search names => printSearchNames config pattern session names
+  | .query names => do
+    printQuery config.json (← session.describeQuery names)
+  | .search names => do
+    printSearch config.json pattern (← session.describeNames names)
 
 private def Config.limits (config : Config) : Limits :=
   config.limit?.map Limits.uniform |>.getD {}
@@ -150,9 +144,6 @@ private def profiled {α : Type} (enabled : Bool) (label : String)
   finally
     report
 
-private def parseLine (line : String) : Command :=
-  .lookup line
-
 private def chompLine (line : String) : String :=
   let line := (line.dropSuffix? "\n").map (·.copy) |>.getD line
   (line.dropSuffix? "\r").map (·.copy) |>.getD line
@@ -164,14 +155,10 @@ private def runInteractive (session : Session) (runner : InteractiveRunner)
   while true do
     let line := chompLine (← stdin.getLine)
     if line.trimAscii.isEmpty then break
-    let command := parseLine line
     profiled config.profile "lookup" do
       try
-        match command with
-        | .lookup pattern =>
-          runner pattern config.limits
-            (printLookupNames config pattern session)
-        | .cache _ => unreachable!
+        runner line config.limits
+          (printLookupNames config line session)
       catch error =>
         let message := toString error
         if config.json then
