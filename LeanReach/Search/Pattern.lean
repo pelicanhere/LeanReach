@@ -1,8 +1,6 @@
-module
-
-public import LeanReach.Search.Match
-public import Regex
-import all Regex.Syntax.Parser.Basic
+import LeanReach.Search.Match
+import Regex
+import Regex.Syntax.Parser.Basic
 import Regex.Unicode.CaseFold
 import Std.Data.HashSet
 

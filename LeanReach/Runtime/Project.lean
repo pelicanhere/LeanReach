@@ -73,52 +73,17 @@ private def saveCached (path sysroot : FilePath) (layout : Layout)
     ("stamps", toJson stamps)
   ]).compress
 
-private def localizeEntry (workspace : Workspace) (packagesDir : FilePath)
-    (entry : PackageEntry) : IO PackageEntry := do
-  let dir ← match entry.src with
-    | .path dir => pure dir
-    | .git (subDir? := subDir?) .. => do
-      let gitDir := packagesDir / entry.dirName
-      pure <| subDir?.map (gitDir / ·) |>.getD gitDir
-  let packageDir := workspace.dir / dir
-  unless ← packageDir.isDir do
-    throw <| IO.userError
-      s!"dependency '{entry.name}' is not materialized at '{packageDir}'; run `lake update`"
-  unless ← configFileExists (packageDir / entry.configFile) do
-    throw <| IO.userError s!"dependency '{entry.name}' has no Lake config at '{packageDir}'"
-  return { entry with src := .path dir }
-
-private def localOverrides (workspace : Workspace) (manifest : Manifest) :
-    IO (Array PackageEntry) := do
-  let overrides ← Manifest.tryLoadEntries workspace.packageOverridesFile
-  let entries : NameMap PackageEntry := ({} : NameMap PackageEntry)
-    |>.insertMany (manifest.packages.map fun entry => (entry.name, entry))
-    |>.insertMany (overrides.map fun entry => (entry.name, entry))
-  let packagesDir := manifest.packagesDir?.getD workspace.relPkgsDir
-  entries.valuesArray.mapM fun entry =>
-    localizeEntry workspace packagesDir entry
-
 private unsafe def loadWorkspace? (dir sysroot : FilePath) :
     IO (Option Workspace) := do
   let lean ← LeanInstall.get sysroot (collocated := true)
   let lake := LakeInstall.ofLean lean
   let .ok lakeEnv ← (Env.compute lake lean (← findElanInstall?)).toBaseIO | return none
   let config : LoadConfig := { lakeEnv, wsDir := dir }
-  let (root?, rootLog) ← (loadWorkspaceRoot config).run? {}
-  let some root := root? | do
-    let message := rootLog.toString.trimAscii.copy
-    throw <| IO.userError <| if message.isEmpty then
-      "could not load the Lake project" else message
-  let some manifest ← Manifest.load? root.manifestFile | do
-    if root.root.depConfigs.isEmpty then return some root
-    throw <| IO.userError "Lake manifest is missing; run `lake update`"
-  let overrides ← localOverrides root manifest
-  let (workspace?, log) ←
-    (root.materializeDeps manifest config.leanOpts config.reconfigure overrides).run?
+  let (workspace?, log) ← (loadWorkspace config).captureLog
   let some workspace := workspace? | do
     let message := log.toString.trimAscii.copy
     throw <| IO.userError <| if message.isEmpty then
-      "could not resolve the existing Lake workspace" else message
+      "could not load the Lake project" else message
   return some workspace
 
 private unsafe def workspaceLayout (workspace : Workspace) : IO Layout := do

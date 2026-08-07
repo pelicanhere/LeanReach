@@ -119,7 +119,7 @@ unsafe def buildPPRoots (roots : Array Name)
     else pure none
   unless queryReady do discard <| unsafe QueryCache.build roots
   if ppReady then return (0, {})
-  let (inputs, moduleOf?) : Array Input × (Name → Option Name) ←
+  let (inputs, moduleOf?) ←
     if completed.isEmpty then
       let some table ← unsafe SearchCache.loadTable roots |
         throw <| IO.userError "declaration table is unavailable"

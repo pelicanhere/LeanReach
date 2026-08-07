@@ -72,7 +72,9 @@ private def prettyPrintConstant (cache : SignatureCache) (name : Name)
   )
 
 private def needsBody (info : ConstantInfo) : MetaM Bool := do
-  if info.isTheorem then return false
+  if match info with
+    | .thmInfo _ => true
+    | _ => false then return false
   if ← try isProp info.type catch _ => pure false then return false
   return info.value? (allowOpaque := true) |>.isSome
 

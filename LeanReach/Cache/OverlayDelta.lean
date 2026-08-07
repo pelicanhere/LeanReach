@@ -154,7 +154,8 @@ private unsafe def changedModules (manifest : Manifest) :
     let mut current : NameMap ModuleState := {}
     let mut removed := #[]
     let mut added := #[]
-    while let some moduleName := pending.back? do
+    while pending.size > 0 do
+      let moduleName := pending.back!
       pending := pending.pop
       let olean ← findOLean moduleName
       let some outputHash ← Cache.oleanHash? olean | return none

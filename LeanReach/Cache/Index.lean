@@ -24,7 +24,8 @@ private def collapseInternal (internal : NameMap NameSet) (dependencies : NameSe
     for dependency in dependencies do pending := pending.push dependency
     let mut seen : NameHashSet := {}
     let mut result : NameSet := {}
-    while let some name := pending.back? do
+    while pending.size > 0 do
+      let name := pending.back!
       pending := pending.pop
       unless seen.contains name do
         seen := seen.insert name
@@ -100,8 +101,8 @@ private unsafe def foldClosure {α : Type} (roots : Array Name)
       pending := pending.push root
   while !pending.isEmpty do
     let mut batch := #[]
-    while batch.size < 32 do
-      let some moduleName := pending.back? | break
+    while batch.size < 32 && pending.size > 0 do
+      let moduleName := pending.back!
       pending := pending.pop
       batch := batch.push moduleName
     let tasks ← batch.mapM fun moduleName =>

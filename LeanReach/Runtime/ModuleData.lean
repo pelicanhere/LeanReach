@@ -43,11 +43,12 @@ unsafe def withPrivateOverlay {α : Type} (env : Environment) (moduleName : Name
       signatureNames.map (·, moduleName, false) ++
       bodyNames.map (·, moduleName, true)
     let mut seen : NameHashSet := {}
-    while let some (name, owner, scanValue) := pending.back? do
+    while pending.size > 0 do
+      let (name, owner, scanValue) := pending.back!
       pending := pending.pop
       if seen.contains name then continue
       seen := seen.insert name
-      let constants ← match modules.find? owner with
+      let constants ← match modules.get? owner with
         | some constants => pure constants
         | none => do
           let (data, loadedRegions) ← unsafe read owner (← findOLean owner)
