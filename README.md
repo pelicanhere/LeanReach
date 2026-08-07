@@ -17,7 +17,7 @@ Add LeanReach to `lakefile.toml`:
 [[require]]
 name = "LeanReach"
 git = "https://github.com/pelicanhere/LeanReach.git"
-rev = "v4.29.0"
+rev = "v4.31.0"
 ```
 
 Then build it and ask Lake for the executable path:
