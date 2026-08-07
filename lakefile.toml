@@ -1,5 +1,5 @@
 name = "LeanReach"
-version = "4.27.0"
+version = "4.28.0"
 description = "Lean-native declaration search and dependency navigation"
 keywords = ["devtool", "cli", "search"]
 license = "Apache-2.0"
@@ -10,7 +10,7 @@ leanOptions.autoImplicit = false
 [[require]]
 name = "Regex"
 git = "https://github.com/pandaman64/lean-regex.git"
-rev = "v4.27.0"
+rev = "v4.28.0"
 subDir = "regex"
 
 [[lean_lib]]
