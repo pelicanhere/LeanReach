@@ -1,6 +1,8 @@
 import LeanReach.Search.Match
+import LeanReach.Search.RegexParser
 import Regex
-import Regex.Syntax.Parser.Basic
+import Regex.Syntax.Ast
+import Regex.Syntax.Parser.Error
 import Regex.Unicode.CaseFold
 import Std.Data.HashSet
 
@@ -12,7 +14,7 @@ open Lean
 
 universe u v
 open Regex.Data (Class Classes)
-open Regex.Syntax.Parser
+open Regex.Syntax.Parser (Ast Error)
 
 namespace SearchPattern
 
@@ -43,6 +45,9 @@ private def maxRepeat := 1024
 private def maxAlternatives := 64
 private def maxLiterals := 256
 private def maxGramsPerAlternative := 64
+
+private def parseAstCompat (source : String) : Except Error Ast :=
+  LeanReach.Search.RegexParser.parseAst source
 
 private def addWithin (limit left right : Nat) : Option Nat :=
   if left ≤ limit && right ≤ limit - left then some (left + right) else none
@@ -294,7 +299,7 @@ private def candidatePlanFor (ast : Ast) (caseInsensitive : Bool) : CandidatePla
 def compileRegex (source : String) : Except String SearchPattern := do
   if source.utf8ByteSize > maxPatternBytes then
     throw s!"regex exceeds the limit of {maxPatternBytes} bytes"
-  let ast ← match parseAst source with
+  let ast ← match parseAstCompat source with
     | .ok ast => pure ast
     | .error error => throw s!"invalid regex: {error}"
   discard <| astCost ast
