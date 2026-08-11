@@ -1,6 +1,7 @@
 import Init.System.Promise
 import LeanReach.Cache.Index
 import LeanReach.Cache.PrettyPrint
+import LeanReach.Cache.Progress
 import LeanReach.Cache.Query
 import LeanReach.PrettyPrint.Module
 import LeanReach.Runtime.Environment
@@ -105,7 +106,7 @@ unsafe def buildPPModules (modules : Array Name) : IO (Nat × PPTiming) := do
 
 /-- Pretty-print every declaration below a root, checkpointing once per defining module. -/
 unsafe def buildPPRoots (roots : Array Name)
-    (progress : Name → Nat → Nat → IO Unit := fun _ _ _ => pure ()) :
+    (progress : Cache.ProgressReporter := Cache.ignoreProgress) :
     IO (Nat × PPTiming) := do
   let sourcePath ← prepareEnvironment
   let ppReady ← unsafe Cache.isFullyPP roots
@@ -132,7 +133,12 @@ unsafe def buildPPRoots (roots : Array Name)
       for (moduleName, declarations) in ← unsafe Cache.moduleClosure roots completed do
         inputs ← unsafe addMissingInput inputs moduleName (declarations.map (·.1))
       pure (inputs, fun _ => none)
-  let report := fun moduleName done => progress moduleName done inputs.size
+  let report := fun moduleName done => progress {
+    phase := .prettyPrinting
+    current := done
+    total? := some inputs.size
+    detail? := some moduleName.toString
+  }
   let (count, timing) ←
     if let some envTask := envTask? then
       let (env, importNanos) ← IO.ofExcept envTask.get

@@ -175,10 +175,13 @@ private unsafe def execute (config : Config) (command : Command) : IO UInt32 := 
     profiled config.profile "cache" do
       if modules.isEmpty then
         let roots ← config.roots true
-        let result ← buildPPRoots roots fun moduleName done total =>
+        let result ← buildPPRoots roots fun progress =>
           unless config.json do
-            if done == total || done % 100 == 0 then
-              IO.eprintln s!"leanreach: pretty-printed modules {done}/{total} ({moduleName})"
+            if progress.phase == .prettyPrinting then
+              let total := progress.total?.getD 0
+              if progress.current == total || progress.current % 100 == 0 then
+                IO.eprintln s!"leanreach: pretty-printed modules \
+                  {progress.current}/{total} ({progress.detail?.getD ""})"
         printPP config roots result
       else
         printPP config modules (← buildPPModules modules)
