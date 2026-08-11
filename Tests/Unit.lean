@@ -5,6 +5,20 @@ namespace LeanReach.Tests.Unit
 open Lean
 
 unsafe def run : IO Unit := do
+  check (({
+      phase := .writingQuery
+      current := 5
+      total? := some 10
+    } : Cache.Progress).render ==
+      "[5/10] Writing query shards")
+    "determinate cache progress changed its counter rendering"
+  check (({
+      phase := .readingModules
+      current := 4
+      detail? := some "Mathlib.Algebra"
+    } : Cache.Progress).render ==
+      "[4/?] Reading modules Mathlib.Algebra")
+    "indeterminate cache progress changed its counter rendering"
   IO.FS.withTempDir fun dir => do
     let path := dir / "cache"
     Cache.savePart path "test" (1 : Nat) `LeanReachTests

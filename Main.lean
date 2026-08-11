@@ -140,6 +140,15 @@ private def profiled {α : Type} (enabled : Bool) (label : String)
   finally
     report
 
+private def withCacheProgress {α : Type} (json : Bool)
+    (action : Cache.ProgressReporter → IO α) : IO α := do
+  if json then return ← action Cache.ignoreProgress
+  let display ← Cache.ProgressDisplay.create
+  try
+    action display.report
+  finally
+    display.finish
+
 private def chompLine (line : String) : String :=
   (line.dropEndWhile fun char => char == '\n' || char == '\r').toString
 
@@ -174,17 +183,21 @@ private unsafe def execute (config : Config) (command : Command) : IO UInt32 := 
   | .cache modules =>
     profiled config.profile "cache" do
       if modules.isEmpty then
-        let roots ← config.roots true
-        let result ← buildPPRoots roots fun progress =>
-          unless config.json do
-            if progress.phase == .prettyPrinting then
-              let total := progress.total?.getD 0
-              if progress.current == total || progress.current % 100 == 0 then
-                IO.eprintln s!"leanreach: pretty-printed modules \
-                  {progress.current}/{total} ({progress.detail?.getD ""})"
+        let (roots, result) ← withCacheProgress config.json fun progress => do
+          progress { phase := .detectingProject, total? := some 1 }
+          let roots ← config.roots true
+          progress {
+            phase := .detectingProject
+            current := 1
+            total? := some 1
+            finished := true
+          }
+          return (roots, ← buildPPRoots roots progress)
         printPP config roots result
       else
-        printPP config modules (← buildPPModules modules)
+        let result ← withCacheProgress config.json fun progress =>
+          buildPPModules modules progress
+        printPP config modules result
   | .lookup pattern =>
     profiled config.profile "lookup" do
       let roots ← config.roots
