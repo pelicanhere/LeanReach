@@ -65,26 +65,16 @@ private unsafe def buildFull (roots : Array Name) (index : Index)
     if start < stop then
       jobs := jobs.push (← IO.asTask <| IO.lazyPure fun _ =>
         buildShards index start stop)
-  progress { phase := .buildingQuery, total? := some jobs.size }
+  progress.count .buildingQuery 0 jobs.size
   let mut shards := Array.replicate shardCount (header depHash)
   for (job, position) in jobs.zipIdx do
     let part ← IO.ofExcept job.get
     for id in [0:shardCount] do
       shards := shards.modify id (· ++ part[id]!)
-    progress {
-      phase := .buildingQuery
-      current := position + 1
-      total? := some jobs.size
-      finished := position + 1 == jobs.size
-    }
+    progress.count .buildingQuery (position + 1) jobs.size
   Cache.saveShards shardCount
     (fun id => Cache.saveBytes (shardPath olean id) shards[id]!)
-    (fun current total => progress {
-      phase := .writingQuery
-      current
-      total? := some total
-      finished := current == total
-    })
+    (fun current total => progress.count .writingQuery current total)
   IO.FS.writeFile (markerPath olean) depHash
   return index.size
 
@@ -156,9 +146,9 @@ unsafe def build (roots : Array Name)
     | none => unsafe baseRoot? roots
   let some baseRoot := baseRoot? | return ← unsafe buildFullCaches roots progress
   let count ← unsafe buildFullCaches #[baseRoot] progress
-  progress { phase := .buildingQuery, total? := some 1 }
+  progress.count .buildingQuery 0 1
   let relations ← unsafe loadRelations roots baseRoot
-  progress { phase := .buildingQuery, current := 1, total? := some 1, finished := true }
+  progress.count .buildingQuery 1 1
   if catalog?.isNone then
     unsafe QueryOverlay.saveCatalog roots relations.catalog
   return max relations.entries.size count

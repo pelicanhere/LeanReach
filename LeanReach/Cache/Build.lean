@@ -99,48 +99,28 @@ unsafe def buildPPModules (modules : Array Name)
   let sourcePath ← prepareEnvironment
   let mut inputs : Array Input := #[]
   let mut seen : NameHashSet := {}
-  progress { phase := .planningPrettyPrint, total? := some modules.size }
+  progress.count .planningPrettyPrint 0 modules.size
   for (moduleName, position) in modules.zipIdx do
     unless seen.contains moduleName do
       seen := seen.insert moduleName
       inputs ← unsafe addMissingInput inputs moduleName (← unsafe Cache.moduleNames moduleName)
-    progress {
-      phase := .planningPrettyPrint
-      current := position + 1
-      total? := some modules.size
-      detail? := some moduleName.toString
-      finished := position + 1 == modules.size
-    }
-  progress { phase := .prettyPrinting, total? := some inputs.size }
-  let result ← unsafe buildInputs sourcePath inputs (progress := fun moduleName done => progress {
-    phase := .prettyPrinting
-    current := done
-    total? := some inputs.size
-    detail? := some moduleName.toString
-    finished := done == inputs.size
-  })
-  progress {
-    phase := .prettyPrinting
-    current := inputs.size
-    total? := some inputs.size
-    finished := true
-  }
+    progress.count .planningPrettyPrint (position + 1) modules.size
+      (some moduleName.toString)
+  progress.count .prettyPrinting 0 inputs.size
+  let result ← unsafe buildInputs sourcePath inputs (progress := fun moduleName done =>
+    progress.count .prettyPrinting done inputs.size (some moduleName.toString))
+  progress.count .prettyPrinting inputs.size inputs.size
   return result
 
 /-- Pretty-print every declaration below a root, checkpointing once per defining module. -/
 unsafe def buildPPRoots (roots : Array Name)
     (progress : Cache.ProgressReporter := Cache.ignoreProgress) :
     IO (Nat × PPTiming) := do
-  progress { phase := .preparing, total? := some 1 }
+  progress.count .preparing 0 1
   let sourcePath ← prepareEnvironment
   let ppReady ← unsafe Cache.isFullyPP roots
   let queryReady ← unsafe QueryCache.isBuilt roots
-  progress {
-    phase := .preparing
-    current := 1
-    total? := some 1
-    finished := true
-  }
+  progress.count .preparing 1 1
   if ppReady && queryReady then return (0, {})
   let completed : NameHashSet ←
     if ppReady then pure {} else unsafe completedModules roots
@@ -156,39 +136,24 @@ unsafe def buildPPRoots (roots : Array Name)
         throw <| IO.userError "declaration table is unavailable"
       let mut inputs := #[]
       let modules := table.declarationsByModule.toArray
-      progress { phase := .planningPrettyPrint, total? := some modules.size }
+      progress.count .planningPrettyPrint 0 modules.size
       for ((moduleName, names), position) in modules.zipIdx do
         inputs ← unsafe addMissingInput inputs moduleName names
-        progress {
-          phase := .planningPrettyPrint
-          current := position + 1
-          total? := some modules.size
-          detail? := some moduleName.toString
-          finished := position + 1 == modules.size
-        }
+        progress.count .planningPrettyPrint (position + 1) modules.size
+          (some moduleName.toString)
       pure (inputs, table.moduleOf?)
     else
       let mut inputs := #[]
       let modules ← unsafe Cache.moduleClosure roots completed progress
-      progress { phase := .planningPrettyPrint, total? := some modules.size }
+      progress.count .planningPrettyPrint 0 modules.size
       for ((moduleName, declarations), position) in modules.zipIdx do
         inputs ← unsafe addMissingInput inputs moduleName (declarations.map (·.1))
-        progress {
-          phase := .planningPrettyPrint
-          current := position + 1
-          total? := some modules.size
-          detail? := some moduleName.toString
-          finished := position + 1 == modules.size
-        }
+        progress.count .planningPrettyPrint (position + 1) modules.size
+          (some moduleName.toString)
       pure (inputs, fun _ => none)
-  let report := fun moduleName done => progress {
-    phase := .prettyPrinting
-    current := done
-    total? := some inputs.size
-    detail? := some moduleName.toString
-    finished := done == inputs.size
-  }
-  progress { phase := .prettyPrinting, total? := some inputs.size }
+  let report := fun moduleName done =>
+    progress.count .prettyPrinting done inputs.size (some moduleName.toString)
+  progress.count .prettyPrinting 0 inputs.size
   let (count, timing) ←
     if let some envTask := envTask? then
       let (env, importNanos) ← IO.ofExcept envTask.get
@@ -198,12 +163,7 @@ unsafe def buildPPRoots (roots : Array Name)
     else
       unsafe buildInputs sourcePath inputs roots moduleOf? report
   unsafe Cache.markFullyPP roots
-  progress {
-    phase := .prettyPrinting
-    current := inputs.size
-    total? := some inputs.size
-    finished := true
-  }
+  progress.count .prettyPrinting inputs.size inputs.size
   return (count, timing)
 
 end LeanReach

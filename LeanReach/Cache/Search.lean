@@ -180,17 +180,12 @@ unsafe def build (roots : Array Name) (index : Index)
     (progress : Cache.ProgressReporter := Cache.ignoreProgress) : IO Nat := do
   let (olean, depHash, root) ← unsafe Cache.rootData roots
   if ← ready roots olean depHash then return 0
-  progress { phase := .buildingSearch, total? := some 2 }
+  progress.count .buildingSearch 0 2
   let (entries, trigrams) := index.catalog
   let table := Table.ofIndex index
-  progress { phase := .buildingSearch, current := 1, total? := some 2 }
+  progress.count .buildingSearch 1 2
   let (directory, shards) := collectPostings trigrams
-  progress {
-    phase := .buildingSearch
-    current := 2
-    total? := some 2
-    finished := true
-  }
+  progress.count .buildingSearch 2 2
   Cache.savePart (path roots olean "table") depHash table
     (Name.str root "_leanreachSearchTable")
   Cache.savePart (path roots olean "directory") depHash directory
@@ -198,12 +193,7 @@ unsafe def build (roots : Array Name) (index : Index)
   Cache.saveShards shardCount
     (fun id => Cache.savePart (shardPath roots olean id) depHash
       shards[id]! (Name.str root s!"_leanreachSearchPosting{id}"))
-    (fun current total => progress {
-      phase := .writingSearch
-      current
-      total? := some total
-      finished := current == total
-    })
+    (fun current total => progress.count .writingSearch current total)
   IO.FS.writeFile (markerPath roots olean) depHash
   return entries.size
 

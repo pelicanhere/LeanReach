@@ -184,14 +184,9 @@ private unsafe def execute (config : Config) (command : Command) : IO UInt32 := 
     profiled config.profile "cache" do
       if modules.isEmpty then
         let (roots, result) ← withCacheProgress config.json fun progress => do
-          progress { phase := .detectingProject, total? := some 1 }
+          progress.count .detectingProject 0 1
           let roots ← config.roots true
-          progress {
-            phase := .detectingProject
-            current := 1
-            total? := some 1
-            finished := true
-          }
+          progress.count .detectingProject 1 1
           return (roots, ← buildPPRoots roots progress)
         printPP config roots result
       else

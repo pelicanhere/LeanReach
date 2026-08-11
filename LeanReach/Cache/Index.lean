@@ -101,10 +101,7 @@ private unsafe def foldClosure {α : Type} (roots : Array Name)
     unless seen.contains root do
       seen := seen.insert root
       pending := pending.push root
-  progress {
-    phase := .readingModules
-    total? := some pending.size
-  }
+  progress.count .readingModules 0 pending.size
   while !pending.isEmpty do
     let mut batch := #[]
     while batch.size < 32 do
@@ -121,18 +118,10 @@ private unsafe def foldClosure {α : Type} (roots : Array Name)
           seen := seen.insert imported
           pending := pending.push imported
       done := done + 1
-      progress {
-        phase := .readingModules
-        current := done
-        total? := some (done + pending.size + (batch.size - position - 1))
-        detail? := some moduleName.toString
-      }
-  progress {
-    phase := .readingModules
-    current := done
-    total? := some done
-    finished := true
-  }
+      progress.count .readingModules done
+        (done + pending.size + (batch.size - position - 1))
+        (some moduleName.toString)
+  progress.count .readingModules done done
   return result
 
 unsafe def moduleClosure (roots : Array Name) (excluded : NameHashSet := {})
@@ -154,11 +143,7 @@ unsafe def materializeIndex (roots : Array Name)
         pure <| fragment.declarations.foldl (init := result)
           fun result (name, dependencies) =>
             result.add name moduleName dependencies) progress
-  Index.buildFromIO declarations fun current total => progress {
-    phase := .buildingIndex
-    current
-    total? := some total
-    finished := current == total
-  }
+  Index.buildFromIO declarations fun current total =>
+    progress.count .buildingIndex current total
 
 end LeanReach.Cache

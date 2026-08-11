@@ -38,25 +38,34 @@ abbrev ProgressReporter := Progress → IO Unit
 
 def ignoreProgress : ProgressReporter := fun _ => pure ()
 
+/-- Report a determinate count, marking the phase complete when it reaches its total. -/
+def ProgressReporter.count (reporter : ProgressReporter) (phase : ProgressPhase)
+    (current total : Nat) (detail? : Option String := none) : IO Unit :=
+  reporter {
+    phase
+    current
+    total? := some total
+    detail?
+    finished := current ≥ total
+  }
+
 /-- Render a Mathlib-style `[current/total]` counter without a trailing newline. -/
 def Progress.render (progress : Progress) : String :=
   let total := progress.total?.map toString |>.getD "?"
   let detail := progress.detail?.map (" " ++ ·) |>.getD ""
   s!"[{progress.current}/{total}] {progress.phase.label}{detail}"
 
+private structure ProgressDisplayState where
+  lastUpdate : Nat := 0
+  lastLength : Nat := 0
+  lastLine : String := ""
+  lastPhase : Option ProgressPhase := none
+
 structure ProgressDisplay where
-  lastUpdate : IO.Ref Nat
-  lastLength : IO.Ref Nat
-  lastLine : IO.Ref String
-  lastPhase : IO.Ref (Option ProgressPhase)
+  state : IO.Ref ProgressDisplayState
 
 def ProgressDisplay.create : IO ProgressDisplay := do
-  return {
-    lastUpdate := ← IO.mkRef 0
-    lastLength := ← IO.mkRef 0
-    lastLine := ← IO.mkRef ""
-    lastPhase := ← IO.mkRef none
-  }
+  return { state := ← IO.mkRef {} }
 
 private def spaces (count : Nat) : String :=
   String.ofList (List.replicate count ' ')
@@ -64,23 +73,23 @@ private def spaces (count : Nat) : String :=
 /-- Refresh one progress line on stderr, throttled to Mathlib's ten updates per second. -/
 def ProgressDisplay.report (display : ProgressDisplay) : ProgressReporter := fun progress => do
   let now ← IO.monoMsNow
-  let lastUpdate ← display.lastUpdate.get
-  let lastPhase ← display.lastPhase.get
+  let previous ← display.state.get
   let finalCount := progress.total?.any (progress.current ≥ ·)
-  unless progress.finished || finalCount || lastPhase != some progress.phase ||
-      now - lastUpdate ≥ 100 do
+  unless progress.finished || finalCount || previous.lastPhase != some progress.phase ||
+      now - previous.lastUpdate ≥ 100 do
     return
   let line := progress.render
-  if line == (← display.lastLine.get) then return
-  let previousLength ← display.lastLength.get
-  IO.eprint <| "\r" ++ line ++ spaces (previousLength - line.length)
-  display.lastUpdate.set now
-  display.lastLength.set line.length
-  display.lastLine.set line
-  display.lastPhase.set (some progress.phase)
+  if line == previous.lastLine then return
+  IO.eprint <| "\r" ++ line ++ spaces (previous.lastLength - line.length)
+  display.state.set {
+    lastUpdate := now
+    lastLength := line.length
+    lastLine := line
+    lastPhase := some progress.phase
+  }
 
 /-- Keep the final progress state and terminate its line. -/
 def ProgressDisplay.finish (display : ProgressDisplay) : IO Unit := do
-  unless (← display.lastLength.get) == 0 do IO.eprint "\n"
+  unless (← display.state.get).lastLength == 0 do IO.eprint "\n"
 
 end LeanReach.Cache

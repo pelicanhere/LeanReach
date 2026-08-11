@@ -5,13 +5,17 @@ namespace LeanReach.Tests.Unit
 open Lean
 
 unsafe def run : IO Unit := do
-  check (({
-      phase := .writingQuery
-      current := 5
-      total? := some 10
-    } : Cache.Progress).render ==
+  let reported ← IO.mkRef (none : Option Cache.Progress)
+  let reporter : Cache.ProgressReporter := fun progress => reported.set (some progress)
+  reporter.count .writingQuery 5 10
+  let determinate ← expectSome (← reported.get) "cache progress was not reported"
+  check (determinate.render ==
       "[5/10] Writing query shards")
     "determinate cache progress changed its counter rendering"
+  check (!determinate.finished) "incomplete cache progress was marked finished"
+  reporter.count .writingQuery 10 10
+  let finished ← expectSome (← reported.get) "finished cache progress was not reported"
+  check finished.finished "complete cache progress was not marked finished"
   check (({
       phase := .readingModules
       current := 4
