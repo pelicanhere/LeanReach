@@ -55,6 +55,10 @@ test.
   MyProject.lowLevelLemma '∀ x : Nat, P x → Q x' \
   --max-depth 3 --node-budget 200 --limit 5 --json
 
+# Reuse an existing declaration's complete type as the target.
+./.lake/packages/LeanReach/.lake/build/bin/leanreach route \
+  MyProject.lowLevelLemma '"MyProject.desiredHelper"' --json
+
 # Precompute caches for fast repeated queries.
 ./.lake/packages/LeanReach/.lake/build/bin/leanreach cache
 
@@ -69,11 +73,13 @@ before a dash-leading pattern.
 
 Dependency lists and search results are limited to 10 entries by default.
 
-`route ANCHOR WANTED` requires an exact declaration anchor and a valid Lean type. It performs a
-bounded breadth-first traversal over declarations that consume the anchor, then uses Lean's
-elaborator and unifier to rank every visited endpoint. Use `--direction dependencies` to traverse
-outgoing dependencies instead. Each result includes the predecessor path and whether every edge
-came from a declaration type or body.
+`route ANCHOR WANTED` requires an exact declaration anchor. `WANTED` is either a valid Lean type or
+an exact declaration name enclosed in double quotes, following Loogle's use of string-literal query
+syntax. The shell must preserve those quotes, so the example above wraps the whole argument in
+single quotes. LeanReach performs a bounded breadth-first traversal over declarations that consume
+the anchor, then uses Lean's elaborator and unifier to rank every visited endpoint. Use
+`--direction dependencies` to traverse outgoing dependencies instead. Each result includes the
+predecessor path and whether every edge came from a declaration type or body.
 
 ```text
 -m, --module MODULE   override automatic project detection

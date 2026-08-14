@@ -165,7 +165,7 @@ unsafe def run : IO Unit := do
 
   let route ← routeFor #[`Tests.Fixture] {
     anchor := "LeanReachFixture.routeAnchor"
-    wanted := "True"
+    wanted := "\"LeanReachFixture.routeEndpoint\""
     maxDepth := 2
     nodeBudget := 20
     limit := 3
@@ -195,7 +195,7 @@ unsafe def run : IO Unit := do
     "route search exceeded its maximum depth"
   let privateRoute ← routeFor #[`Tests.Fixture] {
     anchor := "LeanReachFixture.double_zero"
-    wanted := "LeanReachFixture.double 0 = 0"
+    wanted := "\"LeanReachFixture.hidden_double_zero\""
     maxDepth := 1
     nodeBudget := 100
     limit := 100

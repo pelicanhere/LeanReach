@@ -95,7 +95,7 @@ OPTIONS:
 Without `--module`, combine built local lean_lib roots with required Mathlib.
 With no modules, `cache` precomputes pretty-printed declarations for the detected view.
 An exact declaration name shows dependencies; every other pattern is a regex search.
-The `route` command ranks bounded declaration paths against a valid Lean type.
+The `route` command ranks bounded paths against a Lean type or a quoted declaration name.
 Interactive mode applies the same rule to each input line.
 "
 

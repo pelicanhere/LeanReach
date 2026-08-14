@@ -101,7 +101,8 @@ private def normalizeRequest (request : RouteRequest) : IO RouteRequest := do
   let anchor := request.anchor.trimAscii.copy
   let wanted := request.wanted.trimAscii.copy
   if anchor.isEmpty then throw <| IO.userError "route anchor cannot be empty"
-  if wanted.isEmpty then throw <| IO.userError "wanted type cannot be empty"
+  if wanted.isEmpty then
+    throw <| IO.userError "wanted type or declaration cannot be empty"
   if request.nodeBudget == 0 then
     throw <| IO.userError "route node budget must be positive"
   if request.limit == 0 then throw <| IO.userError "route limit must be positive"
@@ -116,6 +117,36 @@ private def resolveAnchor (index : Index) (source : String) : IO (Name × UInt32
   let some id := index.findId? target.name |
     throw <| IO.userError s!"route anchor '{target.name}' is absent from the index"
   return (target.name, id)
+
+private def quotedName? (env : Environment) (source : String) : IO (Option String) := do
+  let stx ← match Parser.runParserCategory env `term source "<wanted>" with
+    | .ok stx => pure stx
+    | .error message => throw <| IO.userError message
+  match stx with
+  | `($value:str) => return some value.getString
+  | _ => return none
+
+private def resolveWantedDeclaration (index : Index)
+    (source : String) : IO LocatedName := do
+  let candidates := index.exactMatches source 2
+  let some target := candidates[0]? |
+    throw <| IO.userError s!"unknown wanted declaration '{source}'"
+  if candidates[1]?.isSome then
+    throw <| IO.userError s!"ambiguous wanted declaration '{source}'; use its full name"
+  return target
+
+private unsafe def withWantedType {α : Type} (env : Environment) (index : Index)
+    (source : String) (action : Environment → Expr → IO α) : IO α := do
+  let some declaration ← quotedName? env source | do
+    action env (← unsafe elaborateSignatureIO env source)
+  let target ← resolveWantedDeclaration index declaration
+  let run := fun env => do
+    let some info := env.find? target.name |
+      throw <| IO.userError s!"could not load wanted declaration '{declaration}'"
+    action env info.type
+  if env.contains target.name then return ← run env
+  return (← unsafe ModuleData.withPrivateOverlay env target.moduleName
+    #[target.name] #[] index.moduleOf? run).1
 
 private unsafe def scoreCandidates (env : Environment) (index : Index)
     (wantedType : Expr) (names : Array Name) : IO (NameMap SignatureMatch) := do
@@ -152,7 +183,7 @@ private unsafe def describeNames (sourcePath : SearchPath) (env : Environment)
     declarations := declarations.insertMany batch
   return declarations
 
-/-- Find bounded declaration routes whose endpoints best match a Lean type. -/
+/-- Find bounded declaration routes whose endpoints best match a Lean type or quoted declaration. -/
 unsafe def routeFor (roots : Array Name) (request : RouteRequest) : IO RouteResult := do
   let request ← normalizeRequest request
   let sourcePath ← prepareEnvironment
@@ -163,8 +194,8 @@ unsafe def routeFor (roots : Array Name) (request : RouteRequest) : IO RouteResu
   let endpoints := reachable.nodes.extract 1 reachable.nodes.size
   let names := endpoints.map fun (id, _) => (index.locatedAt! id).name
   let env ← importEnvironment roots
-  let wantedType ← unsafe elaborateSignatureIO env request.wanted
-  let scores ← unsafe scoreCandidates env index wantedType names
+  let scores ← unsafe withWantedType env index request.wanted fun env wantedType =>
+    unsafe scoreCandidates env index wantedType names
   let ranked := (endpoints.filterMap fun (id, distance) => do
       let name := (index.locatedAt! id).name
       let signatureMatch ← scores.find? name

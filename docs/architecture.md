@@ -45,13 +45,17 @@ This graph is a navigation index, not a runtime call graph and not a transitive 
 
 ## Declaration routes
 
-A route query takes an exact `anchor` name and a `wanted` Lean type. Consumer traversal follows the
-reverse adjacency, so each next declaration really references the previous one. Dependency
-traversal follows the forward adjacency. A breadth-first search records one predecessor per visited
-declaration and stops at `maxDepth` or `nodeBudget`; LeanReach does not persist a transitive closure.
+A route query takes an exact `anchor` name and a `wanted` Lean type. A string literal in the wanted
+position, such as `"MyProject.helper"`, instead selects that declaration's complete type; this keeps
+type syntax and declaration references unambiguous without another option. Consumer traversal
+follows the reverse adjacency, so each next declaration really references the previous one.
+Dependency traversal follows the forward adjacency. A breadth-first search records one predecessor
+per visited declaration and stops at `maxDepth` or `nodeBudget`; LeanReach does not persist a
+transitive closure.
 
-After traversal, every visited declaration is scored independently. LeanReach elaborates `wanted`
-in the imported environment and orders matches lexicographically:
+After traversal, every visited declaration is scored independently. LeanReach either elaborates the
+wanted type or loads the quoted declaration's type in the imported environment, then orders matches
+lexicographically:
 
 1. the complete candidate type is definitionally equal to `wanted`;
 2. applying the candidate to the wanted conclusion leaves no unmatched inputs or proof goals;
