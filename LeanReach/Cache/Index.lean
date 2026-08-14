@@ -1,4 +1,5 @@
 import LeanReach.Cache.Fragment
+import LeanReach.Cache.Progress
 import LeanReach.Cache.Storage
 import LeanReach.Runtime.ModuleData
 import LeanReach.Runtime.Source
@@ -90,14 +91,17 @@ unsafe def moduleNames (moduleName : Name) : IO (Array Name) :=
 
 private unsafe def foldClosure {α : Type} (roots : Array Name)
     (excluded : NameHashSet) (initial : α)
-    (visit : α → Name → ModuleFragment → IO α) : IO α := do
+    (visit : α → Name → ModuleFragment → IO α)
+    (progress : ProgressReporter := ignoreProgress) : IO α := do
   let mut pending := #[]
   let mut seen := excluded
   let mut result := initial
+  let mut done := 0
   for root in roots do
     unless seen.contains root do
       seen := seen.insert root
       pending := pending.push root
+  progress.count .readingModules 0 pending.size
   while !pending.isEmpty do
     let mut batch := #[]
     while batch.size < 32 do
@@ -106,31 +110,40 @@ private unsafe def foldClosure {α : Type} (roots : Array Name)
       batch := batch.push moduleName
     let tasks ← batch.mapM fun moduleName =>
       IO.asTask (unsafe moduleFragment moduleName)
-    for (moduleName, task) in batch.zip tasks do
+    for ((moduleName, task), position) in (batch.zip tasks).zipIdx do
       let fragment ← IO.ofExcept task.get
       result ← visit result moduleName fragment
       for imported in fragment.imports do
         unless seen.contains imported do
           seen := seen.insert imported
           pending := pending.push imported
+      done := done + 1
+      progress.count .readingModules done
+        (done + pending.size + (batch.size - position - 1))
+        (some moduleName.toString)
+  progress.count .readingModules done done
   return result
 
-unsafe def moduleClosure (roots : Array Name) (excluded : NameHashSet := {}) :
+unsafe def moduleClosure (roots : Array Name) (excluded : NameHashSet := {})
+    (progress : ProgressReporter := ignoreProgress) :
     IO (Array (Name × Array (Name × Array Name))) :=
-  unsafe foldClosure roots excluded #[] fun modules moduleName fragment =>
-    pure (modules.push (moduleName, fragment.declarations))
+  unsafe foldClosure roots excluded #[]
+    (fun modules moduleName fragment =>
+      pure (modules.push (moduleName, fragment.declarations))) progress
 
 unsafe def moduleFragments (roots : Array Name) (excluded : NameHashSet := {}) :
     IO (Array (Name × ModuleFragment)) :=
   unsafe foldClosure roots excluded #[] fun modules moduleName fragment =>
     pure (modules.push (moduleName, fragment))
 
-unsafe def materializeIndex (roots : Array Name) : IO Index := do
+unsafe def materializeIndex (roots : Array Name)
+    (progress : ProgressReporter := ignoreProgress) : IO Index := do
   let declarations ← unsafe foldClosure roots {} ({} : Index.Declarations)
-      fun result moduleName fragment =>
-    pure <| fragment.declarations.foldl (init := result)
-        fun result (name, dependencies) =>
-      result.add name moduleName dependencies
-  return Index.buildFrom declarations
+      (fun result moduleName fragment =>
+        pure <| fragment.declarations.foldl (init := result)
+          fun result (name, dependencies) =>
+            result.add name moduleName dependencies) progress
+  Index.buildFromIO declarations fun current total =>
+    progress.count .buildingIndex current total
 
 end LeanReach.Cache

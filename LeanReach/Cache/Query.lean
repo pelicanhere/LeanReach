@@ -1,6 +1,7 @@
 import LeanReach.Cache.Index
 import LeanReach.Cache.Codec
 import LeanReach.Cache.OverlayDelta
+import LeanReach.Cache.Progress
 import LeanReach.Cache.Search
 import LeanReach.Search.Match
 
@@ -52,7 +53,8 @@ private unsafe def isFullBuilt (roots : Array Name) : IO Bool := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
   ready olean depHash
 
-private unsafe def buildFull (roots : Array Name) (index : Index) : IO Nat := do
+private unsafe def buildFull (roots : Array Name) (index : Index)
+    (progress : Cache.ProgressReporter := Cache.ignoreProgress) : IO Nat := do
   let (olean, depHash, _) ← unsafe Cache.rootData roots
   if ← ready olean depHash then return 0
   let mut jobs := #[]
@@ -63,13 +65,16 @@ private unsafe def buildFull (roots : Array Name) (index : Index) : IO Nat := do
     if start < stop then
       jobs := jobs.push (← IO.asTask <| IO.lazyPure fun _ =>
         buildShards index start stop)
+  progress.count .buildingQuery 0 jobs.size
   let mut shards := Array.replicate shardCount (header depHash)
-  for job in jobs do
+  for (job, position) in jobs.zipIdx do
     let part ← IO.ofExcept job.get
     for id in [0:shardCount] do
       shards := shards.modify id (· ++ part[id]!)
-  Cache.saveShards shardCount fun id =>
-    Cache.saveBytes (shardPath olean id) shards[id]!
+    progress.count .buildingQuery (position + 1) jobs.size
+  Cache.saveShards shardCount
+    (fun id => Cache.saveBytes (shardPath olean id) shards[id]!)
+    (fun current total => progress.count .writingQuery current total)
   IO.FS.writeFile (markerPath olean) depHash
   return index.size
 
@@ -77,14 +82,16 @@ private unsafe def fullCachesBuilt (roots : Array Name) : IO Bool :=
   return (← unsafe isFullBuilt roots) &&
     (← unsafe SearchCache.isBuilt roots)
 
-private unsafe def buildFullCaches (roots : Array Name) : IO Nat := do
+private unsafe def buildFullCaches (roots : Array Name)
+    (progress : Cache.ProgressReporter := Cache.ignoreProgress) : IO Nat := do
   let queryReady ← unsafe isFullBuilt roots
   let searchReady ← unsafe SearchCache.isBuilt roots
   if queryReady && searchReady then return 0
-  let index ← unsafe Cache.materializeIndex roots
+  let index ← unsafe Cache.materializeIndex roots progress
   let searchCount ←
-    if searchReady then pure 0 else unsafe SearchCache.build roots index
-  let queryCount ← if queryReady then pure 0 else unsafe buildFull roots index
+    if searchReady then pure 0 else unsafe SearchCache.build roots index progress
+  let queryCount ←
+    if queryReady then pure 0 else unsafe buildFull roots index progress
   return max queryCount searchCount
 
 private unsafe def baseRoot? (roots : Array Name) : IO (Option Name) := do
@@ -130,15 +137,18 @@ private unsafe def loadRelations (roots : Array Name) (baseRoot : Name) :
     relations fragments
   return relations
 
-unsafe def build (roots : Array Name) : IO Nat := do
-  if roots.size == 1 then return ← unsafe buildFullCaches roots
+unsafe def build (roots : Array Name)
+    (progress : Cache.ProgressReporter := Cache.ignoreProgress) : IO Nat := do
+  if roots.size == 1 then return ← unsafe buildFullCaches roots progress
   let catalog? ← unsafe readCatalog roots
   let baseRoot? ← match catalog? with
     | some catalog => pure (some catalog.baseRoot)
     | none => unsafe baseRoot? roots
-  let some baseRoot := baseRoot? | return ← unsafe buildFullCaches roots
-  let count ← unsafe buildFullCaches #[baseRoot]
+  let some baseRoot := baseRoot? | return ← unsafe buildFullCaches roots progress
+  let count ← unsafe buildFullCaches #[baseRoot] progress
+  progress.count .buildingQuery 0 1
   let relations ← unsafe loadRelations roots baseRoot
+  progress.count .buildingQuery 1 1
   if catalog?.isNone then
     unsafe QueryOverlay.saveCatalog roots relations.catalog
   return max relations.entries.size count

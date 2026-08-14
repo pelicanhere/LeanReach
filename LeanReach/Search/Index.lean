@@ -37,14 +37,17 @@ def Declarations.add (declarations : Declarations) (name moduleName : Name)
     declarations.insert name
       (owner, (NameSet.ofArray previous ++ NameSet.ofArray used).toArray)
 
-def buildFrom (byName : Declarations) : Index := Id.run do
+private def buildFromM {m : Type → Type} [Monad m] (byName : Declarations)
+    (progress : Nat → Nat → m Unit) : m Index := do
   let declarations := byName.toArray.map
       (fun (name, moduleName, used) => (name, moduleName, used))
     |>.qsort fun a b => Name.lt a.1 b.1
+  let total := 2 * declarations.size
+  progress 0 total
   let mut entries := #[]
   let mut ids : NameMap UInt32 := {}
   let mut trigramIndex : Data.Trie (Array UInt32) := {}
-  for (name, moduleName, _) in declarations do
+  for ((name, moduleName, _), position) in declarations.zipIdx do
     let id := entries.size.toUInt32
     entries := entries.push { name, moduleName }
     ids := ids.insert name id
@@ -55,15 +58,21 @@ def buildFrom (byName : Declarations) : Index := Id.run do
         seen := seen.insert trigram
         trigramIndex := trigramIndex.upsert trigram fun ids =>
           (ids.getD #[]).push id
+    let done := position + 1
+    if done == declarations.size || done % 256 == 0 then
+      progress done total
   let mut forward := Array.replicate entries.size #[]
   let mut reverse := Array.replicate entries.size #[]
-  for ((name, _, used), source) in declarations.zipIdx do
-    let source := source.toUInt32
+  for ((name, _, used), position) in declarations.zipIdx do
+    let source := position.toUInt32
     for dependency in used do
       if dependency != name then
         if let some target := ids.find? dependency then
           forward := forward.modify source.toNat (·.push target)
           reverse := reverse.modify target.toNat (·.push source)
+    let done := declarations.size + position + 1
+    if done == total || done % 256 == 0 then
+      progress done total
   return {
     entries
     trigrams := trigramIndex
@@ -75,6 +84,13 @@ def buildFrom (byName : Declarations) : Index := Id.run do
       downstreamPrior := Rank.priors forward reverse false
     }
   }
+
+def buildFrom (byName : Declarations) : Index :=
+  Id.run <| buildFromM byName fun _ _ => pure ()
+
+def buildFromIO (byName : Declarations)
+    (progress : Nat → Nat → IO Unit := fun _ _ => pure ()) : IO Index :=
+  buildFromM byName progress
 
 def build (declarations : Array (Name × Name × NameSet)) : Index :=
   buildFrom <| declarations.foldl (init := {}) fun result (name, moduleName, used) =>

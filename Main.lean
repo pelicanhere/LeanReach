@@ -140,6 +140,15 @@ private def profiled {α : Type} (enabled : Bool) (label : String)
   finally
     report
 
+private def withCacheProgress {α : Type} (json : Bool)
+    (action : Cache.ProgressReporter → IO α) : IO α := do
+  if json then return ← action Cache.ignoreProgress
+  let display ← Cache.ProgressDisplay.create
+  try
+    action display.report
+  finally
+    display.finish
+
 private def chompLine (line : String) : String :=
   (line.dropEndWhile fun char => char == '\n' || char == '\r').toString
 
@@ -174,14 +183,16 @@ private unsafe def execute (config : Config) (command : Command) : IO UInt32 := 
   | .cache modules =>
     profiled config.profile "cache" do
       if modules.isEmpty then
-        let roots ← config.roots true
-        let result ← buildPPRoots roots fun moduleName done total =>
-          unless config.json do
-            if done == total || done % 100 == 0 then
-              IO.eprintln s!"leanreach: pretty-printed modules {done}/{total} ({moduleName})"
+        let (roots, result) ← withCacheProgress config.json fun progress => do
+          progress.count .detectingProject 0 1
+          let roots ← config.roots true
+          progress.count .detectingProject 1 1
+          return (roots, ← buildPPRoots roots progress)
         printPP config roots result
       else
-        printPP config modules (← buildPPModules modules)
+        let result ← withCacheProgress config.json fun progress =>
+          buildPPModules modules progress
+        printPP config modules result
   | .lookup pattern =>
     profiled config.profile "lookup" do
       let roots ← config.roots

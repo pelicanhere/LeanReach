@@ -1,4 +1,5 @@
 import LeanReach.Cache.Codec
+import LeanReach.Cache.Progress
 import LeanReach.Cache.Storage
 import LeanReach.Search.Index
 import LeanReach.Search.Pattern
@@ -175,19 +176,24 @@ where
       for i in [0:children.size] do
         visit (keyBytes.push bytes[i]!) children[i]!
 
-unsafe def build (roots : Array Name) (index : Index) : IO Nat := do
+unsafe def build (roots : Array Name) (index : Index)
+    (progress : Cache.ProgressReporter := Cache.ignoreProgress) : IO Nat := do
   let (olean, depHash, root) ← unsafe Cache.rootData roots
   if ← ready roots olean depHash then return 0
+  progress.count .buildingSearch 0 2
   let (entries, trigrams) := index.catalog
   let table := Table.ofIndex index
+  progress.count .buildingSearch 1 2
   let (directory, shards) := collectPostings trigrams
+  progress.count .buildingSearch 2 2
   Cache.savePart (path roots olean "table") depHash table
     (Name.str root "_leanreachSearchTable")
   Cache.savePart (path roots olean "directory") depHash directory
     (Name.str root "_leanreachSearchDirectory")
-  Cache.saveShards shardCount fun id =>
-    Cache.savePart (shardPath roots olean id) depHash
-      shards[id]! (Name.str root s!"_leanreachSearchPosting{id}")
+  Cache.saveShards shardCount
+    (fun id => Cache.savePart (shardPath roots olean id) depHash
+      shards[id]! (Name.str root s!"_leanreachSearchPosting{id}"))
+    (fun current total => progress.count .writingSearch current total)
   IO.FS.writeFile (markerPath roots olean) depHash
   return entries.size
 
