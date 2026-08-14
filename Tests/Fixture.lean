@@ -59,4 +59,12 @@ theorem duplicateLeaf : double 0 = 0 := double_zero
 
 end Generic
 
+axiom routeAnchor : False
+
+theorem routeBridge : False := routeAnchor
+
+theorem routeEndpoint : True := False.elim routeBridge
+
+def routeDefault {α : Type} [Inhabited α] : α := default
+
 end LeanReachFixture

@@ -3,6 +3,7 @@ import LeanReach.Cache.Index
 import LeanReach.Cache.PrettyPrint
 import LeanReach.Cache.Query
 import LeanReach.Query
+import LeanReach.Route
 import LeanReach.Runtime.Environment
 
 namespace LeanReach

@@ -163,6 +163,65 @@ unsafe def run : IO Unit := do
     search "double_zero_again" fun result => do
       check (!result.isEmpty) "interactive session search is missing"
 
+  let route ← routeFor #[`Tests.Fixture] {
+    anchor := "LeanReachFixture.routeAnchor"
+    wanted := "True"
+    maxDepth := 2
+    nodeBudget := 20
+    limit := 3
+  }
+  let best ← expectSome route.results[0]? "route search returned no endpoint"
+  check (best.endpoint.name == "LeanReachFixture.routeEndpoint")
+    "route search did not rank the exact endpoint first"
+  check (best.signatureMatch.kind == .exact && best.distance == 2)
+    "route endpoint did not receive an exact distance-two match"
+  check (best.path.map (·.declaration) == #[
+      "LeanReachFixture.routeAnchor",
+      "LeanReachFixture.routeBridge",
+      "LeanReachFixture.routeEndpoint"
+    ]) "route search reconstructed the wrong declaration path"
+  check (best.path.map (·.edgeKind?) == #[
+      none, some .bodyDependency, some .bodyDependency
+    ])
+    "route path lost its body dependency edge kinds"
+  let shallow ← routeFor #[`Tests.Fixture] {
+    anchor := "LeanReachFixture.routeAnchor"
+    wanted := "True"
+    maxDepth := 1
+    nodeBudget := 20
+    limit := 3
+  }
+  check (!shallow.results.any (·.endpoint.name == "LeanReachFixture.routeEndpoint"))
+    "route search exceeded its maximum depth"
+  let privateRoute ← routeFor #[`Tests.Fixture] {
+    anchor := "LeanReachFixture.double_zero"
+    wanted := "LeanReachFixture.double 0 = 0"
+    maxDepth := 1
+    nodeBudget := 100
+    limit := 100
+  }
+  check (privateRoute.results.any fun candidate =>
+      candidate.endpoint.name == hiddenTheorem.toString &&
+        candidate.signatureMatch.kind == .exact)
+    "route search did not score a private endpoint"
+
+  let env ← importEnvironment #[`Tests.Fixture]
+  let applicable ← unsafe scoreSignaturesIO env
+    "∀ a b : Nat, a = b → b = a" #[`Eq.symm]
+  let (_, applicable) ← expectSome applicable[0]? "signature scorer omitted Eq.symm"
+  check (applicable.kind == .applicable && applicable.coveredInputs == 1)
+    "signature scorer did not discharge a candidate premise from wanted inputs"
+  let conclusion ← unsafe scoreSignaturesIO env "True" #[`False.elim]
+  let (_, conclusion) ← expectSome conclusion[0]? "signature scorer omitted False.elim"
+  check (conclusion.kind == .conclusion && conclusion.extraObligations.size == 1)
+    "signature scorer did not retain the unmatched proof obligation"
+  let typeclass ← unsafe scoreSignaturesIO env "Nat" #[`LeanReachFixture.routeDefault]
+  let (_, typeclass) ← expectSome typeclass[0]?
+    "signature scorer omitted the typeclass candidate"
+  check (typeclass.kind == .applicable && typeclass.extraInputs.isEmpty &&
+      typeclass.extraObligations.isEmpty)
+    "signature scorer did not synthesize the candidate typeclass premise"
+
   withInteractiveSession #[`Tests.PrivateA, `Tests.PrivateB] fun session runner =>
     runner "LeanReachDuplicate.hidden" {} fun
       | .search names => do

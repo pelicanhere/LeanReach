@@ -8,12 +8,16 @@ open Lean
 
 inductive Command where
   | lookup (pattern : String)
+  | route (anchor wanted : String)
   | cache (modules : Array Name)
   | interactive
 
 structure Config where
   root? : Option Name := none
   limits : Limits := {}
+  routeDirection : RouteDirection := .consumers
+  maxDepth : Nat := 3
+  nodeBudget : Nat := 200
   interactive : Bool := false
   json : Bool := false
   profile : Bool := false
@@ -32,6 +36,12 @@ private def takeNat (option : String) : CliM Nat := do
     throw <| Lake.CliError.invalidOptArg option "a natural number"
   return number
 
+private def takeDirection : CliM RouteDirection := do
+  match ← takeArg "--direction" with
+  | "dependencies" => return .dependencies
+  | "consumers" => return .consumers
+  | _ => throw <| Lake.CliError.invalidOptArg "--direction" "'dependencies' or 'consumers'"
+
 private def shortOption : Char → CliM PUnit
   | 'm' => do modifyThe Config ({ · with root? := some (← takeArg "-m").toName })
   | 'n' => do modifyThe Config ({ · with limits := Limits.uniform (← takeNat "-n") })
@@ -47,6 +57,12 @@ private def longOption : String → CliM PUnit
   | "--json" => shortOption 'j'
   | "--help" => shortOption 'h'
   | "--profile" => modifyThe Config ({ · with profile := true })
+  | "--direction" => do
+    modifyThe Config ({ · with routeDirection := ← takeDirection })
+  | "--max-depth" => do
+    modifyThe Config ({ · with maxDepth := ← takeNat "--max-depth" })
+  | "--node-budget" => do
+    modifyThe Config ({ · with nodeBudget := ← takeNat "--node-budget" })
   | option => throw <| Lake.CliError.unknownLongOption option
 
 private def option :=
@@ -61,6 +77,7 @@ LeanReach — Lean declaration search and dependency navigation
 
 USAGE:
   leanreach [OPTIONS] PATTERN
+  leanreach [OPTIONS] route ANCHOR WANTED
   leanreach [OPTIONS] cache [MODULE...]
   leanreach [OPTIONS] --interactive
 
@@ -69,12 +86,16 @@ OPTIONS:
   -n, --limit N         override result limits (default: 10 each)
   -i, --interactive     reuse one environment; read queries from stdin
   -j, --json            emit JSON (NDJSON in interactive mode)
+      --direction DIR   route through consumers (default) or dependencies
+      --max-depth N     route search depth (default: 3)
+      --node-budget N   maximum declarations visited by a route (default: 200)
       --profile         print elapsed and cache-stage time to stderr
   -h, --help            show this help
 
 Without `--module`, combine built local lean_lib roots with required Mathlib.
 With no modules, `cache` precomputes pretty-printed declarations for the detected view.
 An exact declaration name shows dependencies; every other pattern is a regex search.
+The `route` command ranks bounded declaration paths against a valid Lean type.
 Interactive mode applies the same rule to each input line.
 "
 
@@ -105,6 +126,22 @@ private def printSearch (json : Bool) (query : String) (items : Array Declaratio
     IO.println s!"matches ({items.size})"
     for declaration in items do
       printDeclaration "  " declaration
+
+private def printRoute (json : Bool) (result : RouteResult) : IO Unit := do
+  if json then
+    IO.println (toJson result).compress
+  else
+    IO.println s!"routes ({result.results.size}, visited {result.visited}\
+      {if result.truncated then ", budget exhausted" else ""})"
+    if result.results.isEmpty then IO.println "  <none>"
+    for (candidate, index) in result.results.zipIdx do
+      printDeclaration s!"  [{index + 1}] " candidate.endpoint
+      let score := candidate.signatureMatch
+      IO.println s!"      match={score.kind.toString}, distance={candidate.distance}, \
+        covered={score.coveredInputs}, obligations={score.extraObligations.size}"
+      for step in candidate.path do
+        let marker := step.edgeKind?.map (s!"      -[{·.toString}]-> ") |>.getD "      "
+        IO.println s!"{marker}{step.declaration}"
 
 private def printLookupNames (config : Config) (pattern : String)
     (session : Session) : LookupNames → IO Unit
@@ -174,6 +211,9 @@ private def runInteractive (session : Session) (runner : InteractiveRunner)
 private def validate (config : Config) : CliMainM Unit := do
   if config.limits.search == 0 || config.limits.search > 1000 then
     throw <| Lake.CliError.invalidOptArg "--limit" "an integer from 1 to 1000"
+  if config.nodeBudget == 0 || config.nodeBudget > 100000 then
+    throw <| Lake.CliError.invalidOptArg
+      "--node-budget" "an integer from 1 to 100000"
 
 private unsafe def Config.roots (config : Config) (refresh := false) : IO (Array Name) :=
   config.root?.map (#[·]) |>.getDM (detectRoots refresh)
@@ -198,6 +238,17 @@ private unsafe def execute (config : Config) (command : Command) : IO UInt32 := 
       let roots ← config.roots
       withLookupFor roots pattern config.limits
         (printLookupNames config pattern)
+  | .route anchor wanted =>
+    profiled config.profile "route" do
+      let result ← routeFor (← config.roots) {
+        anchor
+        wanted
+        direction := config.routeDirection
+        maxDepth := config.maxDepth
+        nodeBudget := config.nodeBudget
+        limit := config.limits.search
+      }
+      printRoute config.json result
   | .interactive =>
     withInteractiveSession (← config.roots) fun session runner =>
       runInteractive session runner config
@@ -228,6 +279,7 @@ private unsafe def cli : CliM UInt32 := do
     else
       match arguments.toList with
       | "cache" :: modules => pure (.cache <| modules.toArray.map (·.toName))
+      | ["route", anchor, wanted] => pure (.route anchor wanted)
       | [pattern] => pure (.lookup pattern)
       | arguments => throw <| Lake.CliError.unexpectedArguments arguments
   unsafe execute config command

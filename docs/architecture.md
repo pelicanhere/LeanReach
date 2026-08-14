@@ -12,8 +12,8 @@ Lake project discovery
   → module fragments
   → shared declaration table + sharded direct adjacency
   → name resolution
-  → upstream/downstream candidate lookup
-  → dependency ranking
+  → direct-neighbor lookup or bounded route traversal
+  → dependency ranking or Lean signature matching
   → selected PP sidecars or bounded live PP
   → human or JSON output
 ```
@@ -42,6 +42,29 @@ private declarations, are selected from `.ilean` definitions; generated implemen
 filtered separately.
 
 This graph is a navigation index, not a runtime call graph and not a transitive proof-dependency DAG.
+
+## Declaration routes
+
+A route query takes an exact `anchor` name and a `wanted` Lean type. Consumer traversal follows the
+reverse adjacency, so each next declaration really references the previous one. Dependency
+traversal follows the forward adjacency. A breadth-first search records one predecessor per visited
+declaration and stops at `maxDepth` or `nodeBudget`; LeanReach does not persist a transitive closure.
+
+After traversal, every visited declaration is scored independently. LeanReach elaborates `wanted`
+in the imported environment and orders matches lexicographically:
+
+1. the complete candidate type is definitionally equal to `wanted`;
+2. applying the candidate to the wanted conclusion leaves no unmatched inputs or proof goals;
+3. the conclusions unify but leave extra inputs or proof obligations;
+4. the conclusion head constants agree;
+5. the constants in the two types have the greatest weighted Dice similarity, with additional
+   weight for constants occurring in input types and twice that additional weight for results.
+
+Candidate premises are discharged from wanted binders by local assumption or typeclass synthesis.
+Within a match class, fewer obligations and inputs, more covered assumptions, greater structural
+similarity, and a shorter path rank first. The score is not required to improve at each edge: an
+intermediate declaration may be only a bridge to a better endpoint. Results retain the BFS path and
+the type/body kind of each edge as evidence of the underlying reference chain.
 
 ## Name matching
 
@@ -232,6 +255,8 @@ LeanReach/Search/Pattern.lean         regex compilation and candidate plans
 LeanReach/Search/Rank.lean            dependency scoring and Top-K selection
 LeanReach/Search/TopK.lean            bounded heap selection
 LeanReach/Search/Index.lean           catalog, direct graph, and lookup
+LeanReach/Search/Route.lean           deterministic bounded graph traversal
+LeanReach/Search/Signature.lean       Lean elaboration and endpoint matching
 LeanReach/Runtime/Project.lean        Lake project and built-module discovery
 LeanReach/Runtime/Environment.lean    search paths, imports, and CoreM execution
 LeanReach/Runtime/ModuleData.lean     `.olean` layers and private overlays
@@ -251,7 +276,8 @@ LeanReach/Cache/Query.lean             exact-query shards and routing
 LeanReach/Cache/PrettyPrint.lean       module PP sidecars
 LeanReach/Cache/Build.lean             cache workers and orchestration
 LeanReach/Query.lean                   cross-layer query construction
-LeanReach.lean                         public session orchestration
+LeanReach/Route.lean                   public route orchestration and JSON model
+LeanReach.lean                         public API imports and session orchestration
 Main.lean                              CLI and output
 Tests/Unit.lean                        storage, codec, index, and regex units
 Tests/Session.lean                     interactive query contracts

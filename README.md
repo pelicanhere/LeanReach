@@ -5,7 +5,8 @@ dependencies. It reports:
 
 - Pretty-printed signatures and non-Prop definition bodies;
 - source files, lines, and columns;
-- ranked upstream and downstream declarations.
+- ranked upstream and downstream declarations;
+- bounded declaration routes ranked against a Lean type.
 
 It reads built `.olean` and `.ilean` files, including partially built local libraries.
 
@@ -49,6 +50,11 @@ test.
 # Emit JSON.
 ./.lake/packages/LeanReach/.lake/build/bin/leanreach Submodule.span_le --json
 
+# Follow declarations that consume an anchor and rank endpoints by Lean type matching.
+./.lake/packages/LeanReach/.lake/build/bin/leanreach route \
+  MyProject.lowLevelLemma '∀ x : Nat, P x → Q x' \
+  --max-depth 3 --node-budget 200 --limit 5 --json
+
 # Precompute caches for fast repeated queries.
 ./.lake/packages/LeanReach/.lake/build/bin/leanreach cache
 
@@ -63,11 +69,20 @@ before a dash-leading pattern.
 
 Dependency lists and search results are limited to 10 entries by default.
 
+`route ANCHOR WANTED` requires an exact declaration anchor and a valid Lean type. It performs a
+bounded breadth-first traversal over declarations that consume the anchor, then uses Lean's
+elaborator and unifier to rank every visited endpoint. Use `--direction dependencies` to traverse
+outgoing dependencies instead. Each result includes the predecessor path and whether every edge
+came from a declaration type or body.
+
 ```text
 -m, --module MODULE   override automatic project detection
 -n, --limit N         override dependency and search limits
 -i, --interactive     read multiple commands from stdin
 -j, --json            emit JSON or interactive NDJSON
+    --direction DIR   route through consumers or dependencies
+    --max-depth N     route search depth
+    --node-budget N   maximum declarations visited by a route
     --profile         report timing information
 -h, --help            show help
 ```
