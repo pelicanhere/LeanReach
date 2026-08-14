@@ -45,8 +45,8 @@ private def buildShards (index : Index) (start stop : Nat) :
     shards := shards.modify (shard target.name) fun bytes =>
       Cache.Codec.pushArray (Cache.Codec.pushArray
         (Cache.Codec.pushUInt32 bytes id.toUInt32)
-        (prioritize index source index.forward[id]! true))
-        (prioritize index source index.reverse[id]! false)
+        (prioritize index source index.forward[id]!.all true))
+        (prioritize index source index.reverse[id]!.all false)
   return shards
 
 private unsafe def isFullBuilt (roots : Array Name) : IO Bool := do

@@ -14,8 +14,8 @@ unsafe def run : IO Unit := do
   unless (← sourcePath.findModuleWithExt "lean" `Lake.Config.Module).isSome do
     throw <| IO.userError "project source path does not contain Lake.Config.Module"
   let duplicateIndex := Index.build #[
-    (`LeanReachFixture.a, `Tests.Fixture, ({} : NameSet).insert `LeanReachFixture.b),
-    (`LeanReachFixture.a, `Tests.Fixture, ({} : NameSet).insert `LeanReachFixture.c),
+    (`LeanReachFixture.a, `Tests.Fixture, { typeDeps := #[`LeanReachFixture.b] }),
+    (`LeanReachFixture.a, `Tests.Fixture, { bodyDeps := #[`LeanReachFixture.c] }),
     (`LeanReachFixture.b, `Tests.Fixture, {}),
     (`LeanReachFixture.c, `Tests.Fixture, {})
   ]

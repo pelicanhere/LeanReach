@@ -43,7 +43,7 @@ private def moduleEntries (moduleName : Name)
     (fragment : Cache.ModuleFragment) : Array Entry :=
   fragment.declarations.map (fun (name, dependencies) => {
     target := { name, moduleName }
-    dependencies := NameSet.ofArray dependencies
+    dependencies := NameSet.ofArray dependencies.all
   }) |>.qsort fun left right => Name.lt left.target.name right.target.name
 
 private def sameEntry (left right : Entry) : Bool :=

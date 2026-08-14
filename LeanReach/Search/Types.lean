@@ -5,7 +5,29 @@ namespace LeanReach
 
 open Lean
 
-universe u
+universe u v
+
+inductive EdgeKind where
+  | typeDependency
+  | bodyDependency
+  deriving Inhabited, BEq, Repr
+
+structure Dependencies (α : Type u) where
+  typeDeps : Array α := #[]
+  bodyDeps : Array α := #[]
+  deriving Inhabited, BEq
+
+def Dependencies.all {α : Type u} (dependencies : Dependencies α) : Array α :=
+  dependencies.typeDeps ++ dependencies.bodyDeps
+
+def Dependencies.size {α : Type u} (dependencies : Dependencies α) : Nat :=
+  dependencies.typeDeps.size + dependencies.bodyDeps.size
+
+def Dependencies.map {α : Type u} {β : Type v} (f : α → β)
+    (dependencies : Dependencies α) : Dependencies β := {
+  typeDeps := dependencies.typeDeps.map f
+  bodyDeps := dependencies.bodyDeps.map f
+}
 
 structure LocatedName where
   name : Name

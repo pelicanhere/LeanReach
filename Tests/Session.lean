@@ -15,12 +15,27 @@ unsafe def run : IO Unit := do
   withInteractiveSession #[`Definitely.Missing] fun _ _ => pure ()
   withInteractiveSession #[`Tests.Fixture] fun session runner => do
     let fixtureNames ← unsafe Cache.moduleNames `Tests.Fixture
+    let fixtureFragment ← unsafe Cache.moduleFragment `Tests.Fixture
     check (fixtureNames.contains `LeanReachFixture.double)
       "module fragment is missing a source declaration"
     check (!fixtureNames.any (·.toString.contains "noConfusion"))
       "module fragment contains a generated declaration"
     check (fixtureNames.contains hiddenTheorem && fixtureNames.contains hiddenDefinition)
       "module fragment is missing a private declaration"
+    let doubleDependencies ← expectSome
+      (fixtureFragment.declarations.find? (·.1 == `LeanReachFixture.double) |>.map (·.2))
+      "module fragment is missing double dependencies"
+    check (doubleDependencies.typeDeps.contains `Nat &&
+        doubleDependencies.bodyDeps.contains `HAdd.hAdd &&
+        !doubleDependencies.bodyDeps.contains `Nat)
+      "module fragment did not separate type and body dependencies"
+    let theoremDependencies ← expectSome
+      (fixtureFragment.declarations.find?
+        (·.1 == `LeanReachFixture.double_zero_again) |>.map (·.2))
+      "module fragment is missing theorem dependencies"
+    check (theoremDependencies.typeDeps.contains `LeanReachFixture.double &&
+        theoremDependencies.bodyDeps.contains `LeanReachFixture.double_zero)
+      "theorem fragment did not separate statement and proof dependencies"
     let query (name : String) (limits : Limits)
         (action : QueryResult → IO Unit) : IO Unit :=
       runner name limits fun

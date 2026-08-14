@@ -87,7 +87,7 @@ def prior (total reverseCount forwardCount : Nat) (upstream : Bool) : Float :=
   (if upstream then specificity * confidence else Float.log (1.0 + users)) +
     substance
 
-def priors (forward reverse : Array (Array UInt32))
+def priors (forward reverse : Array (Dependencies UInt32))
     (upstream : Bool) : Array Float :=
   forward.mapIdx fun id dependencies =>
     prior forward.size reverse[id]!.size dependencies.size upstream

@@ -12,8 +12,8 @@ open Lean
 abbrev Catalog := Array LocatedName × Data.Trie (Array UInt32)
 
 structure Relations where
-  forward : Array (Array UInt32)
-  reverse : Array (Array UInt32)
+  forward : Array (Dependencies UInt32)
+  reverse : Array (Dependencies UInt32)
   upstreamPrior : Array Float
   downstreamPrior : Array Float
   deriving Inhabited
@@ -27,15 +27,20 @@ structure Index extends Relations where
 
 namespace Index
 
-abbrev Declarations := NameMap (Name × Array Name)
+abbrev Declarations := NameMap (Name × Dependencies Name)
 
 def Declarations.add (declarations : Declarations) (name moduleName : Name)
-    (used : Array Name) : Declarations :=
+    (used : Dependencies Name) : Declarations :=
   match declarations.find? name with
   | none => declarations.insert name (moduleName, used)
   | some (owner, previous) =>
-    declarations.insert name
-      (owner, (NameSet.ofArray previous ++ NameSet.ofArray used).toArray)
+    let typeDeps := NameSet.ofArray previous.typeDeps ++ NameSet.ofArray used.typeDeps
+    let bodyDeps := (NameSet.ofArray previous.bodyDeps ++ NameSet.ofArray used.bodyDeps).filter
+      fun dependency => !typeDeps.contains dependency
+    declarations.insert name (owner, {
+      typeDeps := typeDeps.toArray
+      bodyDeps := bodyDeps.toArray
+    })
 
 private def buildFromM {m : Type → Type} [Monad m] (byName : Declarations)
     (progress : Nat → Nat → m Unit) : m Index := do
@@ -61,15 +66,24 @@ private def buildFromM {m : Type → Type} [Monad m] (byName : Declarations)
     let done := position + 1
     if done == declarations.size || done % 256 == 0 then
       progress done total
-  let mut forward := Array.replicate entries.size #[]
-  let mut reverse := Array.replicate entries.size #[]
+  let mut forward : Array (Dependencies UInt32) := Array.replicate entries.size {}
+  let mut reverse : Array (Dependencies UInt32) := Array.replicate entries.size {}
   for ((name, _, used), position) in declarations.zipIdx do
     let source := position.toUInt32
-    for dependency in used do
+    for dependency in used.typeDeps do
       if dependency != name then
         if let some target := ids.find? dependency then
-          forward := forward.modify source.toNat (·.push target)
-          reverse := reverse.modify target.toNat (·.push source)
+          forward := forward.modify source.toNat fun dependencies =>
+            { dependencies with typeDeps := dependencies.typeDeps.push target }
+          reverse := reverse.modify target.toNat fun dependencies =>
+            { dependencies with typeDeps := dependencies.typeDeps.push source }
+    for dependency in used.bodyDeps do
+      if dependency != name then
+        if let some target := ids.find? dependency then
+          forward := forward.modify source.toNat fun dependencies =>
+            { dependencies with bodyDeps := dependencies.bodyDeps.push target }
+          reverse := reverse.modify target.toNat fun dependencies =>
+            { dependencies with bodyDeps := dependencies.bodyDeps.push source }
     let done := declarations.size + position + 1
     if done == total || done % 256 == 0 then
       progress done total
@@ -92,9 +106,9 @@ def buildFromIO (byName : Declarations)
     (progress : Nat → Nat → IO Unit := fun _ _ => pure ()) : IO Index :=
   buildFromM byName progress
 
-def build (declarations : Array (Name × Name × NameSet)) : Index :=
+def build (declarations : Array (Name × Name × Dependencies Name)) : Index :=
   buildFrom <| declarations.foldl (init := {}) fun result (name, moduleName, used) =>
-    result.add name moduleName used.toArray
+    result.add name moduleName used
 
 def catalog (index : Index) : Catalog :=
   (index.entries, index.trigrams)
@@ -124,8 +138,12 @@ private def rankIds (index : Index) (source : UInt32)
       else index.downstreamPrior[candidate.toNat]!)
     limit
 
-def directIds (index : Index) (source : UInt32) (upstream : Bool) : Array UInt32 :=
+def directDependencies (index : Index) (source : UInt32)
+    (upstream : Bool) : Dependencies UInt32 :=
   if upstream then index.forward[source.toNat]! else index.reverse[source.toNat]!
+
+def directIds (index : Index) (source : UInt32) (upstream : Bool) : Array UInt32 :=
+  (index.directDependencies source upstream).all
 
 def relatedIds (index : Index) (source : UInt32)
     (upstream : Bool) (limit : Nat) : Array UInt32 :=

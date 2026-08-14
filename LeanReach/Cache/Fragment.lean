@@ -1,4 +1,5 @@
 import LeanReach.Cache.Codec
+import LeanReach.Search.Types
 import Lean.Data.NameMap
 
 namespace LeanReach.Cache
@@ -7,7 +8,7 @@ open Lean
 
 structure ModuleFragment where
   imports : Array Name
-  declarations : Array (Name × Array Name)
+  declarations : Array (Name × Dependencies Name)
 
 namespace ModuleFragment
 
@@ -33,7 +34,7 @@ private def dictionary (fragment : ModuleFragment) : Dictionary := Id.run do
     for name in fragment.imports do dictionary := (intern name dictionary).2
     for (name, dependencies) in fragment.declarations do
       dictionary := (intern name dictionary).2
-      for dependency in dependencies do
+      for dependency in dependencies.all do
         dictionary := (intern dependency dictionary).2
     return dictionary
 
@@ -57,7 +58,7 @@ def encode (fragment : ModuleFragment) (fingerprint : String) : ByteArray := Id.
   let idOf := fun name => (ids.find? name).getD 0
   let mut bytes :=
     Codec.pushBytes
-      (Codec.pushBytes ByteArray.empty "LRM10".toUTF8) fingerprint.toUTF8
+      (Codec.pushBytes ByteArray.empty "LRM11".toUTF8) fingerprint.toUTF8
   bytes := Codec.pushNat bytes dictionary.size
   for name in dictionary do bytes := encodeName ids bytes name
   bytes := Codec.pushNat bytes fragment.imports.size
@@ -65,14 +66,17 @@ def encode (fragment : ModuleFragment) (fingerprint : String) : ByteArray := Id.
   bytes := Codec.pushNat bytes fragment.declarations.size
   for (name, dependencies) in fragment.declarations do
     bytes := Codec.pushNat bytes (idOf name)
-    bytes := Codec.pushNat bytes dependencies.size
-    for dependency in dependencies do
+    bytes := Codec.pushNat bytes dependencies.typeDeps.size
+    for dependency in dependencies.typeDeps do
+      bytes := Codec.pushNat bytes (idOf dependency)
+    bytes := Codec.pushNat bytes dependencies.bodyDeps.size
+    for dependency in dependencies.bodyDeps do
       bytes := Codec.pushNat bytes (idOf dependency)
   return bytes
 
 def decode (bytes : ByteArray) (fingerprint : String) : Option ModuleFragment :=
   Codec.Decoder.runToEnd (bytes := bytes) do
-    guard ((← Codec.Decoder.readBytes bytes) == "LRM10".toUTF8)
+    guard ((← Codec.Decoder.readBytes bytes) == "LRM11".toUTF8)
     guard ((← Codec.Decoder.readBytes bytes) == fingerprint.toUTF8)
     let nameCount ← Codec.Decoder.readNat bytes
     let mut dictionary := #[]
@@ -94,11 +98,15 @@ def decode (bytes : ByteArray) (fingerprint : String) : Option ModuleFragment :=
     let mut declarations := #[]
     for _ in [0:declarationCount] do
       let name ← decodeRef dictionary bytes
-      let dependencyCount ← Codec.Decoder.readNat bytes
-      let mut dependencies := #[]
-      for _ in [0:dependencyCount] do
-        dependencies := dependencies.push (← decodeRef dictionary bytes)
-      declarations := declarations.push (name, dependencies)
+      let typeCount ← Codec.Decoder.readNat bytes
+      let mut typeDeps := #[]
+      for _ in [0:typeCount] do
+        typeDeps := typeDeps.push (← decodeRef dictionary bytes)
+      let bodyCount ← Codec.Decoder.readNat bytes
+      let mut bodyDeps := #[]
+      for _ in [0:bodyCount] do
+        bodyDeps := bodyDeps.push (← decodeRef dictionary bytes)
+      declarations := declarations.push (name, { typeDeps, bodyDeps })
     return { imports, declarations }
 
 end ModuleFragment

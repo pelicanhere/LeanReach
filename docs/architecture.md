@@ -27,12 +27,13 @@ plans, and rendered declarations in output.
 
 ## Dependency semantics
 
-For a declaration `A`, LeanReach calls `ConstantInfo.getUsedConstantsAsSet` on the complete
-`ConstantInfo`. An edge `A → B` means that `A`'s type, proof, or implementation uses `B`.
+For a declaration `A`, LeanReach separates constants used by its type from constants used only by
+its proof or implementation. An edge `A → B` means that one of those parts uses `B`.
 
 - Upstream of `A` is the set of direct outgoing neighbors.
 - Downstream of `B` is the set of declarations with a direct edge to `B`.
-- Type and value dependencies are intentionally presented as one relation.
+- Type dependencies take precedence when the same constant also occurs in the body. Existing direct
+  neighborhoods present the two kinds as one relation; typed graph consumers retain the partition.
 - Non-source implementation details are transitively collapsed back to their source declarations.
 
 The complete private `.olean` layer is required while extracting fragments because exported and
@@ -116,7 +117,7 @@ lets a dependency provide reusable artifacts to downstream Lake projects.
 
 - imports;
 - searchable declaration names, including user-written private declarations;
-- direct used-constant arrays after private-helper collapse.
+- separate type and body-only used-constant arrays after private-helper collapse.
 
 Names share a parent-first module dictionary, and imports, declarations, and edges use varint
 dictionary references. Sidecars are content-addressed by the emitted `.olean` layer hashes, so a

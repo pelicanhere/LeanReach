@@ -49,8 +49,11 @@ unsafe def run : IO Unit := do
   let fragment : Cache.ModuleFragment := {
     imports := #[`Init, numericName]
     declarations := #[
-      (`LeanReachFixture.double, #[`HAdd.hAdd, privateName]),
-      (privateName, #[numericName])
+      (`LeanReachFixture.double, {
+        typeDeps := #[privateName]
+        bodyDeps := #[`HAdd.hAdd]
+      }),
+      (privateName, { typeDeps := #[numericName] })
     ]
   }
   let decodedFragment ← expectSome (Cache.ModuleFragment.decode
@@ -66,6 +69,34 @@ unsafe def run : IO Unit := do
       (Cache.ModuleFragment.decode
         (fragment.encode "fragment-test") "stale-hash").isNone)
     "module fragment codec changed names, edges, or dependency validation"
+  let typedIndex := Index.build #[
+    (`LeanReachFixture.source, `Tests.Fixture, {
+      typeDeps := #[`LeanReachFixture.typeTarget]
+      bodyDeps := #[`LeanReachFixture.bodyTarget]
+    }),
+    (`LeanReachFixture.source, `Tests.Fixture, {
+      typeDeps := #[`LeanReachFixture.bodyTarget]
+    }),
+    (`LeanReachFixture.typeTarget, `Tests.Fixture, {}),
+    (`LeanReachFixture.bodyTarget, `Tests.Fixture, {})
+  ]
+  let sourceId ← expectSome (typedIndex.findId? `LeanReachFixture.source)
+    "typed index is missing its source"
+  let typeTargetId ← expectSome (typedIndex.findId? `LeanReachFixture.typeTarget)
+    "typed index is missing its type target"
+  let bodyTargetId ← expectSome (typedIndex.findId? `LeanReachFixture.bodyTarget)
+    "typed index is missing its body target"
+  let forward := typedIndex.directDependencies sourceId true
+  let typeReverse := typedIndex.directDependencies typeTargetId false
+  let bodyReverse := typedIndex.directDependencies bodyTargetId false
+  check (forward.typeDeps.size == 2 &&
+      forward.typeDeps.contains typeTargetId &&
+      forward.typeDeps.contains bodyTargetId &&
+      forward.bodyDeps.isEmpty &&
+      typeReverse.typeDeps == #[sourceId] &&
+      bodyReverse.typeDeps == #[sourceId] &&
+      bodyReverse.bodyDeps.isEmpty)
+    "typed index lost edge kinds or type-dependency precedence"
   let oldTarget : LocatedName := {
     name := `LeanReachFixture.old, moduleName := `Tests.Fixture
   }
@@ -185,7 +216,7 @@ unsafe def run : IO Unit := do
   let manyAs := "x" ++ String.ofList (List.replicate 17 'a') ++ "y"
   let repetitionNames := #["xaay".toName, "xaaay".toName, manyAs.toName]
   let repetitionIndex := Index.build <| repetitionNames.map fun name =>
-    (name, `Tests.Fixture, ({} : NameSet))
+    (name, `Tests.Fixture, ({} : Dependencies Name))
   for (source, expected) in #[
       ("^xa+y$", "xaay".toName),
       ("^xa{2,3}y$", "xaay".toName),

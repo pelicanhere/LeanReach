@@ -35,6 +35,15 @@ private def collapseInternal (internal : NameMap NameSet) (dependencies : NameSe
         | none => result := result.insert name
     return result
 
+private structure DependencySets where
+  typeDeps : NameSet
+  bodyDeps : NameSet
+
+private def dependencySets (info : ConstantInfo) : DependencySets :=
+  let typeDeps := info.type.getUsedConstantsAsSet
+  let bodyDeps := info.getUsedConstantsAsSet.filter fun name => !typeDeps.contains name
+  { typeDeps, bodyDeps }
+
 private unsafe def readFragment (moduleName : Name) (olean : System.FilePath) :
     IO (ModuleFragment × Array CompactedRegion) := do
   let (all, regions) ← unsafe ModuleData.read moduleName olean
@@ -48,8 +57,14 @@ private unsafe def readFragment (moduleName : Name) (olean : System.FilePath) :
       declarations := all.constants.filterMap fun visibleInfo =>
         let name := visibleInfo.name
         if source.contains name && !isBlacklisted name then
-          some (name,
-            (collapseInternal internal visibleInfo.getUsedConstantsAsSet).toArray)
+          let dependencies := dependencySets visibleInfo
+          let typeDeps := collapseInternal internal dependencies.typeDeps
+          let bodyDeps := (collapseInternal internal dependencies.bodyDeps).filter
+            fun dependency => !typeDeps.contains dependency
+          some (name, {
+            typeDeps := typeDeps.toArray
+            bodyDeps := bodyDeps.toArray
+          })
         else none
     }, regions)
   catch error =>
@@ -57,7 +72,7 @@ private unsafe def readFragment (moduleName : Name) (olean : System.FilePath) :
     throw error
 
 private def fragmentPath (olean : System.FilePath) (fingerprint : String) :=
-  olean.withExtension s!"leanreach-module-10-{hash fingerprint}"
+  olean.withExtension s!"leanreach-module-11-{hash fingerprint}"
 
 unsafe def storedModuleFragment (moduleName : Name)
     (hash : String) : IO (Option ModuleFragment) := do
@@ -69,7 +84,7 @@ unsafe def storedModuleFragment (moduleName : Name)
 unsafe def moduleFragment (moduleName : Name) : IO ModuleFragment := do
   let olean ← findOLean moduleName
   let hash? ← oleanHash? olean
-  -- Module-fragment cache format 10.
+  -- Module-fragment cache format 11.
   if let some hash := hash? then
     if let some fragment ← unsafe storedModuleFragment moduleName hash then
       return fragment
@@ -126,7 +141,7 @@ private unsafe def foldClosure {α : Type} (roots : Array Name)
 
 unsafe def moduleClosure (roots : Array Name) (excluded : NameHashSet := {})
     (progress : ProgressReporter := ignoreProgress) :
-    IO (Array (Name × Array (Name × Array Name))) :=
+    IO (Array (Name × Array (Name × Dependencies Name))) :=
   unsafe foldClosure roots excluded #[]
     (fun modules moduleName fragment =>
       pure (modules.push (moduleName, fragment.declarations))) progress

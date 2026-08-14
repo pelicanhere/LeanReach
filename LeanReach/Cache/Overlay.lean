@@ -90,7 +90,7 @@ def relationsFromFragments (baseRoot : Name)
         target
         dependencies :=
           ((previous.map (·.dependencies)).getD {} ++
-            NameSet.ofArray dependencies).erase name
+            NameSet.ofArray dependencies.all).erase name
       }
   let mut reverse : NameMap (Array LocatedName) := {}
   for (_, entry) in entries do
