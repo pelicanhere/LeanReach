@@ -118,16 +118,16 @@ private def resolveAnchor (index : Index) (source : String) : IO (Name × UInt32
   return (target.name, id)
 
 private unsafe def scoreCandidates (env : Environment) (index : Index)
-    (wanted : String) (names : Array Name) : IO (NameMap SignatureMatch) := do
-  -- Elaborate once even when the bounded search finds no endpoints.
+    (wantedType : Expr) (names : Array Name) : IO (NameMap SignatureMatch) := do
   let mut scores : NameMap SignatureMatch := {}
-  for (name, score) in ← unsafe scoreSignaturesIO env wanted (names.filter env.contains) do
+  for (name, score) in ← unsafe scoreSignaturesIO
+      env wantedType (names.filter env.contains) do
     scores := scores.insert name score
   let privateNames := names.filter fun name => !env.contains name
   for (moduleName, names) in groupNamesByModule index.moduleOf? privateNames do
     let (batch, _) ← unsafe ModuleData.withPrivateOverlay env moduleName
       names #[] index.moduleOf? fun extended =>
-        unsafe scoreSignaturesIO extended wanted names
+        unsafe scoreSignaturesIO extended wantedType names
     for (name, score) in batch do scores := scores.insert name score
   return scores
 
@@ -163,7 +163,8 @@ unsafe def routeFor (roots : Array Name) (request : RouteRequest) : IO RouteResu
   let endpoints := reachable.nodes.extract 1 reachable.nodes.size
   let names := endpoints.map fun (id, _) => (index.locatedAt! id).name
   let env ← importEnvironment roots
-  let scores ← unsafe scoreCandidates env index request.wanted names
+  let wantedType ← unsafe elaborateSignatureIO env request.wanted
+  let scores ← unsafe scoreCandidates env index wantedType names
   let ranked := (endpoints.filterMap fun (id, distance) => do
       let name := (index.locatedAt! id).name
       let signatureMatch ← scores.find? name

@@ -206,16 +206,19 @@ unsafe def run : IO Unit := do
     "route search did not score a private endpoint"
 
   let env ← importEnvironment #[`Tests.Fixture]
-  let applicable ← unsafe scoreSignaturesIO env
-    "∀ a b : Nat, a = b → b = a" #[`Eq.symm]
+  let applicableType ← unsafe elaborateSignatureIO env
+    "∀ a b : Nat, a = b → b = a"
+  let applicable ← unsafe scoreSignaturesIO env applicableType #[`Eq.symm]
   let (_, applicable) ← expectSome applicable[0]? "signature scorer omitted Eq.symm"
   check (applicable.kind == .applicable && applicable.coveredInputs == 1)
     "signature scorer did not discharge a candidate premise from wanted inputs"
-  let conclusion ← unsafe scoreSignaturesIO env "True" #[`False.elim]
+  let trueType ← unsafe elaborateSignatureIO env "True"
+  let conclusion ← unsafe scoreSignaturesIO env trueType #[`False.elim]
   let (_, conclusion) ← expectSome conclusion[0]? "signature scorer omitted False.elim"
   check (conclusion.kind == .conclusion && conclusion.extraObligations.size == 1)
     "signature scorer did not retain the unmatched proof obligation"
-  let typeclass ← unsafe scoreSignaturesIO env "Nat" #[`LeanReachFixture.routeDefault]
+  let natType ← unsafe elaborateSignatureIO env "Nat"
+  let typeclass ← unsafe scoreSignaturesIO env natType #[`LeanReachFixture.routeDefault]
   let (_, typeclass) ← expectSome typeclass[0]?
     "signature scorer omitted the typeclass candidate"
   check (typeclass.kind == .applicable && typeclass.extraInputs.isEmpty &&

@@ -161,10 +161,12 @@ private def elaborateWanted (source : String) : Term.TermElabM Expr := do
   if type.hasMVar then throwError "wanted type contains unresolved metavariables"
   return type
 
-unsafe def scoreSignaturesIO (env : Environment) (wanted : String)
+unsafe def elaborateSignatureIO (env : Environment) (source : String) : IO Expr :=
+  unsafe runCore env <| MetaM.run' <| Term.TermElabM.run' (elaborateWanted source)
+
+unsafe def scoreSignaturesIO (env : Environment) (wantedType : Expr)
     (candidateNames : Array Name) : IO (Array (Name × SignatureMatch)) :=
   unsafe runCore env <| MetaM.run' do
-    let wantedType ← Term.TermElabM.run' (elaborateWanted wanted)
     let wantedSummary ← summarizeType wantedType
     candidateNames.mapM fun name => return (name, ← scoreSignature wantedType wantedSummary name)
 
