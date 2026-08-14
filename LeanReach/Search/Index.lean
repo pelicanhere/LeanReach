@@ -99,12 +99,18 @@ def build (declarations : Array (Name × Name × NameSet)) : Index :=
 def catalog (index : Index) : Catalog :=
   (index.entries, index.trigrams)
 
-private def findId? (index : Index) (name : Name) : Option UInt32 :=
+def findId? (index : Index) (name : Name) : Option UInt32 :=
   NameSearch.findSorted? index.entries.size (index.entries[·]!.name) name
     |>.map (·.toUInt32)
 
 def size (index : Index) : Nat :=
   index.entries.size
+
+def locatedAt? (index : Index) (id : UInt32) : Option LocatedName :=
+  index.entries[id.toNat]?
+
+def locatedAt! (index : Index) (id : UInt32) : LocatedName :=
+  index.entries[id.toNat]!
 
 private def rankIds (index : Index) (source : UInt32)
     (ids : Array UInt32) (upstream : Bool) (limit : Nat) : Array UInt32 :=
@@ -118,10 +124,12 @@ private def rankIds (index : Index) (source : UInt32)
       else index.downstreamPrior[candidate.toNat]!)
     limit
 
+def directIds (index : Index) (source : UInt32) (upstream : Bool) : Array UInt32 :=
+  if upstream then index.forward[source.toNat]! else index.reverse[source.toNat]!
+
 def relatedIds (index : Index) (source : UInt32)
     (upstream : Bool) (limit : Nat) : Array UInt32 :=
-  let ids := if upstream then index.forward[source.toNat]! else index.reverse[source.toNat]!
-  index.rankIds source ids upstream limit
+  index.rankIds source (index.directIds source upstream) upstream limit
 
 def relationCountsById (index : Index) : Array UInt32 × Array UInt32 :=
   (index.reverse.map (·.size.toUInt32), index.forward.map (·.size.toUInt32))
