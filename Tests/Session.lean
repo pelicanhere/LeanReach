@@ -12,8 +12,8 @@ unsafe def run : IO Unit := do
     mkPrivateNameCore `Tests.Fixture `LeanReachFixture.hidden_double_zero
   let hiddenDefinition :=
     mkPrivateNameCore `Tests.Fixture `LeanReachFixture.hiddenDouble
-  withInteractiveSession #[`Definitely.Missing] fun _ _ => pure ()
-  withInteractiveSession #[`Tests.Fixture] fun session runner => do
+  withInteractiveSession #[`Definitely.Missing] fun _ _ _ => pure ()
+  withInteractiveSession #[`Tests.Fixture] fun session runner _ => do
     let fixtureNames ← unsafe Cache.moduleNames `Tests.Fixture
     let fixtureFragment ← unsafe Cache.moduleFragment `Tests.Fixture
     check (fixtureNames.contains `LeanReachFixture.double)
@@ -225,7 +225,7 @@ unsafe def run : IO Unit := do
       typeclass.extraObligations.isEmpty)
     "signature scorer did not synthesize the candidate typeclass premise"
 
-  withInteractiveSession #[`Tests.PrivateA, `Tests.PrivateB] fun session runner =>
+  withInteractiveSession #[`Tests.PrivateA, `Tests.PrivateB] fun session runner _ =>
     runner "LeanReachDuplicate.hidden" {} fun
       | .search names => do
         let declarations ← session.describeNames names

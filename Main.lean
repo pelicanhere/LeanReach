@@ -250,7 +250,7 @@ private unsafe def execute (config : Config) (command : Command) : IO UInt32 := 
       }
       printRoute config.json result
   | .interactive =>
-    withInteractiveSession (← config.roots) fun session runner =>
+    withInteractiveSession (← config.roots) fun session runner _ =>
       runInteractive session runner config
   return 0
 

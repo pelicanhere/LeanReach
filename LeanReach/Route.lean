@@ -183,17 +183,15 @@ private unsafe def describeNames (sourcePath : SearchPath) (env : Environment)
     declarations := declarations.insertMany batch
   return declarations
 
-/-- Find bounded declaration routes whose endpoints best match a Lean type or quoted declaration. -/
-unsafe def routeFor (roots : Array Name) (request : RouteRequest) : IO RouteResult := do
+/-- Run a route query against an already prepared project environment and index. -/
+unsafe def routeWith (sourcePath : SearchPath) (env : Environment) (index : Index)
+    (request : RouteRequest) : IO RouteResult := do
   let request ← normalizeRequest request
-  let sourcePath ← prepareEnvironment
-  let index ← unsafe Cache.materializeIndex roots
   let (anchorName, anchorId) ← resolveAnchor index request.anchor
   let reachable := index.reachable anchorId request.direction
     request.maxDepth request.nodeBudget
   let endpoints := reachable.nodes.extract 1 reachable.nodes.size
   let names := endpoints.map fun (id, _) => (index.locatedAt! id).name
-  let env ← importEnvironment roots
   let scores ← unsafe withWantedType env index request.wanted fun env wantedType =>
     unsafe scoreCandidates env index wantedType names
   let ranked := (endpoints.filterMap fun (id, distance) => do
@@ -228,5 +226,12 @@ unsafe def routeFor (roots : Array Name) (request : RouteRequest) : IO RouteResu
     truncated := reachable.truncated
     results
   }
+
+/-- Find bounded declaration routes whose endpoints best match a Lean type or quoted declaration. -/
+unsafe def routeFor (roots : Array Name) (request : RouteRequest) : IO RouteResult := do
+  let sourcePath ← prepareEnvironment
+  let index ← unsafe Cache.materializeIndex roots
+  let env ← importEnvironment roots
+  unsafe routeWith sourcePath env index request
 
 end LeanReach

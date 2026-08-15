@@ -115,6 +115,8 @@ unsafe def withLookupFor {α : Type} (roots : Array Name) (source : String)
 abbrev InteractiveRunner :=
   String → Limits → (LookupNames → IO Unit) → IO Unit
 
+abbrev InteractiveRouteRunner := RouteRequest → IO RouteResult
+
 private unsafe def loadIndexOnce (roots : Array Name)
     (cached : IO.Ref (Option Index)) : IO Index := do
   if let some index ← cached.get then return index
@@ -122,17 +124,29 @@ private unsafe def loadIndexOnce (roots : Array Name)
   cached.set (some index)
   return index
 
+private unsafe def loadEnvironmentOnce (roots : Array Name)
+    (cached : IO.Ref (Option Environment)) : IO Environment := do
+  if let some env ← cached.get then return env
+  let env ← importEnvironment roots
+  cached.set (some env)
+  return env
+
 unsafe def withInteractiveSession {α : Type} (roots : Array Name)
-    (action : Session → InteractiveRunner → IO α) : IO α := do
+    (action : Session → InteractiveRunner → InteractiveRouteRunner → IO α) : IO α := do
   let sourcePath ← prepareEnvironment
   let session ← Session.create sourcePath
   let indexCache ← IO.mkRef none
+  let environmentCache ← IO.mkRef none
   let lookup := fun source limits next => do
     let source ← normalizeQuery source
     let plan ← unsafe selectLookup roots source limits
       (unsafe loadIndexOnce roots indexCache)
     unsafe prepareSession plan.moduleOf? session plan.result.all false
     next plan.result
-  action session lookup
+  let route := fun request => do
+    let index ← unsafe loadIndexOnce roots indexCache
+    let env ← unsafe loadEnvironmentOnce roots environmentCache
+    unsafe routeWith sourcePath env index request
+  action session lookup route
 
 end LeanReach
