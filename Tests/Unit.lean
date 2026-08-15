@@ -97,6 +97,34 @@ unsafe def run : IO Unit := do
       bodyReverse.typeDeps == #[sourceId] &&
       bodyReverse.bodyDeps.isEmpty)
     "typed index lost edge kinds or type-dependency precedence"
+  let routeIndex := Index.build #[
+    (`Route.anchor, `Tests.Fixture, {}),
+    (`Route.longA, `Tests.Fixture, { bodyDeps := #[`Route.anchor] }),
+    (`Route.longB, `Tests.Fixture, { bodyDeps := #[`Route.longA] }),
+    (`Route.short, `Tests.Fixture, { bodyDeps := #[`Route.anchor] }),
+    (`Route.target, `Tests.Fixture, {
+      bodyDeps := #[`Route.longB, `Route.short]
+    })
+  ]
+  let routeAnchor ← expectSome (routeIndex.findId? `Route.anchor)
+    "route index is missing its anchor"
+  let routeTarget ← expectSome (routeIndex.findId? `Route.target)
+    "route index is missing its target"
+  let shortest := routeIndex.shortestRoute routeAnchor routeTarget .consumers 3 20
+  let shortestPath ← expectSome shortest.path?
+    "bidirectional route search did not find its target"
+  check (shortestPath.map (fun (id, _) => (routeIndex.locatedAt! id).name) ==
+      #[`Route.anchor, `Route.short, `Route.target] &&
+      shortestPath.map (·.2) ==
+        #[none, some .bodyDependency, some .bodyDependency])
+    "bidirectional route search did not return the shortest typed path"
+  let reverseShortest := routeIndex.shortestRoute
+    routeTarget routeAnchor .dependencies 3 20
+  let reversePath ← expectSome reverseShortest.path?
+    "reverse bidirectional route search did not find its target"
+  check (reversePath.map (fun (id, _) => (routeIndex.locatedAt! id).name) ==
+      #[`Route.target, `Route.short, `Route.anchor])
+    "dependency-direction route search reconstructed the wrong path"
   let oldTarget : LocatedName := {
     name := `LeanReachFixture.old, moduleName := `Tests.Fixture
   }

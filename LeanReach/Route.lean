@@ -13,6 +13,7 @@ structure RouteRequest where
   direction : RouteDirection := .consumers
   maxDepth : Nat := 3
   nodeBudget : Nat := 200
+  beamWidth : Nat := 20
   limit : Nat := 5
 
 structure RouteStep where
@@ -105,6 +106,8 @@ private def normalizeRequest (request : RouteRequest) : IO RouteRequest := do
     throw <| IO.userError "wanted type or declaration cannot be empty"
   if request.nodeBudget == 0 then
     throw <| IO.userError "route node budget must be positive"
+  if request.beamWidth == 0 then
+    throw <| IO.userError "route beam width must be positive"
   if request.limit == 0 then throw <| IO.userError "route limit must be positive"
   return { request with anchor, wanted }
 
@@ -127,23 +130,29 @@ private def quotedName? (env : Environment) (source : String) : IO (Option Strin
   | _ => return none
 
 private def resolveWantedDeclaration (index : Index)
-    (source : String) : IO LocatedName := do
+    (source : String) : IO (LocatedName × UInt32) := do
   let candidates := index.exactMatches source 2
   let some target := candidates[0]? |
     throw <| IO.userError s!"unknown wanted declaration '{source}'"
   if candidates[1]?.isSome then
     throw <| IO.userError s!"ambiguous wanted declaration '{source}'; use its full name"
-  return target
+  let some id := index.findId? target.name |
+    throw <| IO.userError s!"wanted declaration '{target.name}' is absent from the index"
+  return (target, id)
 
-private unsafe def withWantedType {α : Type} (env : Environment) (index : Index)
-    (source : String) (action : Environment → Expr → IO α) : IO α := do
+private structure WantedTarget where
+  type : Expr
+  declaration? : Option UInt32 := none
+
+private unsafe def withWantedTarget {α : Type} (env : Environment) (index : Index)
+    (source : String) (action : Environment → WantedTarget → IO α) : IO α := do
   let some declaration ← quotedName? env source | do
-    action env (← unsafe elaborateSignatureIO env source)
-  let target ← resolveWantedDeclaration index declaration
+    action env { type := ← unsafe elaborateSignatureIO env source }
+  let (target, id) ← resolveWantedDeclaration index declaration
   let run := fun env => do
     let some info := env.find? target.name |
       throw <| IO.userError s!"could not load wanted declaration '{declaration}'"
-    action env info.type
+    action env { type := info.type, declaration? := some id }
   if env.contains target.name then return ← run env
   return (← unsafe ModuleData.withPrivateOverlay env target.moduleName
     #[target.name] #[] index.moduleOf? run).1
@@ -174,6 +183,45 @@ private def ScoredEndpoint.betterThan (left right : ScoredEndpoint) : Bool :=
   else if left.distance != right.distance then left.distance < right.distance
   else Name.lt left.name right.name
 
+private unsafe def beamReachable (env : Environment) (index : Index)
+    (anchor : UInt32) (wantedType : Expr) (request : RouteRequest) :
+    IO (Reachability × NameMap SignatureMatch) := do
+  let mut seen := Array.replicate index.size false
+  let mut predecessors : Array (Option RoutePredecessor) :=
+    Array.replicate index.size none
+  let mut nodes := #[(anchor, 0)]
+  let mut frontier := #[anchor]
+  let mut scores : NameMap SignatureMatch := {}
+  let mut depth := 0
+  let mut truncated := false
+  seen := seen.set! anchor.toNat true
+  while !frontier.isEmpty && depth < request.maxDepth && !truncated do
+    let nextDepth := depth + 1
+    let mut discovered : Array UInt32 := #[]
+    for source in frontier do
+      if truncated then break
+      for (target, edgeKind) in index.routeNeighbors source request.direction do
+        unless seen[target.toNat]! do
+          if nodes.size == request.nodeBudget then
+            truncated := true
+            break
+          seen := seen.set! target.toNat true
+          predecessors := predecessors.set! target.toNat
+            (some { parent := source, edgeKind })
+          nodes := nodes.push (target, nextDepth)
+          discovered := discovered.push target
+    let names := discovered.map fun id => (index.locatedAt! id).name
+    let batch ← unsafe scoreCandidates env index wantedType names
+    scores := scores.insertMany batch
+    let ranked := (discovered.filterMap fun id => do
+        let name := (index.locatedAt! id).name
+        let signatureMatch ← batch.find? name
+        return { id, name, distance := nextDepth, signatureMatch : ScoredEndpoint })
+      |>.qsort ScoredEndpoint.betterThan
+    frontier := (ranked.take request.beamWidth).map (·.id)
+    depth := nextDepth
+  return ({ anchor, nodes, predecessors, truncated }, scores)
+
 private unsafe def describeNames (sourcePath : SearchPath) (env : Environment)
     (index : Index) (names : Array Name) : IO (NameMap Declaration) := do
   let mut declarations : NameMap Declaration := {}
@@ -183,17 +231,50 @@ private unsafe def describeNames (sourcePath : SearchPath) (env : Environment)
     declarations := declarations.insertMany batch
   return declarations
 
-/-- Run a route query against an already prepared project environment and index. -/
-unsafe def routeWith (sourcePath : SearchPath) (env : Environment) (index : Index)
-    (request : RouteRequest) : IO RouteResult := do
-  let request ← normalizeRequest request
-  let (anchorName, anchorId) ← resolveAnchor index request.anchor
-  let reachable := index.reachable anchorId request.direction
+private def routeSteps (index : Index)
+    (path : Array (UInt32 × Option EdgeKind)) : Array RouteStep :=
+  path.map fun (id, edgeKind?) => {
+    declaration := (index.locatedAt! id).name.toString
+    edgeKind?
+  }
+
+private unsafe def exactRouteResult (sourcePath : SearchPath) (env : Environment)
+    (index : Index) (anchorName : Name) (anchor target : UInt32)
+    (wantedType : Expr) (request : RouteRequest) : IO RouteResult := do
+  let shortest := index.shortestRoute anchor target request.direction
     request.maxDepth request.nodeBudget
+  let results ← match shortest.path? with
+    | none => pure #[]
+    | some path => do
+      let endpointName := (index.locatedAt! target).name
+      let scores ← unsafe scoreCandidates env index wantedType #[endpointName]
+      let some signatureMatch := scores.find? endpointName |
+        throw <| IO.userError s!"could not score route endpoint '{endpointName}'"
+      let names := path.foldl (init := ({} : NameHashSet)) fun names (id, _) =>
+        names.insert (index.locatedAt! id).name
+      let declarations ← unsafe describeNames sourcePath env index names.toArray
+      let some endpoint := declarations.find? endpointName |
+        throw <| IO.userError s!"could not describe route endpoint '{endpointName}'"
+      pure #[{
+        endpoint
+        path := routeSteps index path
+        signatureMatch
+        distance := path.size - 1
+      }]
+  return {
+    anchor := anchorName.toString
+    wanted := request.wanted
+    direction := request.direction
+    visited := shortest.visited
+    truncated := shortest.truncated
+    results
+  }
+
+private unsafe def signatureRouteResult (sourcePath : SearchPath) (env : Environment)
+    (index : Index) (anchorName : Name) (anchor : UInt32)
+    (wantedType : Expr) (request : RouteRequest) : IO RouteResult := do
+  let (reachable, scores) ← unsafe beamReachable env index anchor wantedType request
   let endpoints := reachable.nodes.extract 1 reachable.nodes.size
-  let names := endpoints.map fun (id, _) => (index.locatedAt! id).name
-  let scores ← unsafe withWantedType env index request.wanted fun env wantedType =>
-    unsafe scoreCandidates env index wantedType names
   let ranked := (endpoints.filterMap fun (id, distance) => do
       let name := (index.locatedAt! id).name
       let signatureMatch ← scores.find? name
@@ -207,13 +288,9 @@ unsafe def routeWith (sourcePath : SearchPath) (env : Environment) (index : Inde
   let results ← ranked.mapM fun endpoint => do
     let some declaration := declarations.find? endpoint.name |
       throw <| IO.userError s!"could not describe route endpoint '{endpoint.name}'"
-    let path := (reachable.pathTo endpoint.id).map fun (id, edgeKind?) => {
-      declaration := (index.locatedAt! id).name.toString
-      edgeKind?
-    }
     return {
       endpoint := declaration
-      path := path
+      path := routeSteps index (reachable.pathTo endpoint.id)
       signatureMatch := endpoint.signatureMatch
       distance := endpoint.distance
       : RouteCandidate
@@ -226,6 +303,24 @@ unsafe def routeWith (sourcePath : SearchPath) (env : Environment) (index : Inde
     truncated := reachable.truncated
     results
   }
+
+private unsafe def runWantedRoute (sourcePath : SearchPath) (env : Environment)
+    (index : Index) (request : RouteRequest) (anchorName : Name) (anchorId : UInt32)
+    (wanted : WantedTarget) : IO RouteResult :=
+  match wanted.declaration? with
+  | some target =>
+    exactRouteResult sourcePath env index anchorName anchorId target wanted.type request
+  | none =>
+    signatureRouteResult sourcePath env index anchorName anchorId wanted.type request
+
+/-- Run a route query against an already prepared project environment and index. -/
+unsafe def routeWith (sourcePath : SearchPath) (env : Environment) (index : Index)
+    (request : RouteRequest) : IO RouteResult := do
+  let request ← normalizeRequest request
+  let (anchorName, anchorId) ← resolveAnchor index request.anchor
+  let run := fun env wanted =>
+    runWantedRoute sourcePath env index request anchorName anchorId wanted
+  unsafe withWantedTarget env index request.wanted run
 
 /-- Find bounded declaration routes whose endpoints best match a Lean type or quoted declaration. -/
 unsafe def routeFor (roots : Array Name) (request : RouteRequest) : IO RouteResult := do

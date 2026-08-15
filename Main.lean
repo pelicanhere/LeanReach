@@ -18,6 +18,7 @@ structure Config where
   routeDirection : RouteDirection := .consumers
   maxDepth : Nat := 3
   nodeBudget : Nat := 200
+  beamWidth : Nat := 20
   interactive : Bool := false
   json : Bool := false
   profile : Bool := false
@@ -63,6 +64,8 @@ private def longOption : String → CliM PUnit
     modifyThe Config ({ · with maxDepth := ← takeNat "--max-depth" })
   | "--node-budget" => do
     modifyThe Config ({ · with nodeBudget := ← takeNat "--node-budget" })
+  | "--beam-width" => do
+    modifyThe Config ({ · with beamWidth := ← takeNat "--beam-width" })
   | option => throw <| Lake.CliError.unknownLongOption option
 
 private def option :=
@@ -89,14 +92,15 @@ OPTIONS:
       --direction DIR   route through consumers (default) or dependencies
       --max-depth N     route search depth (default: 3)
       --node-budget N   maximum declarations visited by a route (default: 200)
+      --beam-width N    free-signature frontier width (default: 20)
       --profile         print elapsed and cache-stage time to stderr
   -h, --help            show this help
 
 Without `--module`, combine built local lean_lib roots with required Mathlib.
 With no modules, `cache` precomputes pretty-printed declarations for the detected view.
 An exact declaration name shows dependencies; every other pattern is a regex search.
-The `route` command ranks bounded paths against a Lean type or a quoted declaration name.
-Interactive mode applies the same rule to each input line.
+The `route` command finds a quoted declaration by shortest path, or guides a bounded
+beam search with a Lean type. Interactive mode also accepts `route ANCHOR WANTED`.
 "
 
 private def printDeclaration (indent : String) (declaration : Declaration) : IO Unit := do
@@ -189,23 +193,51 @@ private def withCacheProgress {α : Type} (json : Bool)
 private def chompLine (line : String) : String :=
   (line.dropEndWhile fun char => char == '\n' || char == '\r').toString
 
+private def parseInteractiveRoute (line : String) : Except String (Option (String × String)) :=
+  let input := line.trimAscii.toString.toList
+  let (command, afterCommand) := input.span fun char => !char.isWhitespace
+  if String.ofList command != "route" then
+    return none
+  else
+    let afterCommand := afterCommand.dropWhile (fun char => char.isWhitespace)
+    let (anchor, afterAnchor) := afterCommand.span fun char => !char.isWhitespace
+    let wanted := afterAnchor.dropWhile (fun char => char.isWhitespace)
+    if anchor.isEmpty || wanted.isEmpty then
+      throw "interactive route requires ANCHOR and WANTED"
+    else
+      return some (String.ofList anchor, String.ofList wanted)
+
 private def runInteractive (session : Session) (runner : InteractiveRunner)
-    (config : Config) : IO Unit := do
+    (routeRunner : InteractiveRouteRunner) (config : Config) : IO Unit := do
   let stdin ← IO.getStdin
   let stdout ← IO.getStdout
   while true do
     let line := chompLine (← stdin.getLine)
     if line.trimAscii.isEmpty then break
-    profiled config.profile "lookup" do
-      try
+    try
+      match parseInteractiveRoute line with
+      | .ok (some (anchor, wanted)) =>
+        profiled config.profile "route" do
+          let result ← routeRunner {
+            anchor
+            wanted
+            direction := config.routeDirection
+            maxDepth := config.maxDepth
+            nodeBudget := config.nodeBudget
+            beamWidth := config.beamWidth
+            limit := config.limits.search
+          }
+          printRoute config.json result
+      | .ok none => profiled config.profile "lookup" do
         runner line config.limits
           (printLookupNames config line session)
-      catch error =>
-        let message := toString error
-        if config.json then
-          IO.println (Json.mkObj [("error", toJson message)]).compress
-        else
-          IO.eprintln s!"leanreach: {message}"
+      | .error message => throw <| IO.userError message
+    catch error =>
+      let message := toString error
+      if config.json then
+        IO.println (Json.mkObj [("error", toJson message)]).compress
+      else
+        IO.eprintln s!"leanreach: {message}"
     stdout.flush
 
 private def validate (config : Config) : CliMainM Unit := do
@@ -214,6 +246,9 @@ private def validate (config : Config) : CliMainM Unit := do
   if config.nodeBudget == 0 || config.nodeBudget > 100000 then
     throw <| Lake.CliError.invalidOptArg
       "--node-budget" "an integer from 1 to 100000"
+  if config.beamWidth == 0 || config.beamWidth > 10000 then
+    throw <| Lake.CliError.invalidOptArg
+      "--beam-width" "an integer from 1 to 10000"
 
 private unsafe def Config.roots (config : Config) (refresh := false) : IO (Array Name) :=
   config.root?.map (#[·]) |>.getDM (detectRoots refresh)
@@ -246,12 +281,13 @@ private unsafe def execute (config : Config) (command : Command) : IO UInt32 := 
         direction := config.routeDirection
         maxDepth := config.maxDepth
         nodeBudget := config.nodeBudget
+        beamWidth := config.beamWidth
         limit := config.limits.search
       }
       printRoute config.json result
   | .interactive =>
-    withInteractiveSession (← config.roots) fun session runner _ =>
-      runInteractive session runner config
+    withInteractiveSession (← config.roots) fun session runner routeRunner =>
+      runInteractive session runner routeRunner config
   return 0
 
 private partial def collectArguments (arguments : Array String := #[]) :

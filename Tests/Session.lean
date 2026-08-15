@@ -184,6 +184,21 @@ unsafe def run : IO Unit := do
       none, some .bodyDependency, some .bodyDependency
     ])
     "route path lost its body dependency edge kinds"
+  let reverseRoute ← routeFor #[`Tests.Fixture] {
+    anchor := "LeanReachFixture.routeEndpoint"
+    wanted := "\"LeanReachFixture.routeAnchor\""
+    direction := .dependencies
+    maxDepth := 2
+    nodeBudget := 20
+    limit := 3
+  }
+  let reverseBest ← expectSome reverseRoute.results[0]?
+    "reverse exact route returned no endpoint"
+  check (reverseBest.path.map (·.declaration) == #[
+      "LeanReachFixture.routeEndpoint",
+      "LeanReachFixture.routeBridge",
+      "LeanReachFixture.routeAnchor"
+    ]) "reverse exact route reconstructed the wrong declaration path"
   let shallow ← routeFor #[`Tests.Fixture] {
     anchor := "LeanReachFixture.routeAnchor"
     wanted := "True"
@@ -204,6 +219,22 @@ unsafe def run : IO Unit := do
       candidate.endpoint.name == hiddenTheorem.toString &&
         candidate.signatureMatch.kind == .exact)
     "route search did not score a private endpoint"
+  let beamRoute ← routeFor #[`Tests.Fixture] {
+    anchor := "LeanReachFixture.beamAnchor"
+    wanted := "∀ n : Nat, True"
+    maxDepth := 2
+    nodeBudget := 20
+    beamWidth := 1
+    limit := 10
+  }
+  let beamBest ← expectSome beamRoute.results[0]?
+    "signature-guided beam route returned no endpoint"
+  check (beamBest.endpoint.name == "LeanReachFixture.beamEndpoint" &&
+      beamBest.signatureMatch.kind == .exact && beamBest.distance == 2)
+    "wanted signature did not guide the route frontier to its exact endpoint"
+  check (!beamRoute.results.any
+      (·.endpoint.name == "LeanReachFixture.beamPrunedEndpoint"))
+    "beam route expanded a signature-pruned bridge"
 
   let env ← importEnvironment #[`Tests.Fixture]
   let applicableType ← unsafe elaborateSignatureIO env
@@ -235,5 +266,16 @@ unsafe def run : IO Unit := do
           "duplicate private match is missing its source path or line"
       | .query _ =>
         throw <| IO.userError "duplicate private user name became a dependency query"
+
+  withInteractiveSession #[`Tests.Fixture] fun _ _ routeRunner => do
+    let interactiveRoute ← routeRunner {
+      anchor := "LeanReachFixture.routeAnchor"
+      wanted := "\"LeanReachFixture.routeEndpoint\""
+      maxDepth := 2
+      nodeBudget := 20
+    }
+    check (interactiveRoute.results[0]?.any
+        (·.endpoint.name == "LeanReachFixture.routeEndpoint"))
+      "interactive session route runner did not reuse the prepared route state"
 
 end LeanReach.Tests.SessionTests

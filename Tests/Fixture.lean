@@ -67,4 +67,14 @@ theorem routeEndpoint : True := False.elim routeBridge
 
 def routeDefault {α : Type} [Inhabited α] : α := default
 
+axiom beamAnchor : False
+
+theorem beamNatBridge (_n : Nat) : False := beamAnchor
+
+theorem beamStringBridge (_s : String) : False := beamAnchor
+
+theorem beamEndpoint (n : Nat) : True := False.elim (beamNatBridge n)
+
+theorem beamPrunedEndpoint (s : String) : True := False.elim (beamStringBridge s)
+
 end LeanReachFixture

@@ -50,12 +50,12 @@ test.
 # Emit JSON.
 ./.lake/packages/LeanReach/.lake/build/bin/leanreach Submodule.span_le --json
 
-# Follow declarations that consume an anchor and rank endpoints by Lean type matching.
+# Guide a bounded declaration search with a Lean type.
 ./.lake/packages/LeanReach/.lake/build/bin/leanreach route \
   MyProject.lowLevelLemma '∀ x : Nat, P x → Q x' \
   --max-depth 3 --node-budget 200 --limit 5 --json
 
-# Reuse an existing declaration's complete type as the target.
+# Find the shortest route to an existing declaration.
 ./.lake/packages/LeanReach/.lake/build/bin/leanreach route \
   MyProject.lowLevelLemma '"MyProject.desiredHelper"' --json
 
@@ -76,10 +76,11 @@ Dependency lists and search results are limited to 10 entries by default.
 `route ANCHOR WANTED` requires an exact declaration anchor. `WANTED` is either a valid Lean type or
 an exact declaration name enclosed in double quotes, following Loogle's use of string-literal query
 syntax. The shell must preserve those quotes, so the example above wraps the whole argument in
-single quotes. LeanReach performs a bounded breadth-first traversal over declarations that consume
-the anchor, then uses Lean's elaborator and unifier to rank every visited endpoint. Use
-`--direction dependencies` to traverse outgoing dependencies instead. Each result includes the
-predecessor path and whether every edge came from a declaration type or body.
+single quotes. A quoted declaration target uses directed bidirectional BFS and returns a shortest
+route. A free Lean type uses signature-guided layered beam search: each newly discovered layer is
+scored with Lean's elaborator and unifier before `--beam-width` declarations are selected for the
+next frontier. Use `--direction dependencies` to traverse outgoing dependencies instead. Each
+result includes the predecessor path and whether every edge came from a declaration type or body.
 
 ```text
 -m, --module MODULE   override automatic project detection
@@ -89,6 +90,7 @@ predecessor path and whether every edge came from a declaration type or body.
     --direction DIR   route through consumers or dependencies
     --max-depth N     route search depth
     --node-budget N   maximum declarations visited by a route
+    --beam-width N    free-signature frontier width
     --profile         report timing information
 -h, --help            show help
 ```
@@ -108,8 +110,9 @@ Keep one process alive for a chain of queries:
 ./.lake/packages/LeanReach/.lake/build/bin/leanreach --interactive --json
 ```
 
-Each input line follows the same exact-name-or-regex rule. The process returns and flushes one JSON
-value per line.
+Each input line is either a normal exact-name-or-regex lookup or `route ANCHOR WANTED`. Route
+settings come from the process options, and the process reuses one index and Lean environment. It
+returns and flushes one JSON value per line.
 
 ## Project detection
 

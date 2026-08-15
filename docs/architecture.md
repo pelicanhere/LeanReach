@@ -49,13 +49,18 @@ A route query takes an exact `anchor` name and a `wanted` Lean type. A string li
 position, such as `"MyProject.helper"`, instead selects that declaration's complete type; this keeps
 type syntax and declaration references unambiguous without another option. Consumer traversal
 follows the reverse adjacency, so each next declaration really references the previous one.
-Dependency traversal follows the forward adjacency. A breadth-first search records one predecessor
-per visited declaration and stops at `maxDepth` or `nodeBudget`; LeanReach does not persist a
-transitive closure.
+Dependency traversal follows the forward adjacency. Both modes stop at `maxDepth` or `nodeBudget`,
+and LeanReach does not persist a transitive closure.
 
-After traversal, every visited declaration is scored independently. LeanReach either elaborates the
-wanted type or loads the quoted declaration's type in the imported environment, then orders matches
-lexicographically:
+Quoted declarations are graph targets rather than ranking hints. LeanReach runs directed
+bidirectional BFS from the anchor and target, expanding complete layers from the smaller frontier,
+and returns one deterministic shortest path. The reverse search traverses the opposite adjacency;
+predecessors and successors retain the original edge direction and type/body kind.
+
+For a free Lean type, LeanReach elaborates `wanted`, performs a layered beam search, and scores every
+newly discovered declaration before selecting the next frontier. Only the best `beamWidth`
+declarations are expanded on the following layer, while every declaration already visited remains
+eligible as a result. Signature matches are ordered lexicographically:
 
 1. the complete candidate type is definitionally equal to `wanted`;
 2. applying the candidate to the wanted conclusion leaves no unmatched inputs or proof goals;
@@ -66,9 +71,10 @@ lexicographically:
 
 Candidate premises are discharged from wanted binders by local assumption or typeclass synthesis.
 Within a match class, fewer obligations and inputs, more covered assumptions, greater structural
-similarity, and a shorter path rank first. The score is not required to improve at each edge: an
-intermediate declaration may be only a bridge to a better endpoint. Results retain the BFS path and
-the type/body kind of each edge as evidence of the underlying reference chain.
+similarity, and a shorter path rank first. The score can therefore guide traversal without requiring
+every edge to improve monotonically: a selected intermediate declaration may still be only a bridge
+to a better endpoint. Results retain the predecessor path and the type/body kind of each edge as
+evidence of the underlying reference chain.
 
 ## Name matching
 
